@@ -750,7 +750,7 @@ def main():
             print("  No new signal on the last session.")
         fits = ok[(ok.status == "FIT") & (ok.bars_ago > 0)]
         if len(fits):
-            print("  Still valid (FIT, %% vs signal): " + ", ".join(
+            print("  Still valid (FIT, % vs signal): " + ", ".join(
                 "%s %+.0f%%" % (x.symbol, x.vs_signal_pct)
                 for x in fits.itertuples()))
         lates = ok[ok.status == "LATE"]
