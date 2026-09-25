@@ -13,6 +13,7 @@
   daily_screener.py     # v4 - main screener (run daily)
   position_tracker.py   # hold/exit tracker for my positions (swing + investing legs)
   fundamentals.py       # fundamental check on the screener shortlist (Screener.in public pages)
+  backtest.py           # backtest of the screener rules (pit10k / today10k / b173 universes)
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
   dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
   data/                 # cached price history, NSE market-cap file, Dhan scrip master
@@ -62,6 +63,21 @@ then `python3 ~/Desktop/RB_Screener/fundamentals.py` (reads the latest RB_Screen
 - Win rate 60-70% is NOT achievable with this trend-following family; it needs mean reversion.
 - IMPORTANT: the >= Rs 10,000 Cr universe (~530 names, many mid-caps) was NOT backtested. Treat live signals as unverified; paper trade / small size.
 
+## backtest.py results (run 25 Sep 2026, data Feb 2012 - 18 Sep 2026, first signal 2013, 0.25%/side)
+One open trade per stock at a time (the old chat backtest counted EVERY signal day as a trade:
+`--overlap` reproduces it: 3815 trades, win 46.9%, avg loss -13.1%, PF 3.63 -> engine matches).
+Stop = day's LOW touching entry*0.8. Exits: 40w MA close -> next open. Investing: 10 closes < falling 30w MA.
+| Universe | Trades | Win% | Avg% | PF | Invest avg% | Invest PF |
+|---|---|---|---|---|---|---|
+| b173 (today's big survivors) | 793 | 46.0 | +18.3 | 3.91 | +23.5 | 4.25 |
+| today10k (today's list, whole period = look-ahead) | 1752 | 44.5 | +23.5 | 4.17 | +33.5 | 5.25 |
+| **pit10k (point-in-time estimate) = the honest one** | **1760** | **39.7** | **+12.0** | **2.46** | **+17.1** | **2.91** |
+- Look-ahead (using today's winners) roughly DOUBLES the avg trade. b173 has the same bias -> old +20.8% was inflated.
+- pit10k is still biased up: stocks delisted before today are missing from eod2_data.
+- Weak years pit10k swing avg: 2015 -10.2%, 2018 -6.2%, 2024 -6.1%, 2025 -0.6%.
+- Market-cap estimate (today's mcap x price ratio) vs real NSE MCAP files 2024-26: median error ~2.5%,
+  ~96-98% of the >= 10k list matches. NSE PR zips only carry MCAP csv from ~2024.
+
 ## Fundamental layer (research done, not yet coded)
 Order of checks: 1) red flags (promoter pledge > 20% = out, auditor resignation/qualification, SEBI/forensic action)
 2) quality (ROE/ROCE >= 15% investing, >= 10-12% swing; D/E <= 1 non-financials; CFO/PAT >= 0.7-0.8 over 3-5 yrs; no loss year in 5-6 yrs)
@@ -81,7 +97,7 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 
 ## Pending / next steps
 1. DONE (v2): position_tracker.py uses Dhan gap-fill + live price + client ID from token; fixed M&M history filename bug.
-2. Backtest the >= Rs 10,000 Cr universe with the same rules (point-in-time where possible).
+2. DONE: backtest.py pit10k (see results above). Next: portfolio simulation (slots/sizing, CAGR, drawdown) vs Nifty.
 3. DONE (v1): fundamentals.py. Next: verify on a real rbscan day; later backtest the gate with result broadcast dates.
 4. Test RS >= 85 filter effect on win rate vs total return.
 5. Position sizing: backtest used 20 slots x 5% each; 20% stop = ~1% capital risk per trade.
