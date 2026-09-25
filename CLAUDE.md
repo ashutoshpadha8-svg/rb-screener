@@ -76,10 +76,11 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 - Copying a terminal command overwrites the clipboard - don't use `pbpaste` right after copying a command.
 - Dhan may not publish today's daily candle until later in the evening; prices are still live.
 - Dhan 401/403 when token is not expired = check Data API subscription.
-- position_tracker.py still uses its own CLIENT_ID constant and the free (lagging) data source for exit decisions - needs the same Dhan gap-fill fix as the screener.
+- position_tracker.py (v2) imports daily_screener.py for prices, so both files must sit in ~/Desktop/RB_Screener.
+  Verdicts marked "*" use today's live price during market hours - only valid if the stock closes there.
 
 ## Pending / next steps
-1. Fix position_tracker.py: Dhan gap-fill + live price + read client ID from token (exit decisions on stale data are dangerous).
+1. DONE (v2): position_tracker.py uses Dhan gap-fill + live price + client ID from token; fixed M&M history filename bug.
 2. Backtest the >= Rs 10,000 Cr universe with the same rules (point-in-time where possible).
 3. DONE (v1): fundamentals.py. Next: verify on a real rbscan day; later backtest the gate with result broadcast dates.
 4. Test RS >= 85 filter effect on win rate vs total return.

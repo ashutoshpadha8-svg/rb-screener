@@ -28,28 +28,27 @@ INVESTING leg
 
 SETUP  (one time)
 -----------------
-    pip install pandas numpy requests
+    pip3 install pandas numpy requests
 
-    Put these three files in one folder:
-        position_tracker.py     <- this file
-        dhan_token.txt          <- see below
-        split.csv               <- auto-created on first run
+    Keep this file next to daily_screener.py in ~/Desktop/RB_Screener
+    (it re-uses the screener's Dhan price code). dhan_token.txt is the
+    same file the screener reads. split.csv is auto-created on the
+    first run. The Dhan client ID is read from the token itself.
 
-    dhan_token.txt : paste your Dhan access token as a single line.
-    It expires every 24 hours, so paste a fresh one each morning.
-    Nothing else in the file. Never share this file.
-
-    Your Dhan client ID goes in the CLIENT_ID constant below (that one
-    does not change).
+PRICES  (v2)
+------------
+    Free history (lags a few days) + missing days filled from Dhan +
+    today's live price from Dhan. During market hours today's price is
+    PROVISIONAL: a verdict marked "*" only counts if the stock closes
+    there. Without a valid token it says loudly that data is old.
 
 DAILY USE
 ---------
     1. paste today's token into dhan_token.txt
-    2. python3 position_tracker.py
+    2. python3 ~/Desktop/RB_Screener/position_tracker.py
 """
 
 import os
-import io
 import sys
 import json
 import datetime as dt
@@ -58,17 +57,16 @@ import numpy as np
 import pandas as pd
 import requests
 
-# ------------------------------------------------------------------ config
-CLIENT_ID = "1100120973"   # does not expire, set once
-
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOKEN_FILE = os.path.join(HERE, "dhan_token.txt")
-SPLIT_FILE = os.path.join(HERE, "split.csv")
-DATA = os.path.join(HERE, "data")            # shared with daily_screener.py
-os.makedirs(DATA, exist_ok=True)
+sys.path.insert(0, HERE)
+import daily_screener as ds     # shared price / Dhan code -- rules untouched
+
+# ------------------------------------------------------------------ config
+CLIENT_ID = ""                  # read from the token at start-up
+TOKEN_FILE = ds.TOKEN_FILE
+SPLIT_FILE = os.path.join(ds.HERE, "split.csv")
 
 DHAN_HOLDINGS = "https://api.dhan.co/v2/holdings"
-EOD_BASE = "https://raw.githubusercontent.com/BennyThadikaran/eod2_data/main/daily/"
 
 
 # ------------------------------------------------------------------ token
@@ -83,6 +81,19 @@ def read_token():
     if not tok:
         print("dhan_token.txt is empty. Paste today's token and run again.")
         sys.exit(1)
+    cid, exp = ds.token_info(tok)
+    if not cid:
+        print("Could not read the client id from the token -- is "
+              "dhan_token.txt holding the full token?")
+        sys.exit(1)
+    if exp and exp < ds.now_ist():
+        print("Token in dhan_token.txt expired at %s. Paste a fresh one."
+              % exp.strftime("%d %b %H:%M"))
+        sys.exit(1)
+    global CLIENT_ID
+    CLIENT_ID = ds.CLIENT_ID = cid      # ds.dhan_headers() uses it
+    if exp:
+        print("  Dhan token OK, valid till %s" % exp.strftime("%d %b %H:%M"))
     return tok
 
 
@@ -155,28 +166,71 @@ def load_split(holdings):
 
 
 # ------------------------------------------------------------------ prices
-def fetch_eod(sym):
-    """Daily adjusted OHLC from the same free source the screener uses."""
-    fn = sym.lower().replace("&", "").replace(" ", "")
-    path = os.path.join(DATA, fn + ".csv")
-    if os.path.exists(path):
-        age = dt.datetime.now() - dt.datetime.fromtimestamp(os.path.getmtime(path))
-        if age.total_seconds() < 20 * 3600:
-            return pd.read_csv(path, parse_dates=["Date"], index_col="Date")
+def load_prices(token, symbols, warns):
+    """Free history + Dhan gap-fill + today's live price.
+    Returns ({sym: close Series}, {sym: True if last bar is provisional},
+    data_note)."""
+    want = ds.last_expected_session()
+    frames = {}
+    for s in symbols:
+        df = ds.fetch_eod(s.lower())
+        if df is None or len(df) < 210:
+            warns.append("%s: not enough price history to judge" % s)
+            continue
+        frames[s] = df
+    if not frames:
+        return {}, {}, "no price data"
+    scrip, live = {}, {}
     try:
-        r = requests.get(EOD_BASE + fn + ".csv", timeout=30)
-        if r.status_code != 200:
-            return None
-        open(path, "wb").write(r.content)
-        return pd.read_csv(io.BytesIO(r.content), parse_dates=["Date"],
-                           index_col="Date")
-    except Exception:
-        return None
+        scrip = ds.load_scrip_map()
+        for s in list(frames):
+            sid = scrip.get(s)
+            if not sid:
+                warns.append("%s: not in Dhan scrip master -- no gap-fill / "
+                             "live price" % s)
+                continue
+            frames[s] = ds.gap_fill(frames[s], token, sid, "NSE_EQ", "EQUITY",
+                                    want, warns, s)
+        ids = {s: scrip[s] for s in frames if s in scrip}
+        ltp = ds.dhan_ltp(token, list(ids.values()))
+        live = {s: ltp[i] for s, i in ids.items() if i in ltp}
+    except PermissionError as e:
+        print("\n*** Dhan refused the request (%s)." % e)
+        print("*** Token not expired by its own clock -> check that Data API "
+              "access is active on your Dhan account.")
+        print("*** Continuing WITHOUT Dhan -- prices below may be OLD. ***\n")
+    except Exception as e:
+        print("\n  ! Dhan price step failed (%s). Continuing without it." % e)
+
+    now = ds.now_ist()
+    today = now.date()
+    # before 09:15 (or on a weekend) the live price is just an old close
+    session_started = today.weekday() < 5 and (now.hour, now.minute) >= (9, 15)
+    closes, prov = {}, {}
+    for s, df in frames.items():
+        c = df["Close"].copy()
+        p = False
+        if s in live and session_started:
+            if c.index[-1].date() < today and not (
+                    not ds.market_open() and live[s] == c.iloc[-1]):
+                # (same price after hours = holiday -> no new bar)
+                # today's bar not in history yet -> use the live price
+                c.loc[pd.Timestamp(today)] = live[s]
+                p = ds.market_open()
+            elif c.index[-1].date() == today and ds.market_open():
+                c.iloc[-1] = live[s]
+                p = True
+        closes[s], prov[s] = c, p
+    last = max(c.index[-1] for c in closes.values()).date()
+    note = "data to %s | %s" % (last, "Dhan live price" if live
+                                else "NO live price")
+    if last < want:
+        note += "  !!! DATA IS BEHIND (expected %s) -- do not act on it" % want
+    return closes, prov, note
 
 
 # ------------------------------------------------------------------ rules
-def judge_swing(df, entry_price):
-    c = df["Close"]
+def judge_swing(c, entry_price):
     px = float(c.iloc[-1])
     ma40w = float(c.rolling(200).mean().iloc[-1])
     stop = entry_price * 0.80
@@ -195,8 +249,7 @@ def judge_swing(df, entry_price):
     return "HOLD", "%.1f%% clear of the nearer exit" % nearest, px, stop, ma40w
 
 
-def judge_investing(df):
-    c = df["Close"]
+def judge_investing(c):
     px = float(c.iloc[-1])
     ma30w = c.rolling(150).mean()
     cur = float(ma30w.iloc[-1])
@@ -226,6 +279,11 @@ def main():
 
     swing_rows, inv_rows, warnings = [], [], []
 
+    syms = [str(x).strip().upper() for x in split["symbol"]
+            if str(x).strip().upper() not in ("", "EXAMPLE", "NAN")]
+    print("Loading prices (free history + Dhan fill + live) ...")
+    closes, prov, data_note = load_prices(token, syms, warnings)
+
     for _, r in split.iterrows():
         sym = str(r["symbol"]).strip().upper()
         if sym in ("", "EXAMPLE", "NAN"):
@@ -247,14 +305,16 @@ def main():
         if entry <= 0 and held:
             entry = held["avg_price"]
 
-        df = fetch_eod(sym)
-        if df is None or len(df) < 210:
-            warnings.append("%s: not enough price history to judge" % sym)
+        c = closes.get(sym)
+        if c is None:
             continue
-        df = df[~df.index.duplicated(keep="last")].sort_index()
+        star = "*" if prov.get(sym) else ""
 
         if sw > 0:
-            verdict, why, px, stop, ma40w = judge_swing(df, entry)
+            verdict, why, px, stop, ma40w = judge_swing(c, entry)
+            if star and verdict != "HOLD":
+                verdict, why = verdict + star, why + " (live price -- only " \
+                    "counts if it CLOSES here)"
             swing_rows.append({
                 "symbol": sym, "qty": int(sw), "entry": round(entry, 1),
                 "price": round(px, 1),
@@ -264,7 +324,10 @@ def main():
             })
 
         if iv > 0:
-            verdict, why, px, ma30w = judge_investing(df)
+            verdict, why, px, ma30w = judge_investing(c)
+            if star and verdict != "HOLD":
+                verdict, why = verdict + star, why + " (live price -- only " \
+                    "counts if it CLOSES here)"
             inv_rows.append({
                 "symbol": sym, "qty": int(iv), "entry": round(entry, 1),
                 "price": round(px, 1),
@@ -281,16 +344,17 @@ def main():
             print("  (none)")
             return
         d = pd.DataFrame(rows)
-        order = {"EXIT": 0, "WATCH": 1, "HOLD": 2}
+        order = {"EXIT": 0, "EXIT*": 0, "WATCH": 1, "WATCH*": 1, "HOLD": 2}
         d = d.sort_values("verdict", key=lambda s: s.map(order))
         print(d.drop(columns=["reason"]).to_string(index=False))
         for _, x in d.iterrows():
             if x["verdict"] != "HOLD":
                 print("   %-12s %-5s  %s" % (x["symbol"], x["verdict"], x["reason"]))
-        p = os.path.join(HERE, "%s_%s.csv" % (fname, stamp))
+        p = os.path.join(ds.REPORTS, "%s_%s.csv" % (fname, stamp))
         d.to_csv(p, index=False)
         print("  saved: %s" % p)
 
+    print("\n" + data_note)
     show("SWING LEG", swing_rows, "tracker_swing")
     show("INVESTING LEG", inv_rows, "tracker_investing")
 
