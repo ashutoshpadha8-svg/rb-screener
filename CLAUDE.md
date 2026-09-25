@@ -12,12 +12,27 @@
 ~/Desktop/RB_Screener/
   daily_screener.py     # v4 - main screener (run daily)
   position_tracker.py   # hold/exit tracker for my positions (swing + investing legs)
+  fundamentals.py       # fundamental check on the screener shortlist (Screener.in public pages)
+  FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
   dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
   data/                 # cached price history, NSE market-cap file, Dhan scrip master
   reports/              # RB_Screener_YYYY-MM-DD.xlsx (sheets: Swing, Investing)
+                        # RB_Fundamentals_YYYY-MM-DD.xlsx (sheets: Watchlist, Swing, Investing)
 ```
 Shortcut: `rbscan` (zsh alias) = `python3 ~/Desktop/RB_Screener/daily_screener.py`.
-Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`.
+Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
+then `python3 ~/Desktop/RB_Screener/fundamentals.py` (reads the latest RB_Screener report, ~3 s per stock).
+
+## How fundamentals.py works
+- Input: latest reports/RB_Screener_*.xlsx (or `--file PATH`, or `--symbols A,B`). Only the shortlist is checked.
+- Data: free public Screener.in company page (consolidated, falls back to standalone when history is short;
+  bank/NBFC NPA always from standalone). Pages cached per day in data/screener_pages/. 2.5 s pause per request.
+- FUNDAMENTALS.md s.9 checklists, separately for Swing and Investing -> PASS / FAIL / CHECK (missing data = CHECK).
+- Watchlist sheet = not LATE and swing check not FAIL, ranked by Watch Score = 0.50 RS + 0.25 earnings-momentum pct
+  + 0.25 quality pct (pct within today's shortlist). Untested weights.
+- Last 3 columns everywhere: Promoter / FII / DII holding change in percentage points, latest qtr vs previous.
+  RB's rule: INFO ONLY, never removes or ranks a stock.
+- Not automated: pledge % (only if Screener's Cons mention it), auditor, SEBI, bank CRAR, insurer solvency.
 
 ## How daily_screener.py works
 - Universe: every NSE company with market cap >= Rs 10,000 Cr, from NSE's daily PR bhavcopy zip
@@ -66,7 +81,7 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 ## Pending / next steps
 1. Fix position_tracker.py: Dhan gap-fill + live price + read client ID from token (exit decisions on stale data are dangerous).
 2. Backtest the >= Rs 10,000 Cr universe with the same rules (point-in-time where possible).
-3. Add fundamental columns/PASS-FAIL to the Excel (needs Screener export or another data source).
+3. DONE (v1): fundamentals.py. Next: verify on a real rbscan day; later backtest the gate with result broadcast dates.
 4. Test RS >= 85 filter effect on win rate vs total return.
 5. Position sizing: backtest used 20 slots x 5% each; 20% stop = ~1% capital risk per trade.
 6. Paper-trade 2-3 months before real money on the new universe.
