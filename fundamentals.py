@@ -468,7 +468,7 @@ def _rule(out, ok, fail_text, missing_text):
         out["fail"].append(fail_text)
 
 
-def _f(x, fmt="%.0f"):
+def _f(x, fmt="%.1f"):
     return "n/a" if x is None else fmt % x
 
 

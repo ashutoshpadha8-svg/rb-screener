@@ -18,7 +18,10 @@ SWING leg
     * Fixed stop at 20% below YOUR entry price. Not trailing.
     * Exit on a daily CLOSE below the 40-week moving average.
     * No profit target. No breakeven shift.
-    -> tested: 47.5% win rate, avg trade +20.8%, profit factor 3.99
+    -> backtest.py (>= Rs 10,000 Cr, 2013-2026): win 39%, avg trade
+       +11.8%, profit factor 2.43
+    Both rules are checked on EVERY day since entry_date in split.csv,
+    so an exit you missed on an earlier day is still reported.
 
 INVESTING leg
     * Only exits on a Stage-4 breakdown: close below the 30-week MA,
@@ -206,9 +209,10 @@ def load_prices(token, symbols, warns):
     today = now.date()
     # before 09:15 (or on a weekend) the live price is just an old close
     session_started = today.weekday() < 5 and (now.hour, now.minute) >= (9, 15)
-    closes, prov = {}, {}
+    closes, lows, prov = {}, {}, {}
     for s, df in frames.items():
         c = df["Close"].copy()
+        lo = df["Low"].copy()
         p = False
         if s in live and session_started:
             if c.index[-1].date() < today and not (
@@ -216,29 +220,52 @@ def load_prices(token, symbols, warns):
                 # (same price after hours = holiday -> no new bar)
                 # today's bar not in history yet -> use the live price
                 c.loc[pd.Timestamp(today)] = live[s]
+                lo.loc[pd.Timestamp(today)] = live[s]   # intraday low unknown
                 p = ds.market_open()
             elif c.index[-1].date() == today and ds.market_open():
                 c.iloc[-1] = live[s]
+                lo.iloc[-1] = min(lo.iloc[-1], live[s])
                 p = True
-        closes[s], prov[s] = c, p
+        closes[s], lows[s], prov[s] = c, lo, p
     last = max(c.index[-1] for c in closes.values()).date()
     note = "data to %s | %s" % (last, "Dhan live price" if live
                                 else "NO live price")
     if last < want:
         note += "  !!! DATA IS BEHIND (expected %s) -- do not act on it" % want
-    return closes, prov, note
+    return closes, lows, prov, note
 
 
 # ------------------------------------------------------------------ rules
-def judge_swing(c, entry_price):
+def _since(c, entry_date):
+    """Bars from the entry day on. Unknown entry date -> last bar only."""
+    try:
+        d = pd.Timestamp(entry_date)
+    except (ValueError, TypeError):
+        d = None
+    if d is None or d != d or d > c.index[-1]:
+        return c.index[-1:]
+    return c.index[c.index >= d]
+def judge_swing(c, lo, entry_price, entry_date):
+    """Backtest rules, checked on EVERY bar since entry (not just today):
+    the day's low touching the 20% stop, or a close below the 40-week MA.
+    A rule that fired on an earlier day is reported as a missed exit."""
     px = float(c.iloc[-1])
-    ma40w = float(c.rolling(200).mean().iloc[-1])
+    ma = c.rolling(200).mean()
+    ma40w = float(ma.iloc[-1])
     stop = entry_price * 0.80
-
-    if px <= stop:
-        return "EXIT", "closed at/below the 20%% stop (%.1f)" % stop, px, stop, ma40w
-    if px < ma40w:
-        return "EXIT", "closed below the 40-week MA (%.1f)" % ma40w, px, stop, ma40w
+    idx = _since(c, entry_date)
+    hit_stop = idx[(lo.reindex(idx) <= stop).values]
+    hit_ma = idx[(c.reindex(idx) < ma.reindex(idx)).values]
+    first = min([x for x in (hit_stop[:1].tolist() + hit_ma[:1].tolist())],
+                default=None)
+    if first is not None:
+        which = ("low touched the 20%% stop (%.1f)" % stop
+                 if len(hit_stop) and hit_stop[0] == first else
+                 "closed below the 40-week MA (%.1f)" % float(ma[first]))
+        if first == c.index[-1]:
+            return "EXIT", which, px, stop, ma40w
+        return ("EXIT", "%s on %s -- rule already fired, you should be out"
+                % (which, first.date()), px, stop, ma40w)
 
     to_stop = (px / stop - 1) * 100
     to_ma = (px / ma40w - 1) * 100
@@ -249,19 +276,29 @@ def judge_swing(c, entry_price):
     return "HOLD", "%.1f%% clear of the nearer exit" % nearest, px, stop, ma40w
 
 
-def judge_investing(c):
+def judge_investing(c, entry_date):
+    """Stage 4: 10 straight closes under a falling 30-week MA, checked on
+    every bar since entry."""
     px = float(c.iloc[-1])
     ma30w = c.rolling(150).mean()
     cur = float(ma30w.iloc[-1])
-    declining = float(ma30w.iloc[-1]) < float(ma30w.iloc[-11])
-    below_10 = bool((c.iloc[-10:] < ma30w.iloc[-10:]).all())
+    below = (c < ma30w).astype(int)
+    run = below.groupby((below == 0).cumsum()).cumsum()     # streak length
+    falling = ma30w < ma30w.shift(10)
+    trig = (run >= 10) & falling
+    idx = _since(c, entry_date)
+    fired = idx[trig.reindex(idx).fillna(False).values]
+    declining = bool(falling.iloc[-1])
 
-    if below_10 and declining:
-        return ("EXIT", "10 straight closes under a falling 30-week MA "
-                "-- Stage 4 breakdown", px, cur)
+    if len(fired):
+        if fired[0] == c.index[-1]:
+            return ("EXIT", "10 straight closes under a falling 30-week MA "
+                    "-- Stage 4 breakdown", px, cur)
+        return ("EXIT", "Stage 4 breakdown on %s -- rule already fired, you "
+                "should be out" % fired[0].date(), px, cur)
     if px < cur and declining:
-        return ("WATCH", "under a falling 30-week MA, not yet 10 sessions",
-                px, cur)
+        return ("WATCH", "under a falling 30-week MA for %d session(s), exit "
+                "at 10" % int(run.iloc[-1]), px, cur)
     if px < cur:
         return "WATCH", "under the 30-week MA but the MA is still rising", px, cur
     return "HOLD", "%.1f%% above the 30-week MA" % ((px / cur - 1) * 100), px, cur
@@ -282,7 +319,7 @@ def main():
     syms = [str(x).strip().upper() for x in split["symbol"]
             if str(x).strip().upper() not in ("", "EXAMPLE", "NAN")]
     print("Loading prices (free history + Dhan fill + live) ...")
-    closes, prov, data_note = load_prices(token, syms, warnings)
+    closes, lows, prov, data_note = load_prices(token, syms, warnings)
 
     for _, r in split.iterrows():
         sym = str(r["symbol"]).strip().upper()
@@ -309,10 +346,16 @@ def main():
         if c is None:
             continue
         star = "*" if prov.get(sym) else ""
+        edate = r.get("entry_date")
+        if sw > 0 and entry <= 0:
+            warnings.append("%s: no entry price in split.csv and not in Dhan "
+                            "holdings -- swing leg not judged" % sym)
+            sw = 0
 
         if sw > 0:
-            verdict, why, px, stop, ma40w = judge_swing(c, entry)
-            if star and verdict != "HOLD":
+            verdict, why, px, stop, ma40w = judge_swing(c, lows[sym], entry,
+                                                        edate)
+            if star and verdict != "HOLD" and "already fired" not in why:
                 verdict, why = verdict + star, why + " (live price -- only " \
                     "counts if it CLOSES here)"
             swing_rows.append({
@@ -324,8 +367,8 @@ def main():
             })
 
         if iv > 0:
-            verdict, why, px, ma30w = judge_investing(c)
-            if star and verdict != "HOLD":
+            verdict, why, px, ma30w = judge_investing(c, edate)
+            if star and verdict != "HOLD" and "already fired" not in why:
                 verdict, why = verdict + star, why + " (live price -- only " \
                     "counts if it CLOSES here)"
             inv_rows.append({

@@ -38,6 +38,9 @@ RUN
   python3 ~/Desktop/RB_Screener/backtest.py --check-mcap
   python3 ~/Desktop/RB_Screener/backtest.py --portfolio   (slots, CAGR,
             drawdown vs Nifty; improvement ideas in- and out-of-sample)
+  python3 ~/Desktop/RB_Screener/backtest.py --fundamentals   (does the
+            fundamentals.py gate help? point-in-time, 2018 onwards;
+            first run downloads Tickertape history, ~30-40 min)
   options: --start 2012-01-01  --rs-min 70  --min-load 1000
            --overlap  (count every signal day as a trade, even while the
                        stock is already held -- inflates trade count)
@@ -172,6 +175,13 @@ def signals(P, universe, rs_min=RS_MIN):
 
 
 # ================================================================== trades
+def _next_open(O, t, j, n):
+    """First bar >= t with a real open price (skips untraded days)."""
+    while t < n and not O[t, j] > 0:
+        t += 1
+    return (t, O[t, j]) if t < n else (None, None)
+
+
 def simulate(P, sig, rs, ma150, ma200, start, overlap=False):
     O, H, L, C = (P[k].values for k in ("Open", "High", "Low", "Close"))
     m150, m200, rsv = ma150.values, ma200.values, rs.values
@@ -198,7 +208,8 @@ def simulate(P, sig, rs, ma150, ma200, start, overlap=False):
                         else stop, "stop"
                     break
                 if C[t, j] < m200[t, j] and t + 1 < n:
-                    sx, sp, why = t + 1, O[t + 1, j], "40w MA"
+                    sx, sp = _next_open(O, t + 1, j, n)
+                    why = "40w MA"
                     break
             if sx is None or not sp > 0:
                 sx, sp = n - 1, C[n - 1, j]
@@ -210,7 +221,7 @@ def simulate(P, sig, rs, ma150, ma200, start, overlap=False):
                 falling = t >= 10 and m < m150[t - 10, j]
                 below = below + 1 if c < m else 0
                 if below >= INV_BARS and falling and t + 1 < n:
-                    ix, ip = t + 1, O[t + 1, j]
+                    ix, ip = _next_open(O, t + 1, j, n)
                     break
             iopen = ix is None or not ip > 0
             if iopen:
@@ -409,6 +420,155 @@ def portfolio_study(P, sig_fn, universe, start, split="2020-01-01",
     return d, curves
 
 
+# ================================================================== fundamentals
+FUND_START = "2018-01-01"   # Tickertape quarters start ~Sep 2016 -> YoY usable ~Nov 2017
+FUND_SPLIT = "2022-01-01"
+
+
+def fund_verdicts(t, cal_close, cache_dir):
+    """Add point-in-time swing / investing fundamental verdicts to each
+    trade row, using the SAME rules as fundamentals.py."""
+    import fundamentals as fu
+    import fund_history as fh
+    syms = sorted(t.symbol.unique())
+    print("Fundamental history for %d symbols (Tickertape, cached 30 days; "
+          "first run ~%d min) ..." % (len(syms), len(syms) * 5 * 0.9 // 60 + 1))
+    data, miss = {}, []
+    for i, s in enumerate(syms, 1):
+        sys.stdout.write("\r  %4d/%d  %-12s" % (i, len(syms), s))
+        sys.stdout.flush()
+        d = fh.fetch(s, cache_dir)
+        if d is None or not d.get("q"):
+            miss.append(s)
+            continue
+        q, ann = fh.tables(d)
+        data[s] = (q, ann, d.get("sector") == "Financials")
+    print("\n  with data: %d | not found on Tickertape: %d%s"
+          % (len(data), len(miss), (" (" + ", ".join(miss[:12]) +
+                                    (" ..." if len(miss) > 12 else "") + ")")
+             if miss else ""))
+    keys = ("q_profit_yoy", "q_sales_yoy", "roe3", "de", "decel2", "icr",
+            "cfo_pat", "loss_years", "profit_cagr3", "sales_cagr3",
+            "q_last2_pos", "eps_yoy_abs")
+    out = []
+    for r in t.itertuples():
+        row = {"sw_verdict": "NODATA", "in_verdict": "NODATA"}
+        if r.symbol in data:
+            q, ann, fin = data[r.symbol]
+            m = {k: None for k in keys}
+            m.update(fh.asof(q, ann, r.signal, fin))
+            m.update({"pledge": None, "oi_share": None, "roce3": None,
+                      "nnpa": None, "gnpa": None, "roa": None,
+                      "fin": "fin_other" if fin else ""})
+            so, io = fu.swing_rules(m), fu.invest_rules(m)
+            # backtest: rules with no data are ignored (not CHECK)
+            row["sw_verdict"] = "FAIL" if so["fail"] else "PASS"
+            row["in_verdict"] = "FAIL" if io["fail"] else "PASS"
+            row["sw_fail"] = "; ".join(so["fail"])
+            row["in_fail"] = "; ".join(io["fail"])
+            row["sw_checked"] = 4 - sum(
+                m[k] is None for k in ("q_profit_yoy", "q_sales_yoy", "roe3")) \
+                - (0 if fin else (m["de"] is None))
+            for k in ("q_profit_yoy", "q_sales_yoy", "roe3", "de"):
+                row["f_" + k] = m[k]
+        out.append(row)
+    return pd.concat([t.reset_index(drop=True), pd.DataFrame(out)], axis=1)
+
+
+def _grp(t, col, ret="ret"):
+    rows = {}
+    for v, g in t.groupby(col):
+        rows[v] = stats(g[ret])
+    return pd.DataFrame(rows).T
+
+
+def fundamentals_study(P, universe, start):
+    cal = P["Close"].index
+    sig, rs, m150, m200 = signals(P, universe, RS_MIN)
+    fs = max(pd.Timestamp(start), pd.Timestamp(FUND_START))
+    cand = simulate(P, sig, rs, m150, m200, fs, overlap=True)
+    one = simulate(P, sig, rs, m150, m200, fs, overlap=False)
+    cache = os.path.join(ds.DATA, "tickertape")
+    cand = fund_verdicts(cand, cal, cache)
+    key = ["col", "k_sig"]
+    one = one.merge(cand[key + [c for c in cand.columns
+                                if c.startswith(("sw_", "in_", "f_"))]],
+                    on=key, how="left")
+    path = os.path.join(ds.REPORTS, "backtest_fund_trades.csv")
+    one.to_csv(path, index=False)
+    fmt = lambda x: "%.2f" % x
+    for label, a_, b_ in (("ALL %s .." % fs.year, None, None),
+                          ("FIRST HALF %s-%d" % (fs.year,
+                                                 int(FUND_SPLIT[:4]) - 1),
+                           None, FUND_SPLIT),
+                          ("SECOND HALF %s-" % FUND_SPLIT[:4], FUND_SPLIT,
+                           None)):
+        d = one.copy()
+        sd = pd.to_datetime(d.signal)
+        if a_:
+            d = d[sd >= a_]
+        if b_:
+            d = d[sd < b_]
+        print("\n" + "=" * 72)
+        print(" TRADES (one per stock at a time) -- %s" % label)
+        print("=" * 72)
+        print(" Swing leg by SWING fundamental verdict:")
+        print(_grp(d, "sw_verdict").to_string(float_format=fmt))
+        print(" Investing leg by INVESTING fundamental verdict:")
+        print(_grp(d, "in_verdict", "inv_ret").to_string(float_format=fmt))
+    d = one[one.sw_verdict != "NODATA"].copy()
+    print("\n Swing leg, one rule at a time (ALL years):")
+    rules = {"qtr profit YoY >= %g" % 20: d.f_q_profit_yoy >= 20,
+             "qtr sales YoY >= %g" % 15: d.f_q_sales_yoy >= 15,
+             "3y ROE >= %g" % 10: d.f_roe3 >= 10,
+             "D/E <= %g" % 1.5: d.f_de <= 1.5}
+    rows = []
+    for name, ok in rules.items():
+        col = d[{"qtr profit YoY >= 20": "f_q_profit_yoy",
+                 "qtr sales YoY >= 15": "f_q_sales_yoy",
+                 "3y ROE >= 10": "f_roe3", "D/E <= 1.5": "f_de"}[name]]
+        for tag, mask in (("pass", ok & col.notna()),
+                          ("fail", ~ok & col.notna())):
+            st = stats(d[mask].ret)
+            st["rule"] = "%s: %s" % (name, tag)
+            rows.append(st)
+    print(pd.DataFrame(rows).set_index("rule").to_string(float_format=fmt))
+
+    # ---------------------------------------------------------- portfolio
+    k0 = cal.searchsorted(fs)
+    ks = cal.searchsorted(pd.Timestamp(FUND_SPLIT))
+    variants = [
+        ("BASE swing exit", cand, "swing"),
+        ("swing, skip fund FAIL", cand[cand.sw_verdict != "FAIL"], "swing"),
+        ("investing exit", cand, "invest"),
+        ("investing exit, skip inv FAIL", cand[cand.in_verdict != "FAIL"],
+         "invest"),
+        ("investing exit, skip swing FAIL", cand[cand.sw_verdict != "FAIL"],
+         "invest"),
+    ]
+    out = []
+    for name, c, ex in variants:
+        row = {"variant": name}
+        for tag, a_, b_ in (("H1", k0, ks), ("H2", ks, None),
+                            ("ALL", k0, None)):
+            p_ = perf(run_portfolio(P, c, 20, ex, a_, b_))
+            row[tag + " CAGR"] = p_.get("CAGR%")
+            row[tag + " DD"] = p_.get("maxDD%")
+        out.append(row)
+    bm = P["BM"].ffill()
+    row = {"variant": "NIFTY 50 buy & hold"}
+    for tag, a_, b_ in (("H1", k0, ks), ("H2", ks, None), ("ALL", k0, None)):
+        e = bm.iloc[a_:b_]
+        p_ = perf(e / e.iloc[0])
+        row[tag + " CAGR"], row[tag + " DD"] = p_["CAGR%"], p_["maxDD%"]
+    out.append(row)
+    print("\nPORTFOLIO 20 slots from %s (H1 = to %s, H2 = after), idle cash "
+          "%.0f%%" % (cal[k0].date(), FUND_SPLIT, CASH_RATE * 100))
+    print(pd.DataFrame(out).set_index("variant")
+          .to_string(float_format=lambda x: "%.1f" % x))
+    print("\nTrades with verdicts saved: %s" % path)
+
+
 # ================================================================== mcap check
 def check_mcap(P, mcap_now):
     """Compare the estimated past market cap with NSE's real MCAP files
@@ -507,6 +667,10 @@ def main():
     else:
         universe = pd.DataFrame(True, index=P["Close"].index, columns=cols)
         universe = universe & P["Close"].notna()
+
+    if "--fundamentals" in a:
+        fundamentals_study(P, universe, start)
+        return
 
     if "--portfolio" in a:
         print("Portfolio study (7 variants x 3 periods, takes a few minutes)")

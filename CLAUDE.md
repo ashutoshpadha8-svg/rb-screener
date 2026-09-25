@@ -71,10 +71,11 @@ Stop = day's LOW touching entry*0.8. Exits: 40w MA close -> next open. Investing
 |---|---|---|---|---|---|---|
 | b173 (today's big survivors) | 793 | 46.0 | +18.3 | 3.91 | +23.5 | 4.25 |
 | today10k (today's list, whole period = look-ahead) | 1752 | 44.5 | +23.5 | 4.17 | +33.5 | 5.25 |
-| **pit10k (point-in-time estimate) = the honest one** | **1760** | **39.7** | **+12.0** | **2.46** | **+17.1** | **2.91** |
+| **pit10k (point-in-time estimate) = the honest one** | **1773** | **39.3** | **+11.8** | **2.43** | **+17.2** | **2.93** |
 - Look-ahead (using today's winners) roughly DOUBLES the avg trade. b173 has the same bias -> old +20.8% was inflated.
 - pit10k is still biased up: stocks delisted before today are missing from eod2_data.
-- Weak years pit10k swing avg: 2015 -10.2%, 2018 -6.2%, 2024 -6.1%, 2025 -0.6%.
+- Weak years pit10k swing avg: 2015 -10.7%, 2018 -6.3%, 2024 -6.1%, 2025 -1.1%.
+- (pit10k numbers after the 26 Sep fix: an exit on an untraded next day no longer leaves the trade 'open'.)
 - Market-cap estimate (today's mcap x price ratio) vs real NSE MCAP files 2024-26: median error ~2.5%,
   ~96-98% of the >= 10k list matches. NSE PR zips only carry MCAP csv from ~2024.
 
@@ -83,11 +84,11 @@ Equal slots (equity/slots at entry), new signals ranked by RS, one position per 
 judged in-sample 2013-19 AND out-of-sample 2020-26 (each half starts from cash). ~89% invested on average.
 | Variant | IS CAGR | OOS CAGR | FULL CAGR | FULL maxDD |
 |---|---|---|---|---|
-| BASE 20 slots, swing exit | 10.4 | 11.4 | 12.4 | -39.7 |
-| + Nifty > 200DMA entry filter | 9.4 | 13.4 | 13.8 | -34.7 |
-| RS >= 85 | 8.9 | 10.7 | 12.1 | -41.5 |
-| 10 slots | 8.4 | 10.1 | 10.4 | -41.4 |
-| investing (Stage 4) exit | 10.1 | 18.2 | 14.7 | -39.5 |
+| BASE 20 slots, swing exit | 10.5 | 11.6 | 12.5 | -39.7 |
+| + Nifty > 200DMA entry filter | 9.4 | 14.0 | 13.7 | -35.3 |
+| RS >= 85 | 9.0 | 10.4 | 11.5 | -45.9 |
+| 10 slots | 8.5 | 10.1 | 10.5 | -41.4 |
+| investing (Stage 4) exit | 10.3 | 19.6 | 14.8 | -39.5 |
 | NIFTY 50 price index (no dividends, TR ~ +1.3%/yr) | 10.8 | 10.2 | 10.5 | -38.4 |
 - Verdict: swing system ~= Nifty total return with the same ~-40% drawdown, BEFORE tax (swing gains mostly STCG).
 - RS >= 85 and 10 slots: worse in both halves -> rejected (pending #4, #5 answered: keep RS 70, 20 slots).
@@ -111,6 +112,13 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 - Dhan 401/403 when token is not expired = check Data API subscription.
 - position_tracker.py (v2) imports daily_screener.py for prices, so both files must sit in ~/Desktop/RB_Screener.
   Verdicts marked "*" use today's live price during market hours - only valid if the stock closes there.
+  Exit rules are checked on every bar since entry_date (split.csv): a missed exit shows "rule already fired".
+  Keep entry_date in split.csv correct (YYYY-MM-DD) or only today's bar is checked.
+- Screener and backtest.py give identical signals (checked 25 Sep 2026: 52 signals in 20 sessions,
+  43 FIT/LATE + 9 NO-FIT, zero mismatches).
+- NSE / BSE APIs block cloud servers (403). Tickertape API works (fund_history.py).
+- FIT has no lower bound: a stock can be FIT at -19% vs signal (NIACL, 25 Sep) = right above the
+  original stop. The terminal now prints % vs signal for every FIT name.
 
 ## Pending / next steps
 1. DONE (v2): position_tracker.py uses Dhan gap-fill + live price + client ID from token; fixed M&M history filename bug.

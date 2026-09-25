@@ -28,7 +28,10 @@ RULES (straight from the backtest -- do not edit)
   Entry           : Weinstein AND Trend Template on the same day,
                     buy next open
   Swing exit      : 20% below entry, or close below 40-week MA
-  Tested result   : 47.5% win, avg trade +20.8%, profit factor 3.99
+  Tested result   : backtest.py, >= Rs 10,000 Cr universe point-in-time,
+                    2013-2026: 1773 trades, win 39%, avg trade +11.8%,
+                    PF 2.43; 20-slot portfolio ~12.5%/yr vs Nifty 10.5%
+                    (price only), max drawdown ~-40% (see CLAUDE.md)
 
 TODAY'S FIT CHECK (per stock)
   FIT    : signal is fresh or price is still near the signal price,
@@ -477,8 +480,8 @@ def write_excel(stamp, swing, inv, banner):
         "LATE = ran >10% past the signal. Not tested. Skip.",
         "Exit = whichever comes first: the Stop, or a close below the 40-week "
         "MA. The 40w MA rises over time, so it is your trailing stop.",
-        "NO profit target. In testing, a 25% target cut the average trade "
-        "from +20.8% to +3.9%.",
+        "NO profit target. In the earlier (173-stock) test a 25% target cut "
+        "the average trade from +20.8% to +3.9%.",
         "Already bought? Type YOUR buy price into Price and the Stop and "
         "Risk columns recalculate.",
     ])
@@ -512,10 +515,10 @@ def write_excel(stamp, swing, inv, banner):
         "Same entry signal as Swing, but held for the long term.",
         "Only exit: 10 straight closes below a FALLING 30-week MA (Stage 4 "
         "breakdown). A 20% dip is NOT an exit here.",
-        "In the backtest, 45% of these signals later reached 2x+ when never "
-        "sold -- selling early is what kills multibaggers.",
-        "The >= Rs 10,000 Cr universe was NOT backtested. Treat as "
-        "unverified.",
+        "Backtest (>= Rs 10,000 Cr, 2013-2026): avg trade +17%, win 47%, "
+        "~7% of trades doubled; 20-slot portfolio ~14.8%/yr, max DD -40%.",
+        "Most of that edge came from 2020-26; in 2013-19 it only matched "
+        "Nifty. Stocks delisted since are missing -> results a bit too good.",
     ])
 
     path = os.path.join(REPORTS, "RB_Screener_%s.xlsx" % stamp)
@@ -742,8 +745,9 @@ def main():
             print("  No new signal on the last session.")
         fits = ok[(ok.status == "FIT") & (ok.bars_ago > 0)]
         if len(fits):
-            print("  Still valid, price near signal: " +
-                  ", ".join(fits.symbol))
+            print("  Still valid (FIT, %% vs signal): " + ", ".join(
+                "%s %+.0f%%" % (x.symbol, x.vs_signal_pct)
+                for x in fits.itertuples()))
         lates = ok[ok.status == "LATE"]
         if len(lates):
             print("  LATE (ran >%d%% past signal, entry not tested): " % LATE_PCT
@@ -785,13 +789,14 @@ def main():
 
     print("""
 REMINDERS
-  - Win rate ~47%, not 60-70%. Money comes from avg win (+58%) being
-    ~4x avg loss (-13%). Many single trades WILL lose.
+  - Win rate ~39%, not 60-70%. Money comes from avg win (+51%) being
+    ~4x avg loss (-14%). The MEDIAN trade loses ~6%. Many trades WILL lose.
   - Stop = 20% below YOUR entry. Exit = close below 40-week MA.
     No profit target, no tightening -- both lost money in testing.
   - LATE names were never tested. If you take them, size smaller.
-  - The backtest used 173 large survivors. This universe (all >= Rs
-    10,000 Cr) is wider and was NOT backtested -- treat as unverified.
+  - Backtest of this universe (backtest.py, 2013-2026): 20-slot
+    portfolio ~12.5%/yr swing, ~14.8%/yr investing exit, Nifty 10.5%
+    (price only), drawdowns ~-40%. Bad years exist (2015, 2018, 2024-25).
 """)
     print("Reports saved in: %s" % REPORTS)
 
