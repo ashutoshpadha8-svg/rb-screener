@@ -20,9 +20,10 @@
   reports/              # RB_Screener_YYYY-MM-DD.xlsx (sheets: Swing, Investing; fundamentals.py
                         #   adds green columns to both + a Fundamentals sheet in the SAME file)
 ```
-Shortcut: `rbscan` (zsh alias) = `python3 ~/Desktop/RB_Screener/daily_screener.py`.
-Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
-then `python3 ~/Desktop/RB_Screener/fundamentals.py` (reads the latest RB_Screener report, ~3 s per stock).
+Shortcut: `rbscan` (zsh alias, since 25 Sep 2026) = screener THEN fundamentals:
+`python3 ~/Desktop/RB_Screener/daily_screener.py && python3 ~/Desktop/RB_Screener/fundamentals.py`
+(fundamentals only runs if the screener succeeded; ~3 s per shortlisted stock).
+Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`.
 
 ## How fundamentals.py works
 - Input: latest reports/RB_Screener_*.xlsx (or `--file PATH`). `--symbols A,B` writes a separate RB_Fundamentals file.
