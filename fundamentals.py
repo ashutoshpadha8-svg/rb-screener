@@ -7,16 +7,18 @@ Reads today's shortlist from reports/RB_Screener_YYYY-MM-DD.xlsx (made by
 daily_screener.py), fetches each stock's public Screener.in company page
 (free, no login) and applies the checklists in FUNDAMENTALS.md section 9.
 
-OUTPUT  reports/RB_Fundamentals_YYYY-MM-DD.xlsx
-  Watchlist : shortlisted stocks worth attention -- not LATE, swing
-              fundamentals not FAIL -- ranked by Watch Score
-  Swing     : every Swing stock with FUND_PASS / FAILED_RULES / score
-  Investing : every Investing stock, full investing checklist
-  Last 3 columns on every sheet: Promoter / FII / DII holding change
-  (percentage points, latest quarter vs previous). INFO ONLY -- no stock
-  is removed or re-ranked because of them.
+OUTPUT  written INTO the same reports/RB_Screener_YYYY-MM-DD.xlsx
+  Swing / Investing : new columns on the right of every stock (Fund Check,
+                      P/E, ROCE, ROE, D/E, growth, pledge ...). No row is
+                      removed or re-ordered.
+  Fundamentals      : new sheet -- every non-LATE shortlisted stock, sorted
+                      by RS rank, with the full fundamental detail.
+  Last 3 columns everywhere: Promoter / FII / DII holding change
+  (percentage points, latest quarter vs previous). INFO ONLY.
+  Nothing here removes a stock: the 2018-26 backtest showed the
+  fundamental gate did not help (see IMPORTANT).
 
-FUND_PASS
+FUND CHECK (information only)
   PASS  : every automated rule passed
   FAIL  : at least one rule failed (see FAILED_RULES)
   CHECK : nothing failed, but some rule could not be computed
@@ -27,7 +29,7 @@ IMPORTANT
   * BACKTESTED (backtest.py --fundamentals, 2018-2026, point-in-time):
     the swing gate did NOT help -- in 2018-21 PASS stocks did much worse
     than FAIL stocks, in 2022-26 no difference. Treat every column here
-    as information. The Watch Score weights are not supported either.
+    as information.
   * Screener.in data is restated and has no result dates: fine for live
     screening, useless for backtests.
   * Pledge %, auditor issues and SEBI action are NOT on the free page.
@@ -40,7 +42,10 @@ RUN (after rbscan)
     python3 ~/Desktop/RB_Screener/fundamentals.py
   options:
     --file PATH        use a specific RB_Screener_*.xlsx
-    --symbols A,B,C    just check these symbols (no screener report needed)
+    --symbols A,B,C    just check these symbols (writes a separate
+                       RB_Fundamentals_<date>.xlsx, no screener report needed)
+  Run it again on the same day: it replaces its own columns/sheet.
+  If the report is open in Excel/Numbers, close it first.
 """
 
 import warnings
@@ -93,8 +98,6 @@ FIN_GNPA = 3.0         # banks / NBFCs: gross NPA < %
 BANK_ROA = 1.0         # banks: ROA >= %
 NBFC_ROA = 2.0         # NBFCs: ROA >= %
 
-# Watch Score = 0.50 RS rank + 0.25 earnings momentum + 0.25 quality
-W_RS, W_EM, W_Q = 0.50, 0.25, 0.25
 
 
 # ================================================================== fetch
@@ -199,6 +202,8 @@ def parse_page(h):
             top[_txt(n)] = _txt(v)
     p["price"] = _num(re.sub(r"[^\d.,-]", "", top.get("Current Price", "")))
     p["top_roe"] = _num(re.sub(r"[^\d.,-]", "", top.get("ROE", "")))
+    p["top_roce"] = _num(re.sub(r"[^\d.,-]", "", top.get("ROCE", "")))
+    p["pe"] = _num(re.sub(r"[^\d.,-]", "", top.get("Stock P/E", "")))
     ind = dict((t, _txt(n)) for t, n in re.findall(
         r'title="(Broad Sector|Sector|Broad Industry|Industry)">(.*?)</a>', h))
     p["sector"] = ind.get("Broad Sector", "")
@@ -312,7 +317,10 @@ def fin_type(p):
 def metrics(p):
     q, pl, bs, cf, ra, shp = p["q"], p["pl"], p["bs"], p["cf"], p["ratios"], p["shp"]
     m = {"basis": p["basis"], "industry": p["industry"] or p["broad_ind"],
-         "fin": fin_type(p), "price": p["price"], "cons": p["cons"]}
+         "fin": fin_type(p), "price": p["price"], "cons": p["cons"],
+         "pe": p["pe"] if p["pe"] == p["pe"] else None,
+         "roce_now": p["top_roce"] if p["top_roce"] == p["top_roce"] else None,
+         "roe_now": p["top_roe"] if p["top_roe"] == p["top_roe"] else None}
     fy = [c for c in pl.columns if c != "TTM"] if not pl.empty else []
 
     # ---- quarterly
@@ -456,7 +464,7 @@ def metrics(p):
 
     # D/E, interest cover, CFO/PAT, ROCE mean nothing for lenders/insurers
     if m["fin"]:
-        m["de"] = m["icr"] = m["cfo_pat"] = m["roce3"] = None
+        m["de"] = m["icr"] = m["cfo_pat"] = m["roce3"] = m["roce_now"] = None
     return m
 
 
@@ -569,36 +577,6 @@ def detail(o):
     return "; ".join(parts)
 
 
-# ================================================================== scores
-def _pct(s):
-    """percentile rank 0-100 within the list; missing -> neutral 50."""
-    s = pd.Series(s, dtype=float)
-    if s.notna().sum() < 2:
-        return pd.Series(50.0, index=s.index)
-    return (s.rank(pct=True) * 100).fillna(50.0)
-
-
-def _z(s):
-    s = pd.Series(s, dtype=float)
-    sd = s.std()
-    if not sd or sd != sd:
-        return pd.Series(0.0, index=s.index)
-    return ((s - s.mean()) / sd).fillna(0.0)
-
-
-def add_scores(df):
-    """Quality: NSE quality-index method (FUNDAMENTALS.md s.3), z-scored
-    within the stocks being checked. EM: SUE + qtr profit YoY."""
-    fin = df["fin"].astype(bool)
-    zr, zv = _z(df["roe3"]), _z(df["eps_var"])
-    zd = _z(df["de"].where(~fin))
-    q = np.where(fin, 0.5 * zr - 0.5 * zv, 0.33 * zr - 0.33 * zd - 0.33 * zv)
-    df["quality_pct"] = _pct(pd.Series(q, index=df.index)
-                             .where(df["roe3"].notna()))
-    df["em_pct"] = (_pct(df["sue"]) + _pct(df["q_profit_yoy"])) / 2
-    df["watch_score"] = (W_RS * df["rs_rank"].fillna(50) +
-                         W_EM * df["em_pct"] + W_Q * df["quality_pct"]).round(1)
-    return df
 
 
 # ================================================================== input
@@ -621,142 +599,247 @@ def read_shortlist(path):
         for _, r in d.iterrows():
             out.append({"list": sheet, "symbol": str(r["Symbol"]).strip().upper(),
                         "action": r.get("Action", ""),
-                        "rs_rank": float(r["RS Rank"]),
-                        "price_scr": r.get("Price", np.nan)})
+                        "rs_rank": float(r["RS Rank"])})
     return pd.DataFrame(out)
 
 
 # ================================================================== excel
-def write_excel(path, sw, iv, wl, banner, shp_q):
-    from openpyxl import Workbook
+PP = "+0.00;-0.00;0.00"
+# (header, key, width, number format)
+COLS_SWING = [
+    ("Fund Check (info)", "swing_pass", 9, None),
+    ("Failed / Missing", "swing_detail", 36, None),
+    ("P/E", "pe", 7, "0.0"), ("ROCE %", "roce_now", 7, "0.0"),
+    ("ROE %", "roe_now", 7, "0.0"), ("3y ROE %", "roe3", 7, "0.0"),
+    ("D/E", "de", 6, "0.00"),
+    ("Qtr Profit YoY %", "q_profit_yoy", 9, "0.0"),
+    ("Qtr Sales YoY %", "q_sales_yoy", 9, "0.0"),
+    ("Pledge % (if flagged)", "pledge", 8, "0.0"),
+    ("Industry", "industry", 20, None),
+]
+COLS_INVEST = [
+    ("Fund Check (info)", "inv_pass", 9, None),
+    ("Failed / Missing", "inv_detail", 36, None),
+    ("P/E", "pe", 7, "0.0"), ("ROCE %", "roce_now", 7, "0.0"),
+    ("3y ROCE %", "roce3", 7, "0.0"), ("ROE %", "roe_now", 7, "0.0"),
+    ("3y ROE %", "roe3", 7, "0.0"), ("D/E", "de", 6, "0.00"),
+    ("Int. Cover x", "icr", 7, "0.0"), ("CFO/PAT 5y", "cfo_pat", 7, "0.00"),
+    ("3y Profit CAGR %", "profit_cagr3", 8, "0.0"),
+    ("3y Sales CAGR %", "sales_cagr3", 8, "0.0"),
+    ("Qtr Profit YoY %", "q_profit_yoy", 9, "0.0"),
+    ("Qtr Sales YoY %", "q_sales_yoy", 9, "0.0"),
+    ("Net NPA %", "nnpa", 7, "0.00"),
+    ("Pledge % (if flagged)", "pledge", 8, "0.0"),
+    ("Industry", "industry", 20, None),
+]
+COLS_HOLD = [("Promoter \u0394 (pp)", "d_prom", 9, PP),
+             ("FII \u0394 (pp)", "d_fii", 9, PP),
+             ("DII \u0394 (pp)", "d_dii", 9, PP)]
+COLS_FUND = [
+    ("Symbol", "symbol", 13, None), ("Action", "action", 8, None),
+    ("RS Rank", "rs_rank", 7, "0"), ("On sheets", "lists", 13, None),
+    ("Industry", "industry", 22, None),
+    ("Swing Check (info)", "swing_pass", 9, None),
+    ("Investing Check (info)", "inv_pass", 9, None),
+    ("Swing: Failed / Missing", "swing_detail", 34, None),
+    ("Investing: Failed / Missing", "inv_detail", 34, None),
+    ("P/E", "pe", 7, "0.0"), ("ROCE %", "roce_now", 7, "0.0"),
+    ("3y ROCE %", "roce3", 7, "0.0"), ("ROE %", "roe_now", 7, "0.0"),
+    ("3y ROE %", "roe3", 7, "0.0"), ("D/E", "de", 6, "0.00"),
+    ("Int. Cover x", "icr", 7, "0.0"), ("CFO/PAT 5y", "cfo_pat", 7, "0.00"),
+    ("Latest Qtr", "q_label", 9, None),
+    ("Qtr Profit YoY %", "q_profit_yoy", 9, "0.0"),
+    ("Qtr Sales YoY %", "q_sales_yoy", 9, "0.0"),
+    ("SUE % of price", "sue", 8, "0.00"),
+    ("3y Profit CAGR %", "profit_cagr3", 8, "0.0"),
+    ("3y Sales CAGR %", "sales_cagr3", 8, "0.0"),
+    ("Net NPA %", "nnpa", 7, "0.00"), ("ROA %", "roa", 7, "0.00"),
+    ("Pledge % (if flagged)", "pledge", 8, "0.0"),
+    ("Screener Cons (machine generated)", "cons_txt", 45, None),
+    ("Data", "basis", 11, None),
+] + COLS_HOLD
+FUND_MARK = "Fund Check (info)"      # first added header on Swing/Investing
+
+
+def _styles():
     from openpyxl.styles import Font, PatternFill, Alignment
-    from openpyxl.utils import get_column_letter
-
     F = "Arial"
-    head_font = Font(name=F, bold=True, color="FFFFFF")
-    head_fill = PatternFill("solid", fgColor="1F3864")
-    hold_fill = PatternFill("solid", fgColor="7F7F7F")
-    fills = {"PASS": PatternFill("solid", fgColor="C6EFCE"),
-             "FAIL": PatternFill("solid", fgColor="FFC7CE"),
-             "CHECK": PatternFill("solid", fgColor="FFEB9C")}
-    green, red = Font(name=F, color="006100"), Font(name=F, color="9C0006")
+    return {
+        "F": F, "Font": Font, "Alignment": Alignment,
+        "head": Font(name=F, bold=True, color="FFFFFF"),
+        "fill_main": PatternFill("solid", fgColor="1F3864"),
+        "fill_fund": PatternFill("solid", fgColor="375623"),
+        "fill_hold": PatternFill("solid", fgColor="7F7F7F"),
+        "status": {"PASS": PatternFill("solid", fgColor="C6EFCE"),
+                   "FAIL": PatternFill("solid", fgColor="FFC7CE"),
+                   "CHECK": PatternFill("solid", fgColor="FFEB9C")},
+        "green": Font(name=F, color="006100"),
+        "red": Font(name=F, color="9C0006"),
+    }
 
-    # (header, key, width, number format)
-    base = [("Symbol", "symbol", 13, None), ("Action", "action", 8, None),
-            ("RS Rank", "rs_rank", 8, "0"), ("Industry", "industry", 22, None)]
-    common = [("Qtr", "q_label", 9, None),
-              ("Qtr Profit YoY %", "q_profit_yoy", 10, "0.0"),
-              ("Qtr Sales YoY %", "q_sales_yoy", 10, "0.0"),
-              ("SUE % of price", "sue", 9, "0.00"),
-              ("3y ROE %", "roe3", 8, "0.0"), ("3y ROCE %", "roce3", 8, "0.0"),
-              ("D/E", "de", 7, "0.00")]
-    inv_extra = [("Int. Cover x", "icr", 8, "0.0"),
-                 ("CFO/PAT 5y", "cfo_pat", 8, "0.00"),
-                 ("3y Profit CAGR %", "profit_cagr3", 9, "0.0"),
-                 ("3y Sales CAGR %", "sales_cagr3", 9, "0.0"),
-                 ("Net NPA %", "nnpa", 8, "0.00"), ("ROA %", "roa", 7, "0.00")]
-    tail = [("Screener Cons (machine generated)", "cons_txt", 45, None),
-            ("Data", "basis", 11, None)]
-    hold = [("Promoter Δ (pp)", "d_prom", 10, "+0.00;-0.00;0.00"),
-            ("FII Δ (pp)", "d_fii", 10, "+0.00;-0.00;0.00"),
-            ("DII Δ (pp)", "d_dii", 10, "+0.00;-0.00;0.00")]
 
-    def sheet(ws, df, cols, status_key, notes):
-        for i, (h, _, w, _) in enumerate(cols, 1):
-            c = ws.cell(row=1, column=i, value=h)
-            c.font = head_font
-            c.fill = hold_fill if h.endswith("(pp)") else head_fill
-            c.alignment = Alignment(horizontal="center", vertical="center",
-                                    wrap_text=True)
-            ws.column_dimensions[get_column_letter(i)].width = w
-        ws.row_dimensions[1].height = 42
-        ws.freeze_panes = "B2"
-        for n, (_, r) in enumerate(df.iterrows(), start=2):
-            for i, (h, k, _, fmt) in enumerate(cols, 1):
-                v = r.get(k)
-                if v is None or (isinstance(v, float) and v != v):
-                    v = None
-                elif isinstance(v, (np.floating, np.integer)):
-                    v = float(v)
-                c = ws.cell(row=n, column=i, value=v)
-                c.font = Font(name=F)
-                if fmt:
-                    c.number_format = fmt
-                if h.endswith("(pp)") and isinstance(v, float) and v:
-                    c.font = green if v > 0 else red
-                if k in ("cons_txt", "detail"):
-                    c.alignment = Alignment(wrap_text=True, vertical="top")
-            st = r.get(status_key)
-            if st in fills:
-                for i, (h, k, _, _) in enumerate(cols, 1):
-                    if k == status_key:
-                        ws.cell(row=n, column=i).fill = fills[st]
-        last = ws.max_row
-        ws.auto_filter.ref = "A1:%s%d" % (get_column_letter(len(cols)),
-                                          max(last, 2))
-        for i, t in enumerate(notes):
-            c = ws.cell(row=last + 2 + i, column=1, value=t)
-            c.font = Font(name=F, italic=True, bold=(i == 0), color="404040")
+def _put(ws, row, col, v, fmt, key, st):
+    if v is None or (isinstance(v, float) and v != v):
+        v = None
+    elif isinstance(v, (np.floating, np.integer)):
+        v = float(v)
+    elif isinstance(v, np.bool_):
+        v = bool(v)
+    c = ws.cell(row=row, column=col, value=v)
+    c.font = st["Font"](name=st["F"])
+    if fmt:
+        c.number_format = fmt
+    if fmt == PP and isinstance(v, float) and v:
+        c.font = st["green"] if v > 0 else st["red"]
+    if isinstance(v, str) and v in st["status"] and key.endswith("_pass"):
+        c.fill = st["status"][v]
+    if key in ("cons_txt", "swing_detail", "inv_detail"):
+        c.alignment = st["Alignment"](wrap_text=True, vertical="top")
+    return c
 
-    hold_note = ("Last 3 grey columns = change in holding, percentage points, "
-                 "%s. INFO ONLY: no stock is removed or ranked by them. "
-                 "Quarterly data, published up to 21 days after quarter-end."
-                 % (shp_q or "latest quarter vs previous"))
-    common_notes = [
+
+def _header(ws, row, col, h, width, st, fill):
+    from openpyxl.utils import get_column_letter
+    c = ws.cell(row=row, column=col, value=h)
+    c.font, c.fill = st["head"], fill
+    c.alignment = st["Alignment"](horizontal="center", vertical="center",
+                                  wrap_text=True)
+    ws.column_dimensions[get_column_letter(col)].width = width
+
+
+def _table_rows(ws):
+    """Row numbers of the data table (column A symbols, stop at the first
+    empty row -- the screener writes notes after one blank row)."""
+    rows, r = [], 2
+    while ws.cell(row=r, column=1).value not in (None, ""):
+        rows.append(r)
+        r += 1
+    return rows
+
+
+def add_columns(ws, df, cols, st):
+    """Append fundamental columns to the right of an existing sheet.
+    Re-running replaces the previously added block."""
+    from openpyxl.utils import get_column_letter
+    last = ws.max_column
+    first = None
+    for c in range(1, last + 1):
+        if ws.cell(row=1, column=c).value == FUND_MARK:
+            first = c
+            break
+    if first is not None:                      # remove the old block
+        ws.delete_cols(first, last - first + 1)
+    width = 0
+    for c in range(1, ws.max_column + 1):
+        if ws.cell(row=1, column=c).value not in (None, ""):
+            width = c
+    start = width + 1
+    allc = cols + COLS_HOLD
+    for i, (h, k, w, _) in enumerate(allc):
+        fill = st["fill_hold"] if (h, k, w, _) in COLS_HOLD else st["fill_fund"]
+        _header(ws, 1, start + i, h, w, st, fill)
+    rows = _table_rows(ws)
+    by_sym = df.drop_duplicates("symbol").set_index("symbol")
+    for r in rows:
+        sym = str(ws.cell(row=r, column=1).value).strip().upper()
+        if sym not in by_sym.index:
+            continue
+        rec = by_sym.loc[sym]
+        for i, (h, k, w, fmt) in enumerate(allc):
+            _put(ws, r, start + i, rec.get(k), fmt, k, st)
+    end = start + len(allc) - 1
+    ws.auto_filter.ref = "A1:%s%d" % (get_column_letter(end),
+                                      max(rows[-1] if rows else 2, 2))
+    ws.row_dimensions[1].height = 42
+
+
+def fund_sheet(wb, df, banner, shp_q, st):
+    if "Fundamentals" in wb.sheetnames:
+        del wb["Fundamentals"]
+    ws = wb.create_sheet("Fundamentals")
+    for i, (h, k, w, _) in enumerate(COLS_FUND, 1):
+        fill = st["fill_hold"] if (h, k, w, _) in COLS_HOLD else (
+            st["fill_main"] if i <= 5 else st["fill_fund"])
+        _header(ws, 1, i, h, w, st, fill)
+    ws.row_dimensions[1].height = 42
+    ws.freeze_panes = "B2"
+    for n, (_, r) in enumerate(df.iterrows(), start=2):
+        for i, (h, k, w, fmt) in enumerate(COLS_FUND, 1):
+            _put(ws, n, i, r.get(k), fmt, k, st)
+    from openpyxl.utils import get_column_letter
+    last = ws.max_row
+    ws.auto_filter.ref = "A1:%s%d" % (get_column_letter(len(COLS_FUND)),
+                                      max(last, 2))
+    notes = [
         banner,
-        "PASS = all automated rules passed. FAIL = a rule failed (see Failed "
-        "/ Missing). CHECK = nothing failed but some data was missing.",
-        "In Failed / Missing: '?' = could not check, '!' = warning only.",
-        "BACKTEST 2018-26: this fundamental gate did NOT improve results "
-        "(2018-21 PASS stocks did worse). Information only -- the price "
-        "signal decides.",
-        "NOT checked automatically: pledge % (only if Screener's Cons "
-        "mention it), auditor resignation/qualification, SEBI/forensic "
-        "action. Check by hand before buying.",
+        "Every shortlisted stock that is not LATE, sorted by RS rank. "
+        "Nothing is removed because of fundamentals.",
+        "BACKTEST 2018-26 (backtest.py --fundamentals): the fundamental gate "
+        "did NOT improve results -- in 2018-21 PASS stocks did much worse than "
+        "FAIL stocks. Read these columns as information; the price signal "
+        "decides.",
+        "Check (info): PASS = all automated rules passed, FAIL = a rule failed, "
+        "CHECK = nothing failed but data was missing. '?' = could not check, "
+        "'!' = warning.",
         "Qtr Profit YoY for non-financials = profit before tax minus other "
-        "income. Loss or negative base = n/a.",
-        hold_note,
+        "income. Loss or negative base = n/a. P/E, ROCE %, ROE % = latest, "
+        "from Screener.",
+        "NOT checked automatically: pledge % (only if Screener's Cons mention "
+        "it), auditor resignation/qualification, SEBI/forensic action, bank "
+        "CRAR, insurer solvency.",
+        "Grey columns = change in holding, percentage points, %s. Quarterly "
+        "data, published up to 21 days after quarter-end."
+        % (shp_q or "latest quarter vs previous"),
     ]
+    for i, t in enumerate(notes):
+        c = ws.cell(row=last + 2 + i, column=1, value=t)
+        c.font = st["Font"](name=st["F"], italic=True, bold=(i == 0),
+                            color="404040")
+    return ws
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Watchlist"
-    sheet(ws, wl,
-          [("#", "rank", 4, "0")] + base +
-          [("Watch Score", "watch_score", 8, "0.0"),
-           ("Swing Fund", "swing_pass", 8, None),
-           ("Investing Fund", "inv_pass", 9, None),
-           ("Earnings Mom. pct", "em_pct", 9, "0"),
-           ("Quality pct", "quality_pct", 8, "0"),
-           ("Failed / Missing (swing)", "swing_detail", 40, None)] +
-          common + tail + hold,
-          "swing_pass",
-          [banner,
-           "Watchlist = shortlisted stocks that are not LATE and did not FAIL "
-           "the swing fundamental check, ranked by Watch Score.",
-           "Watch Score = 0.50 x RS rank + 0.25 x earnings momentum pct + "
-           "0.25 x quality pct (pct = rank within today's shortlist, 0-100).",
-           "This does NOT predict which stock will rise. In the 2018-26 "
-           "backtest, stocks that FAILED the swing check did as well or "
-           "better than PASS stocks.",
-           "Investing Fund is shown for information; Watchlist entry uses the "
-           "swing check only."] + common_notes[1:])
-    for title, df, extra, key, det in (
-            ("Swing", sw, [], "swing_pass", "swing_detail"),
-            ("Investing", iv, inv_extra, "inv_pass", "inv_detail")):
-        w = wb.create_sheet(title)
-        sheet(w, df,
-              base + [("FUND_PASS", key, 9, None),
-                      ("FUND_SCORE (Watch Score)", "watch_score", 10, "0.0"),
-                      ("Failed / Missing", det, 45, None)] +
-              common + extra + tail + hold,
-              key, common_notes)
+
+def _note_on_sheet(ws, text, st):
+    """One line under the screener's own notes."""
+    r = ws.max_row + 2
+    c = ws.cell(row=r, column=1, value=text)
+    c.font = st["Font"](name=st["F"], italic=True, color="375623", bold=True)
+
+
+def save_report(path, df, fund_df, banner, shp_q):
+    from openpyxl import load_workbook
+    st = _styles()
+    wb = load_workbook(path)
+    for sheet, cols, key in (("Swing", COLS_SWING, "Swing"),
+                             ("Investing", COLS_INVEST, "Investing")):
+        if sheet not in wb.sheetnames:
+            continue
+        ws = wb[sheet]
+        already = any(ws.cell(row=1, column=c).value == FUND_MARK
+                      for c in range(1, ws.max_column + 1))
+        add_columns(ws, df[df["list"] == key], cols, st)
+        if not already:
+            _note_on_sheet(ws, "Green columns = fundamentals from Screener.in "
+                           "(information only, backtest 2018-26 showed no "
+                           "benefit). Details: Fundamentals sheet.", st)
+    fund_sheet(wb, fund_df, banner, shp_q, st)
     try:
         wb.save(path)
     except PermissionError:
-        path = path.replace(".xlsx", "_%s.xlsx" % dt.datetime.now()
-                            .strftime("%H%M"))
-        wb.save(path)
+        alt = path.replace(".xlsx", "_fund.xlsx")
+        wb.save(alt)
+        print("! %s is open in Excel -- saved a copy instead." %
+              os.path.basename(path))
+        path = alt
+    return path
+
+
+def save_standalone(path, fund_df, banner, shp_q):
+    from openpyxl import Workbook
+    st = _styles()
+    wb = Workbook()
+    wb.remove(wb.active)
+    fund_sheet(wb, fund_df, banner, shp_q, st)
+    wb.save(path)
     return path
 
 
@@ -772,7 +855,7 @@ def main():
 
     if syms:
         short = pd.DataFrame({"list": "Swing", "symbol": syms, "action": "",
-                              "rs_rank": np.nan, "price_scr": np.nan})
+                              "rs_rank": np.nan})
         stamp = dt.date.today().isoformat()
         banner = "Manual symbol list | fundamentals from Screener.in on %s" % stamp
     else:
@@ -782,10 +865,8 @@ def main():
             sys.exit(1)
         print("Shortlist from %s" % os.path.basename(src))
         short = read_shortlist(src)
-        m = re.search(r"(\d{4}-\d{2}-\d{2})", os.path.basename(src))
-        stamp = m.group(1) if m else dt.date.today().isoformat()
-        banner = ("Shortlist: %s | fundamentals from Screener.in on %s"
-                  % (os.path.basename(src), dt.date.today().isoformat()))
+        banner = ("Fundamentals from Screener.in on %s for %s"
+                  % (dt.date.today().isoformat(), os.path.basename(src)))
     if short.empty:
         print("Shortlist is empty -- nothing to check.")
         return
@@ -817,7 +898,7 @@ def main():
         if m is None:
             d.update({"swing_pass": "CHECK", "inv_pass": "CHECK",
                       "swing_detail": "? no Screener data",
-                      "inv_detail": "? no Screener data", "fin": ""})
+                      "inv_detail": "? no Screener data"})
         else:
             d.update(m)
             so, io = swing_rules(m), invest_rules(m)
@@ -826,64 +907,58 @@ def main():
                       "cons_txt": " | ".join(m["cons"])})
         recs.append(d)
     df = pd.DataFrame(recs)
-    for c in ("roe3", "roce3", "de", "sue", "q_profit_yoy", "q_sales_yoy",
-              "eps_var"):
-        if c not in df:
-            df[c] = np.nan
-        df[c] = pd.to_numeric(df[c], errors="coerce")
-    for c in ("d_prom", "d_fii", "d_dii"):       # "n/a" = no such holder
-        if c not in df:
-            df[c] = np.nan
 
-    # score once per stock (a stock can sit on both lists)
-    one = df.drop_duplicates("symbol").set_index("symbol")
-    one = add_scores(one)
-    for c in ("quality_pct", "em_pct", "watch_score"):
-        df[c] = df["symbol"].map(one[c])
-
-    sw = df[df["list"] == "Swing"].sort_values("watch_score", ascending=False)
-    iv = df[df["list"] == "Investing"].sort_values("watch_score",
-                                                   ascending=False)
-    wl = df.drop_duplicates("symbol")
-    wl = wl[(wl["action"] != "LATE") & (wl["swing_pass"] != "FAIL")] \
-        .sort_values("watch_score", ascending=False).reset_index(drop=True)
-    wl["rank"] = wl.index + 1
+    # Fundamentals sheet: one row per stock, not LATE, sorted by RS rank
+    lists = df.groupby("symbol")["list"].apply(lambda x: " + ".join(x))
+    one = df.drop_duplicates("symbol").copy()
+    one["lists"] = one["symbol"].map(lists)
+    one = one[one["action"] != "LATE"].sort_values("rs_rank", ascending=False)
 
     shp_q = ""
     if "shp_q" in df and df["shp_q"].notna().any():
         shp_q = df["shp_q"].dropna().mode().iloc[0]
 
-    path = os.path.join(REPORTS, "RB_Fundamentals_%s.xlsx" % stamp)
     try:
-        path = write_excel(path, sw, iv, wl, banner, shp_q)
+        if syms:
+            path = save_standalone(os.path.join(
+                REPORTS, "RB_Fundamentals_%s.xlsx" % stamp), one, banner, shp_q)
+        else:
+            path = save_report(src, df, one, banner, shp_q)
     except ImportError:
-        path = os.path.join(REPORTS, "RB_Fundamentals_%s.csv" % stamp)
-        df.to_csv(path, index=False)
+        path = os.path.join(REPORTS, "RB_Fundamentals_%s.csv"
+                            % dt.date.today().isoformat())
+        one.to_csv(path, index=False)
         print("! openpyxl not installed (pip3 install openpyxl) -> CSV saved")
 
     # ---------------------------------------------------------- summary
-    pd.set_option("display.width", 200)
-    def fmt(x):
+    pd.set_option("display.width", 220)
+
+    def fmt(x, f="%+.2f"):
         if isinstance(x, str):
             return x
-        return "" if x is None or x != x else "%+.2f" % x
-    print("\n==== WATCHLIST (%d of %d shortlisted) ===="
-          % (len(wl), df["symbol"].nunique()))
-    if len(wl):
-        t = wl[["rank", "symbol", "action", "rs_rank", "watch_score",
-                "swing_pass", "inv_pass"]].copy()
-        for k, n in (("d_prom", "Prom"), ("d_fii", "FII"), ("d_dii", "DII")):
-            t[n] = wl[k].map(fmt)
+        return "" if x is None or x != x else f % x
+
+    print("\n==== FUNDAMENTALS (%d stocks, not LATE, by RS rank) -- info only ===="
+          % len(one))
+    if len(one):
+        t = pd.DataFrame({
+            "symbol": one["symbol"], "act": one["action"],
+            "RS": one["rs_rank"].map(lambda x: fmt(x, "%.0f")),
+            "swing": one["swing_pass"], "invest": one["inv_pass"],
+            "P/E": one.get("pe", pd.Series(dtype=float)).map(
+                lambda x: fmt(x, "%.0f")),
+            "ROCE": one.get("roce_now", pd.Series(dtype=float)).map(
+                lambda x: fmt(x, "%.0f")),
+            "qtrPrft%": one.get("q_profit_yoy", pd.Series(dtype=float)).map(
+                lambda x: fmt(x, "%.0f")),
+            "Prom": one.get("d_prom", pd.Series(dtype=object)).map(fmt),
+            "FII": one.get("d_fii", pd.Series(dtype=object)).map(fmt),
+            "DII": one.get("d_dii", pd.Series(dtype=object)).map(fmt)})
         print(t.to_string(index=False))
-    else:
-        print("  (none)")
-    fails = df[(df["list"] == "Swing") & (df["swing_pass"] == "FAIL")]
-    if len(fails):
-        print("\nSwing fundamentals FAIL: " + "; ".join(
-            "%s (%s)" % (r.symbol, "; ".join(r.swing_detail.split("; ")[:2]))
-            for r in fails.itertuples()))
     print("\nHolding change = %s, percentage points. Info only."
           % (shp_q or "latest vs previous quarter"))
+    print("Backtest 2018-26: the fundamental check did NOT improve results -- "
+          "nothing is removed.")
     print("Not checked: pledge (unless Screener flags it), auditor, SEBI.")
     print("\nExcel: %s" % path)
 

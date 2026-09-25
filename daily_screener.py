@@ -443,18 +443,16 @@ def write_excel(stamp, swing, inv, banner):
                "% vs Signal", "Stop (below Price)", "Exit: 40w MA",
                "Effective Exit (higher of the two)", "Risk to Exit %"],
           [13, 8, 8, 12, 12, 10, 11, 11, 9, 10, 12, 12, 15, 10])
-    ws["P1"], ws["Q1"] = "Stop %", 0.20
-    ws["P1"].font = Font(name=F, bold=True)
-    ws["Q1"].font = Font(name=F, color="0000FF")
-    ws["Q1"].number_format = "0%"
-    ws["Q1"].comment = Comment("Backtest rule: stop 20% below entry. "
-                               "Changing this changes the Stop column.", "RB")
+    # Stop % input sits BELOW the table (not in row 1), so fundamentals.py
+    # can add columns on the right and sorting/filtering stays safe.
+    stop_row = len(swing) + 3
+    stop_ref = "$F$%d" % stop_row
     for n, (_, r) in enumerate(ranked(swing).iterrows(), start=2):
         ws.append([r["symbol"], r["act"], int(r["rs_rank"]),
                    r["mcap_cr"], r["signal_date"], int(r["bars_ago"]),
                    float(r["signal_px"]), float(r["price"]), r["px_src"],
                    "=H%d/G%d-1" % (n, n),
-                   "=H%d*(1-$Q$1)" % n,
+                   "=H%d*(1-%s)" % (n, stop_ref),
                    float(r["exit_40w"]),
                    "=MAX(K%d,L%d)" % (n, n),
                    "=(H%d-M%d)/H%d" % (n, n, n)])
@@ -471,7 +469,14 @@ def write_excel(stamp, swing, inv, banner):
                 c.fill = fills[r["act"]]
     last = ws.max_row
     ws.auto_filter.ref = "A1:N%d" % max(last, 2)
-    add_notes(ws, last + 2, [
+    ws["A%d" % stop_row] = "Stop % below entry (edit to change the Stop column):"
+    ws["A%d" % stop_row].font = Font(name=F, bold=True)
+    c = ws["F%d" % stop_row]
+    c.value, c.number_format = 0.20, "0%"
+    c.font = Font(name=F, bold=True, color="0000FF")
+    c.comment = Comment("Backtest rule: stop 20% below entry. Changing this "
+                        "changes the Stop column.", "RB")
+    add_notes(ws, stop_row + 2, [
         banner,
         "BUY = signal on the last session; the backtest bought at the NEXT "
         "day's open.",

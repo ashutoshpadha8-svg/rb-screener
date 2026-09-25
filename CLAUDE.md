@@ -17,22 +17,24 @@
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
   dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
   data/                 # cached price history, NSE market-cap file, Dhan scrip master
-  reports/              # RB_Screener_YYYY-MM-DD.xlsx (sheets: Swing, Investing)
-                        # RB_Fundamentals_YYYY-MM-DD.xlsx (sheets: Watchlist, Swing, Investing)
+  reports/              # RB_Screener_YYYY-MM-DD.xlsx (sheets: Swing, Investing; fundamentals.py
+                        #   adds green columns to both + a Fundamentals sheet in the SAME file)
 ```
 Shortcut: `rbscan` (zsh alias) = `python3 ~/Desktop/RB_Screener/daily_screener.py`.
 Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
 then `python3 ~/Desktop/RB_Screener/fundamentals.py` (reads the latest RB_Screener report, ~3 s per stock).
 
 ## How fundamentals.py works
-- Input: latest reports/RB_Screener_*.xlsx (or `--file PATH`, or `--symbols A,B`). Only the shortlist is checked.
+- Input: latest reports/RB_Screener_*.xlsx (or `--file PATH`). `--symbols A,B` writes a separate RB_Fundamentals file.
 - Data: free public Screener.in company page (consolidated, falls back to standalone when history is short;
   bank/NBFC NPA always from standalone). Pages cached per day in data/screener_pages/. 2.5 s pause per request.
-- FUNDAMENTALS.md s.9 checklists, separately for Swing and Investing -> PASS / FAIL / CHECK (missing data = CHECK).
-- Watchlist sheet = not LATE and swing check not FAIL, ranked by Watch Score = 0.50 RS + 0.25 earnings-momentum pct
-  + 0.25 quality pct (pct within today's shortlist). Untested weights.
-- Last 3 columns everywhere: Promoter / FII / DII holding change in percentage points, latest qtr vs previous.
-  RB's rule: INFO ONLY, never removes or ranks a stock.
+- Writes INTO the same RB_Screener file (close it in Excel first; if open it saves *_fund.xlsx):
+  Swing / Investing: green columns on the right (Fund Check (info), Failed/Missing, P/E, ROCE, ROE, D/E, growth,
+  pledge, industry) + grey Promoter/FII/DII change columns. No row removed or re-ordered.
+  Fundamentals sheet: every non-LATE stock, sorted by RS rank, full detail + Screener Cons.
+- RB's rule + backtest: fundamentals NEVER remove a stock (the gate showed no benefit 2018-26). Watch Score removed.
+- Re-running on the same day replaces its own columns/sheet (no duplicates).
+- Swing sheet "Stop %" input now sits under the table (column F), not in Q1, so added columns can be sorted safely.
 - Not automated: pledge % (only if Screener's Cons mention it), auditor, SEBI, bank CRAR, insurer solvency.
 
 ## How daily_screener.py works
@@ -112,7 +114,7 @@ YoY >= 20, total revenue YoY >= 15, 3y ROE >= 10, D/E <= 1.5; pledge/auditor unt
 - Portfolio "PASS only" variants look better sometimes, but that is fewer candidates / different slot timing,
   not fundamentals (trade-level says so).
 - VERDICT: the fundamental gate does NOT improve this system. Keep fundamentals.py as information only.
-  The Watchlist dropping swing-FAIL stocks and the Watch Score weights are NOT supported by the backtest.
+  -> Watchlist FAIL-exclusion and Watch Score removed (26 Sep 2026, RB agreed).
 
 ## Fundamental layer (research done)
 Order of checks: 1) red flags (promoter pledge > 20% = out, auditor resignation/qualification, SEBI/forensic action)
@@ -142,7 +144,7 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 ## Pending / next steps
 1. DONE (v2): position_tracker.py uses Dhan gap-fill + live price + client ID from token; fixed M&M history filename bug.
 2. DONE: backtest.py pit10k + portfolio study (see above). Next: add tax (STCG/LTCG) to the portfolio sim.
-3. DONE: fundamentals.py (v1) + gate backtested (no benefit, see above). Decide: keep Watchlist FAIL-exclusion or not.
+3. DONE: fundamentals.py v2 (columns + Fundamentals sheet in the same file, nothing removed); gate backtested (no benefit).
 4. DONE: RS >= 85 worse in both halves -> keep RS >= 70.
 5. DONE: 20 slots beat 10 slots in both halves -> keep 20 x 5%.
 6. Paper-trade 2-3 months before real money on the new universe.
