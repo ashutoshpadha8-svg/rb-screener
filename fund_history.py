@@ -91,8 +91,10 @@ def fetch(sym, cache_dir):
                        ("cf", "cashflow/%s/annual/normal?count=20")):
             j = _get("/stocks/financials/" + p % sid)
             d[key] = (j or {}).get("data") or []
-    with open(path, "w") as f:
+    tmp = path + ".tmp%d" % os.getpid()
+    with open(tmp, "w") as f:
         json.dump(d, f)
+    os.replace(tmp, path)            # atomic: readers never see half a file
     return d if sid else None
 
 
