@@ -36,6 +36,8 @@ RUN
   python3 ~/Desktop/RB_Screener/backtest.py                 (pit10k)
   python3 ~/Desktop/RB_Screener/backtest.py --universe b173
   python3 ~/Desktop/RB_Screener/backtest.py --check-mcap
+  python3 ~/Desktop/RB_Screener/backtest.py --portfolio   (slots, CAGR,
+            drawdown vs Nifty; improvement ideas in- and out-of-sample)
   options: --start 2012-01-01  --rs-min 70  --min-load 1000
            --overlap  (count every signal day as a trade, even while the
                        stock is already held -- inflates trade count)
@@ -71,6 +73,8 @@ STOP = 0.20
 RS_MIN = 70              # Trend Template RS floor (Weinstein uses > 50)
 INV_BARS = 10            # investing exit: closes below falling 30w MA
 THREADS = 8
+CASH_RATE = 0.06         # idle cash in a liquid fund, per year (--cash 0 to drop)
+PORT_START = "2013-01-01"  # first full year with signals (data starts 2012)
 
 
 # ================================================================== data
@@ -214,6 +218,8 @@ def simulate(P, sig, rs, ma150, ma200, start, overlap=False):
             if not overlap:
                 busy_until = sx      # one swing trade per stock at a time
             rows.append({
+                "col": j, "k_sig": k, "k_in": k + 1, "k_out": sx,
+                "k_iout": ix,
                 "symbol": sym.upper(), "signal": cal[k].date(),
                 "rs": round(float(rsv[k, j]), 1),
                 "entry_date": cal[k + 1].date(), "entry": round(e, 2),
@@ -267,6 +273,140 @@ def report(t, label):
                               inv_avg=("inv_ret", lambda x: 100 * x.mean()))
     print("\n  by entry year (swing avg %, investing avg %):")
     print(y.to_string(float_format=lambda x: "%.1f" % x))
+
+
+# ================================================================== portfolio
+def run_portfolio(P, cand, slots=20, exit_kind="swing", start_k=0, end_k=None,
+                  cash_rate=CASH_RATE, expo=None):
+    """Daily portfolio: equal slots (equity / slots at entry, capped by
+    cash), new signals ranked by RS, one position per stock. Cash earns 0.
+    cand = trades from simulate(..., overlap=True): every signal day with
+    its own swing and investing exit. Returns the daily equity Series."""
+    C = P["Close"].ffill().values
+    cal = P["Close"].index
+    n = len(cal) if end_k is None else end_k
+    ko = "k_out" if exit_kind == "swing" else "k_iout"
+    po = "exit" if exit_kind == "swing" else "inv_exit"
+    c = cand[(cand.k_in >= start_k) & (cand.k_in < n)]
+    by_day = {k: g.sort_values("rs", ascending=False)
+              for k, g in c.groupby("k_in")}
+    cash, pos = 1.0, {}          # col -> [shares, k_out, exit_px]
+    eq = np.full(n, np.nan)
+    inv = np.full(n, np.nan)
+    day_rate = (1 + cash_rate) ** (1 / 252) - 1
+    for t in range(start_k, n):
+        cash *= 1 + day_rate
+        # exits first (scheduled at this bar's open / stop)
+        for col in [cc for cc, p_ in pos.items() if p_[1] <= t]:
+            sh, _, px = pos.pop(col)
+            if px is None:               # cut off by the window end
+                px = C[t, col]
+            cash += sh * px * (1 - COST)
+        # entries at today's open
+        if t in by_day and len(pos) < slots:
+            mark = cash + sum(p_[0] * C[t - 1, cc] for cc, p_ in pos.items()
+                              if C[t - 1, cc] == C[t - 1, cc])
+            for r in by_day[t].itertuples():
+                if len(pos) >= slots:
+                    break
+                if r.col in pos:
+                    continue
+                exit_k = getattr(r, ko)
+                if exit_k >= n:          # would exit after the window end
+                    exit_k = n - 1
+                amt = min(mark / slots, cash)
+                if amt <= 0:
+                    break
+                sh = amt / (r.entry * (1 + COST))
+                cash -= amt
+                px = getattr(r, po) if exit_k == getattr(r, ko) else None
+                pos[r.col] = [sh, exit_k, px]
+        eq[t] = cash + sum(p_[0] * C[t, cc] for cc, p_ in pos.items()
+                           if C[t, cc] == C[t, cc])
+        inv[t] = 1 - cash / eq[t]
+    if expo is not None:
+        expo.append(np.nanmean(inv[start_k:n]))
+    return pd.Series(eq[start_k:n], index=cal[start_k:n])
+
+
+def perf(e):
+    e = e.dropna()
+    if len(e) < 2:
+        return {}
+    yrs = (e.index[-1] - e.index[0]).days / 365.25
+    cagr = (e.iloc[-1] / e.iloc[0]) ** (1 / yrs) - 1
+    dd = (e / e.cummax() - 1).min()
+    r = e.pct_change().dropna()
+    return {"CAGR%": 100 * cagr, "maxDD%": 100 * dd,
+            "vol%": 100 * r.std() * np.sqrt(252),
+            "CAGR/DD": cagr / -dd if dd < 0 else np.nan}
+
+
+def portfolio_study(P, sig_fn, universe, start, split="2020-01-01",
+                    cash_rate=CASH_RATE):
+    """Pre-registered variants, judged in-sample AND out-of-sample."""
+    cal = P["Close"].index
+    k0 = cal.searchsorted(max(pd.Timestamp(start), pd.Timestamp(PORT_START)))
+    ks = cal.searchsorted(pd.Timestamp(split))
+    bm = P["BM"].ffill()
+    regime = (bm > bm.rolling(200).mean()).values      # Nifty > 200DMA
+    cands = {}
+    for rsm in (70, 85):
+        sig, rs, m150, m200 = sig_fn(P, universe, rsm)
+        cands[rsm] = simulate(P, sig, rs, m150, m200, start, overlap=True)
+    variants = [
+        ("BASE  20 slots, swing exit", 70, False, 20, "swing"),
+        ("+ Nifty > 200DMA filter", 70, True, 20, "swing"),
+        ("RS >= 85", 85, False, 20, "swing"),
+        ("RS >= 85 + Nifty filter", 85, True, 20, "swing"),
+        ("10 slots", 70, False, 10, "swing"),
+        ("investing (Stage 4) exit", 70, False, 20, "invest"),
+        ("investing exit + Nifty filter", 70, True, 20, "invest"),
+    ]
+    out, curves = [], {}
+    for name, rsm, reg, sl, ex in variants:
+        c = cands[rsm]
+        if reg:
+            c = c[regime[c.k_sig.values]]
+        row = {"variant": name}
+        for tag, a_, b_ in (("IS 13-19", k0, ks), ("OOS 20-26", ks, None),
+                            ("FULL", k0, None)):
+            ex_ = [] if tag == "FULL" else None
+            e = run_portfolio(P, c, sl, ex, a_, b_, cash_rate, ex_)
+            p_ = perf(e)
+            if ex_:
+                row["invested%"] = 100 * ex_[0]
+            row[tag + " CAGR"] = p_.get("CAGR%")
+            row[tag + " DD"] = p_.get("maxDD%")
+            if tag == "FULL":
+                curves[name] = e
+                row["trades"] = int(((c.k_in >= k0)).sum())
+        out.append(row)
+    for tag, a_, b_ in (("IS 13-19", k0, ks), ("OOS 20-26", ks, None),
+                        ("FULL", k0, None)):
+        e = bm.iloc[a_:b_]
+        p_ = perf(e / e.iloc[0])
+        out_row = next((o for o in out if o["variant"] == "NIFTY 50 buy & hold"),
+                       None)
+        if out_row is None:
+            out_row = {"variant": "NIFTY 50 buy & hold"}
+            out.append(out_row)
+        out_row[tag + " CAGR"] = p_["CAGR%"]
+        out_row[tag + " DD"] = p_["maxDD%"]
+    curves["NIFTY 50 buy & hold"] = bm.iloc[k0:] / bm.iloc[k0]
+    d = pd.DataFrame(out).set_index("variant").drop(columns="trades",
+                                                    errors="ignore")
+    print("\nPORTFOLIO from %s | idle cash earns %.1f%%/yr | Nifty = price "
+          "index, no dividends (~1.3%%/yr)" % (cal[k0].date(), cash_rate * 100))
+    print(d.to_string(float_format=lambda x: "%.1f" % x))
+    yearly = pd.DataFrame({k: v.resample("YE").last().pct_change() * 100
+                           for k, v in curves.items()})
+    yearly.iloc[0] = [v.resample("YE").last().iloc[0] / v.iloc[0] * 100 - 100
+                      for v in curves.values()]
+    yearly.index = yearly.index.year
+    print("\nCalendar-year returns %:")
+    print(yearly.T.to_string(float_format=lambda x: "%.0f" % x))
+    return d, curves
 
 
 # ================================================================== mcap check
@@ -367,6 +507,15 @@ def main():
     else:
         universe = pd.DataFrame(True, index=P["Close"].index, columns=cols)
         universe = universe & P["Close"].notna()
+
+    if "--portfolio" in a:
+        print("Portfolio study (7 variants x 3 periods, takes a few minutes)")
+        d, curves = portfolio_study(P, signals, universe, start,
+                                    cash_rate=float(opt("--cash", CASH_RATE)))
+        path = os.path.join(ds.REPORTS, "backtest_%s_portfolio.csv" % uni)
+        pd.DataFrame(curves).to_csv(path)
+        print("\nEquity curves saved: %s" % path)
+        return
 
     print("Computing signals ...")
     sig, rs, ma150, ma200 = signals(P, universe, rs_min)

@@ -78,6 +78,23 @@ Stop = day's LOW touching entry*0.8. Exits: 40w MA close -> next open. Investing
 - Market-cap estimate (today's mcap x price ratio) vs real NSE MCAP files 2024-26: median error ~2.5%,
   ~96-98% of the >= 10k list matches. NSE PR zips only carry MCAP csv from ~2024.
 
+## Portfolio study (backtest.py --portfolio, pit10k, 2013-01 to 2026-09, idle cash 6%/yr, 0.25%/side)
+Equal slots (equity/slots at entry), new signals ranked by RS, one position per stock. Pre-registered variants,
+judged in-sample 2013-19 AND out-of-sample 2020-26 (each half starts from cash). ~89% invested on average.
+| Variant | IS CAGR | OOS CAGR | FULL CAGR | FULL maxDD |
+|---|---|---|---|---|
+| BASE 20 slots, swing exit | 10.4 | 11.4 | 12.4 | -39.7 |
+| + Nifty > 200DMA entry filter | 9.4 | 13.4 | 13.8 | -34.7 |
+| RS >= 85 | 8.9 | 10.7 | 12.1 | -41.5 |
+| 10 slots | 8.4 | 10.1 | 10.4 | -41.4 |
+| investing (Stage 4) exit | 10.1 | 18.2 | 14.7 | -39.5 |
+| NIFTY 50 price index (no dividends, TR ~ +1.3%/yr) | 10.8 | 10.2 | 10.5 | -38.4 |
+- Verdict: swing system ~= Nifty total return with the same ~-40% drawdown, BEFORE tax (swing gains mostly STCG).
+- RS >= 85 and 10 slots: worse in both halves -> rejected (pending #4, #5 answered: keep RS 70, 20 slots).
+- Nifty filter: worse in-sample, better out-of-sample -> not proven, not adopted (does cut DD ~5 pts).
+- Investing exit: equal in-sample, much better out-of-sample -> best candidate, but evidence is only 2020-26.
+- Result depends a lot on the start date (cold start Jan 2020 = 11.4%; same years inside the full run = 14.4%).
+
 ## Fundamental layer (research done, not yet coded)
 Order of checks: 1) red flags (promoter pledge > 20% = out, auditor resignation/qualification, SEBI/forensic action)
 2) quality (ROE/ROCE >= 15% investing, >= 10-12% swing; D/E <= 1 non-financials; CFO/PAT >= 0.7-0.8 over 3-5 yrs; no loss year in 5-6 yrs)
@@ -97,8 +114,8 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 
 ## Pending / next steps
 1. DONE (v2): position_tracker.py uses Dhan gap-fill + live price + client ID from token; fixed M&M history filename bug.
-2. DONE: backtest.py pit10k (see results above). Next: portfolio simulation (slots/sizing, CAGR, drawdown) vs Nifty.
+2. DONE: backtest.py pit10k + portfolio study (see above). Next: add tax (STCG/LTCG) to the portfolio sim.
 3. DONE (v1): fundamentals.py. Next: verify on a real rbscan day; later backtest the gate with result broadcast dates.
-4. Test RS >= 85 filter effect on win rate vs total return.
-5. Position sizing: backtest used 20 slots x 5% each; 20% stop = ~1% capital risk per trade.
+4. DONE: RS >= 85 worse in both halves -> keep RS >= 70.
+5. DONE: 20 slots beat 10 slots in both halves -> keep 20 x 5%.
 6. Paper-trade 2-3 months before real money on the new universe.
