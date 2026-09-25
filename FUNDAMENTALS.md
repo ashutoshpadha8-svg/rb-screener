@@ -1,6 +1,11 @@
 # FUNDAMENTALS.md — Fundamental layer for RB_Screener
 
 Research done 24 Sep 2026 (claude.ai session). Read together with CLAUDE.md.
+
+> BACKTEST RESULT (26 Sep 2026, backtest.py --fundamentals, 2018-2026, point-in-time):
+> the section 9 swing gate did NOT help this price system - in 2018-21 PASS stocks did far worse
+> than FAIL stocks, in 2022-26 no difference. The index evidence in section 2 does not carry over to
+> "fundamentals on top of a Stage-2 breakout". Details in CLAUDE.md. Use as information only.
 Goal: add a fundamental check on top of the technical screener (Weinstein + Minervini + RS)
 for NSE stocks with market cap >= Rs 10,000 Cr, separately for SWING and INVESTING lists.
 

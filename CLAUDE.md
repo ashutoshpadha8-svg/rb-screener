@@ -96,7 +96,25 @@ judged in-sample 2013-19 AND out-of-sample 2020-26 (each half starts from cash).
 - Investing exit: equal in-sample, much better out-of-sample -> best candidate, but evidence is only 2020-26.
 - Result depends a lot on the start date (cold start Jan 2020 = 11.4%; same years inside the full run = 14.4%).
 
-## Fundamental layer (research done, not yet coded)
+## Fundamental gate backtest (backtest.py --fundamentals, 26 Sep 2026)
+Data: Tickertape API history (fund_history.py), ~Sep 2016 on; each quarter used only from the SEBI deadline
+(+45 days, Mar quarter +60) + 2 days -> no look-ahead from timing. Same rules as fundamentals.py (swing: qtr PBT
+YoY >= 20, total revenue YoY >= 15, 3y ROE >= 10, D/E <= 1.5; pledge/auditor untestable). Signals 2018-2026, pit10k.
+148 of 599 symbols not on Tickertape (renamed / newer listings) = NODATA, excluded from the comparison
+(NODATA holds big 2020-24 winners - ADANIENSOL, IRFC, MAZDOCK - and fakes a "gate" benefit if left in).
+| Trades (investing exit), swing verdict | 2018-21 avg | 2022-26 avg |
+|---|---|---|
+| fundamentals FAIL | +26.4% (281) | +18.2% (576) |
+| fundamentals PASS | +3.9% (146) | +18.3% (203) |
+- 2018-21: PASS was worse than 100% of random same-size subsets. 2022-26: no difference.
+- One rule at a time (swing leg, all years): profit YoY >= 20 no effect (11.5 vs 10.4%), sales YoY >= 15 small +
+  (14.2 vs 11.9%), ROE >= 10 slightly worse (13.7 vs 16.2%), D/E <= 1.5 worse (9.9 vs 28.5%, only 75 fails).
+- Portfolio "PASS only" variants look better sometimes, but that is fewer candidates / different slot timing,
+  not fundamentals (trade-level says so).
+- VERDICT: the fundamental gate does NOT improve this system. Keep fundamentals.py as information only.
+  The Watchlist dropping swing-FAIL stocks and the Watch Score weights are NOT supported by the backtest.
+
+## Fundamental layer (research done)
 Order of checks: 1) red flags (promoter pledge > 20% = out, auditor resignation/qualification, SEBI/forensic action)
 2) quality (ROE/ROCE >= 15% investing, >= 10-12% swing; D/E <= 1 non-financials; CFO/PAT >= 0.7-0.8 over 3-5 yrs; no loss year in 5-6 yrs)
 3) earnings momentum (latest qtr profit YoY >= 20-25%, sales YoY >= 15-20%, not decelerating 2 qtrs; watch other income)
@@ -116,14 +134,15 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   Keep entry_date in split.csv correct (YYYY-MM-DD) or only today's bar is checked.
 - Screener and backtest.py give identical signals (checked 25 Sep 2026: 52 signals in 20 sessions,
   43 FIT/LATE + 9 NO-FIT, zero mismatches).
-- NSE / BSE APIs block cloud servers (403). Tickertape API works (fund_history.py).
+- NSE / BSE APIs block cloud servers (403). Tickertape API works (fund_history.py). Tickertape search still
+  lists some OLD tickers (MOTHERSON -> MOTHERSUMI); a single EXACT match is accepted.
 - FIT has no lower bound: a stock can be FIT at -19% vs signal (NIACL, 25 Sep) = right above the
   original stop. The terminal now prints % vs signal for every FIT name.
 
 ## Pending / next steps
 1. DONE (v2): position_tracker.py uses Dhan gap-fill + live price + client ID from token; fixed M&M history filename bug.
 2. DONE: backtest.py pit10k + portfolio study (see above). Next: add tax (STCG/LTCG) to the portfolio sim.
-3. DONE (v1): fundamentals.py. Next: verify on a real rbscan day; later backtest the gate with result broadcast dates.
+3. DONE: fundamentals.py (v1) + gate backtested (no benefit, see above). Decide: keep Watchlist FAIL-exclusion or not.
 4. DONE: RS >= 85 worse in both halves -> keep RS >= 70.
 5. DONE: 20 slots beat 10 slots in both halves -> keep 20 x 5%.
 6. Paper-trade 2-3 months before real money on the new universe.

@@ -24,9 +24,10 @@ FUND_PASS
   Missing data is never a silent PASS.
 
 IMPORTANT
-  * None of these thresholds or the Watch Score are backtested. They are
-    practitioner conventions (FUNDAMENTALS.md). The screener's signal rules
-    are untouched -- this is an extra layer to read, not a new signal.
+  * BACKTESTED (backtest.py --fundamentals, 2018-2026, point-in-time):
+    the swing gate did NOT help -- in 2018-21 PASS stocks did much worse
+    than FAIL stocks, in 2022-26 no difference. Treat every column here
+    as information. The Watch Score weights are not supported either.
   * Screener.in data is restated and has no result dates: fine for live
     screening, useless for backtests.
   * Pledge %, auditor issues and SEBI action are NOT on the free page.
@@ -706,8 +707,9 @@ def write_excel(path, sw, iv, wl, banner, shp_q):
         "PASS = all automated rules passed. FAIL = a rule failed (see Failed "
         "/ Missing). CHECK = nothing failed but some data was missing.",
         "In Failed / Missing: '?' = could not check, '!' = warning only.",
-        "Thresholds come from FUNDAMENTALS.md. NOT backtested. The price "
-        "signal is unchanged -- read this as extra information.",
+        "BACKTEST 2018-26: this fundamental gate did NOT improve results "
+        "(2018-21 PASS stocks did worse). Information only -- the price "
+        "signal decides.",
         "NOT checked automatically: pledge % (only if Screener's Cons "
         "mention it), auditor resignation/qualification, SEBI/forensic "
         "action. Check by hand before buying.",
@@ -734,8 +736,9 @@ def write_excel(path, sw, iv, wl, banner, shp_q):
            "the swing fundamental check, ranked by Watch Score.",
            "Watch Score = 0.50 x RS rank + 0.25 x earnings momentum pct + "
            "0.25 x quality pct (pct = rank within today's shortlist, 0-100).",
-           "This does NOT predict which stock will rise. The weights are "
-           "untested practitioner guesses (FUNDAMENTALS.md s.6).",
+           "This does NOT predict which stock will rise. In the 2018-26 "
+           "backtest, stocks that FAILED the swing check did as well or "
+           "better than PASS stocks.",
            "Investing Fund is shown for information; Watchlist entry uses the "
            "swing check only."] + common_notes[1:])
     for title, df, extra, key, det in (

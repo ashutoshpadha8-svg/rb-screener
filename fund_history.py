@@ -67,9 +67,15 @@ def _get(path):
 
 def _sid(sym):
     j = _get("/search?text=%s&types=stock" % requests.utils.quote(sym))
-    for s in ((j or {}).get("data") or {}).get("stocks") or []:
+    hits = ((j or {}).get("data") or {}).get("stocks") or []
+    for s in hits:
         if str(s.get("ticker", "")).upper() == sym.upper():
             return s.get("sid"), s.get("sector") or ""
+    # Tickertape sometimes still lists the OLD ticker (MOTHERSON is shown
+    # as MOTHERSUMI). Accept it only when it is the single EXACT match.
+    exact = [s for s in hits if s.get("match") == "EXACT"]
+    if len(exact) == 1:
+        return exact[0].get("sid"), exact[0].get("sector") or ""
     return None, ""
 
 

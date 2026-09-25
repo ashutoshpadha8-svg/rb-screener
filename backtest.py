@@ -537,14 +537,20 @@ def fundamentals_study(P, universe, start):
     # ---------------------------------------------------------- portfolio
     k0 = cal.searchsorted(fs)
     ks = cal.searchsorted(pd.Timestamp(FUND_SPLIT))
+    # compare ONLY stocks that have fundamental data; NODATA (mostly
+    # renamed / newer symbols Tickertape does not know) is shown apart --
+    # it holds big 2020-24 winners and would fake a "gate" benefit.
+    cd = cand[cand.sw_verdict != "NODATA"]
     variants = [
-        ("BASE swing exit", cand, "swing"),
-        ("swing, skip fund FAIL", cand[cand.sw_verdict != "FAIL"], "swing"),
-        ("investing exit", cand, "invest"),
-        ("investing exit, skip inv FAIL", cand[cand.in_verdict != "FAIL"],
+        ("swing exit, all with data", cd, "swing"),
+        ("swing exit, swing PASS only", cd[cd.sw_verdict == "PASS"], "swing"),
+        ("investing exit, all with data", cd, "invest"),
+        ("investing exit, inv PASS only", cd[cd.in_verdict == "PASS"],
          "invest"),
-        ("investing exit, skip swing FAIL", cand[cand.sw_verdict != "FAIL"],
+        ("investing exit, swing PASS only", cd[cd.sw_verdict == "PASS"],
          "invest"),
+        ("(artifact check) NODATA only, inv exit",
+         cand[cand.sw_verdict == "NODATA"], "invest"),
     ]
     out = []
     for name, c, ex in variants:
