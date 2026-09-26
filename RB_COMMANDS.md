@@ -164,3 +164,31 @@ python3 ~/Desktop/RB_Screener/position_tracker.py --no-news
 | Excel `_fund.xlsx` bani | Excel khuli thi -> band karke rbscan phir |
 
 Error aaye to aakhri 15 lines Claude ko paste karo (token / keys ke bina).
+
+---
+
+## 9. Angel One API — naya account jodna (ek baar)
+
+1. Apna IP nikaalo:  `curl -4 -s https://api.ipify.org ; echo`
+2. **smartapi.angelone.in** -> Angel client ID se login -> **+ ADD APP**
+   - App Name: `RB_Screener`
+   - Redirect URL: `https://www.angelone.in`  (127.0.0.1 invalid batata hai)
+   - Post back URL: khaali
+   - Primary Static IP: step 1 wala number;  Secondary: khaali
+   - Add -> table mein **API Key** (aankh icon se dikhegi)
+3. Upar menu **Enable TOTP** -> client ID + MPIN + OTP -> QR ke saath **lamba text code**
+   (A-Z, 2-7) copy karo = TOTP Secret. QR ko Google Authenticator mein bhi scan karo.
+4. `rbtoken` -> token.txt:
+```
+Broker: ANGEL
+Client ID: <Angel client code>
+Name: <naam>
+Token: AUTO
+API Key: <step 2>
+MPIN: <4-digit MPIN>
+TOTP Secret: <step 3>
+```
+5. `rbcheck` -> "token confirmed for Angel One ..." + funds + RELIANCE price.
+
+Yaad rakho: IP hafte mein sirf 1 baar badal sakte ho (SmartAPI page). Ghar ka IP badla -> Angel ORDERS
+reject honge (prices/scan chalte rahenge). API key / MPIN / TOTP ka screenshot kabhi nahi.
