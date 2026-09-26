@@ -19,16 +19,20 @@
   fusion_backtest.py    # Fusion vs W+TT, cash + stock futures, real Dhan costs + Indian tax
   fno_data.py           # downloads NSE F&O bhavcopy history (2013+) into data/fno/
   strategy_lab.py       # 16 pre-registered strategies (momentum, low-vol, mean reversion, timing) vs baselines
+  momentum_screener.py  # LIVE momentum (RAMOM top 20, sector cap 4) -> Momentum_Top20 + Strategy_Comparison sheets
+  auto_tracker_update.py# rbtrack: rows with Action=BUY in Strategy_Comparison -> split.csv (no duplicates)
+  split.csv             # tracker positions: symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,note
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
   dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
   data/                 # cached price history, NSE market-cap file, Dhan scrip master
   reports/              # RB_Screener_YYYY-MM-DD.xlsx (sheets: Swing, Investing; fundamentals.py
                         #   adds green columns to both + a Fundamentals sheet in the SAME file)
 ```
-Shortcut: `rbscan` (zsh alias, since 25 Sep 2026) = screener THEN fundamentals:
-`python3 ~/Desktop/RB_Screener/daily_screener.py && python3 ~/Desktop/RB_Screener/fundamentals.py`
-(fundamentals only runs if the screener succeeded; ~3 s per shortlisted stock).
-Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`.
+Shortcut: `rbscan` (zsh alias, since 26 Sep 2026) = daily_screener -> momentum_screener -> fundamentals
+(each step only runs if the previous one succeeded). `rbtrack` = auto_tracker_update.py.
+Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
+review Strategy_Comparison, type BUY in Action for what you bought, save, close Excel, then `rbtrack`.
+Momentum trades only on the 1st trading day of the month; keep while rank <= 40 (position_tracker shows it).
 
 ## How fundamentals.py works
 - Input: latest reports/RB_Screener_*.xlsx (or `--file PATH`). `--symbols A,B` writes a separate RB_Fundamentals file.
@@ -174,6 +178,20 @@ Rank strategies = monthly top-N equal weight, keep while rank < 2N. Post-tax CAG
   the universe - it lives on a few big winners), Fusion +2.4%, 52WH +0.5%, low-vol -1.6%.
 - 16 strategies tested -> discount the winner. Momentum was expected to win from prior research (not a data-mined pick).
 
+## Momentum enhancements (tested 26 Sep 2026 before coding, RAMOM top 20, post-tax CAGR %)
+| Variant | 2013-19 | 2020-26 | FULL | maxDD | Verdict |
+|---|---|---|---|---|---|
+| BASE | 11.7 | 25.7 | 18.3 | -42.8 | |
+| + sector cap 4 (NSE industry) | 11.9 | 27.7 | 20.3 | -37.0 | ON (better in both halves) |
+| + ATR sizing (0.5x-2x) | 11.9 | 22.9 | 17.3 | -36.0 | OFF by default (switch ATR_SIZING) |
+| + trailing 3xATR (+/- breakeven 20%) | -4.2 | 8.3 | 2.4 | -55.2 | OFF (switch MOMENTUM_SMART_SL in tracker) |
+| + trailing 6xATR / 10xATR | 5.7 / 9.8 | 19.7 / 24.2 | 12.4 / 17.2 | -48 / -39 | rejected |
+| + breakeven only (+20%) | 9.3 | 26.1 | 16.6 | -39.5 | rejected |
+| + Nifty<200DMA: no new buys | 9.2 | 23.4 | 15.8 | -34.9 | warning/label only, no blocking |
+| all four together (RB's package) | -1.6 | 5.5 | 2.4 | -40.3 | rejected |
+(BASE moves +/-0.4 between runs as the data cache refreshes.) Sector map: NSE Nifty Total Market list
+(data/_nse_industry.csv, weekly refresh); ~4 of the top 20 are usually outside it ("?", not capped).
+
 ## Fundamental layer (research done)
 Order of checks: 1) red flags (promoter pledge > 20% = out, auditor resignation/qualification, SEBI/forensic action)
 2) quality (ROE/ROCE >= 15% investing, >= 10-12% swing; D/E <= 1 non-financials; CFO/PAT >= 0.7-0.8 over 3-5 yrs; no loss year in 5-6 yrs)
@@ -210,3 +228,4 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 8. DONE: Fusion cash + F&O backtest (see "Fusion backtest"). Next: a live Fusion screener (RS-ranked) if RB wants it.
 9. Tax (STCG/LTCG) in the portfolio sim. Optional: strategies on Gold ETF / BTC-ETH with fees.
 10. Optional: VCP rule test (Minervini) - old chat: "Minervini alone" 6.75% CAGR, "O'Neil L+M" 6.81% (173 stocks).
+11. DONE: live momentum chain (momentum_screener.py, auto_tracker_update.py, tracker momentum leg). Next: paper trade it.

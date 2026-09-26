@@ -91,11 +91,29 @@ def rebal_days(cal, start_k, end_k, freq="M", offset=0):
     return set(days)
 
 
+def atr_pct(P, n=14):
+    """ATR(14) as % of close (Wilder)."""
+    C = P["Close"].ffill(limit=5)
+    H, L = P["High"], P["Low"]
+    tr = np.maximum(np.maximum(H - L, (H - C.shift(1)).abs()),
+                    (L - C.shift(1)).abs())
+    return fb.wilder(tr, n) / C
+
+
 def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
              offset=0, regime=None, tax=True, capital=CAPITAL,
-             cash_rate=CASH_RATE, picks=None):
+             cash_rate=CASH_RATE, picks=None, sector=None, sector_cap=None,
+             atr=None, atr_sizing=False, trail_atr=None, breakeven=None,
+             regime_blocks_buys_only=False):
+    """sector: array col -> sector label; sector_cap: max holdings per sector.
+    atr_sizing: slot = equal slot x (median ATR% / stock ATR%), 0.5x..2x.
+    trail_atr: stop = max(entry - k*ATR, highest close - k*ATR); breakeven:
+    once close >= entry*(1+breakeven) the stop is at least the entry.
+    regime_blocks_buys_only: red market -> keep holdings, no new buys."""
     O = P["Open"].values
     C = P["Close"].ffill().values
+    Lo = P["Low"].values
+    A = atr.values if atr is not None else None
     S = score.values
     cal = P["Close"].index
     n = len(cal) if end_k is None else end_k
@@ -119,6 +137,21 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
         intr = cash * day_rate if cash > 0 else 0.0
         cash += intr
         book.interest += intr
+        if (trail_atr is not None or breakeven is not None) and t > start_k:
+            for j in list(pos):
+                p = pos[j]
+                if p["k"] >= t:
+                    continue
+                if Lo[t, j] > 0 and Lo[t, j] <= p["stop"]:
+                    px = min(O[t, j], p["stop"]) if O[t, j] > 0 else p["stop"]
+                    sell(j, px, t)
+                    continue
+                p["hi"] = max(p["hi"], C[t, j])
+                if trail_atr is not None:
+                    a = A[t, j] if A[t, j] == A[t, j] else 0.0
+                    p["stop"] = max(p["stop"], p["hi"] * (1 - trail_atr * a))
+                if breakeven is not None and C[t, j] >= p["px"] * (1 + breakeven):
+                    p["stop"] = max(p["stop"], p["px"])
         if t in reb and t > 0:
             s = S[t - 1]
             valid = ~np.isnan(s)
@@ -126,25 +159,44 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
             ranked = [j for j in order if valid[j]]
             rank = {j: i for i, j in enumerate(ranked)}
             on = regime is None or bool(regime[t - 1])
+            sell_all = not on and not regime_blocks_buys_only
             for j in list(pos):
-                if not on or rank.get(j, 10 ** 9) >= buffer * N:
+                if sell_all or rank.get(j, 10 ** 9) >= buffer * N:
                     px = O[t, j] if O[t, j] > 0 else C[t - 1, j]
                     sell(j, px, t)
             if on:
                 if picks is not None:
                     picks.append((t, ranked[:N]))
                 mark = cash + sum(p["sh"] * C[t - 1, j] for j, p in pos.items())
+                med = np.nanmedian(A[t - 1][[j for j in ranked]]) \
+                    if (atr_sizing and A is not None and ranked) else None
+                count = {}
+                if sector is not None:
+                    for j in pos:
+                        count[sector[j]] = count.get(sector[j], 0) + 1
                 for j in ranked:
                     if len(pos) >= N:
                         break
                     if j in pos or not O[t, j] > 0:
                         continue
-                    amt = min(mark / N, cash)
+                    if sector_cap is not None and sector[j] != "?" and \
+                            count.get(sector[j], 0) >= sector_cap:
+                        continue
+                    amt = mark / N
+                    if med is not None and A[t - 1, j] > 0:
+                        amt *= float(np.clip(med / A[t - 1, j], 0.5, 2.0))
+                    amt = min(amt, cash)
                     if amt < 1000:
-                        break
+                        continue
+                    a = A[t - 1, j] if A is not None and A[t - 1, j] > 0 else 0.0
                     pos[j] = {"sh": amt / (O[t, j] * (1 + CASH_BUY + CASH_SLIP)),
-                              "k": t, "basis": amt}
+                              "k": t, "basis": amt, "px": O[t, j],
+                              "hi": O[t, j],
+                              "stop": O[t, j] * (1 - (trail_atr or 0) * a)
+                              if trail_atr else -1.0}
                     cash -= amt
+                    if sector is not None:
+                        count[sector[j]] = count.get(sector[j], 0) + 1
         if t == n - 1:
             for j in list(pos):
                 sell(j, C[t, j], t)

@@ -588,7 +588,7 @@ def latest_report():
 
 def read_shortlist(path):
     out = []
-    for sheet in ("Swing", "Investing"):
+    for sheet in ("Swing", "Investing", "Momentum_Top20"):
         try:
             d = pd.read_excel(path, sheet_name=sheet)
         except Exception:
@@ -810,7 +810,8 @@ def save_report(path, df, fund_df, banner, shp_q):
     st = _styles()
     wb = load_workbook(path)
     for sheet, cols, key in (("Swing", COLS_SWING, "Swing"),
-                             ("Investing", COLS_INVEST, "Investing")):
+                             ("Investing", COLS_INVEST, "Investing"),
+                             ("Momentum_Top20", COLS_SWING, "Momentum_Top20")):
         if sheet not in wb.sheetnames:
             continue
         ws = wb[sheet]
@@ -822,6 +823,7 @@ def save_report(path, df, fund_df, banner, shp_q):
                            "(information only, backtest 2018-26 showed no "
                            "benefit). Details: Fundamentals sheet.", st)
     fund_sheet(wb, fund_df, banner, shp_q, st)
+    fill_comparison(wb, df, st)
     try:
         wb.save(path)
     except PermissionError:
@@ -831,6 +833,29 @@ def save_report(path, df, fund_df, banner, shp_q):
               os.path.basename(path))
         path = alt
     return path
+
+
+def fill_comparison(wb, df, st):
+    """Write the swing fundamental verdict into Strategy_Comparison's
+    'Fundamental Status' column (made by momentum_screener.py)."""
+    if "Strategy_Comparison" not in wb.sheetnames:
+        return
+    ws = wb["Strategy_Comparison"]
+    col = None
+    for c in range(1, ws.max_column + 1):
+        if ws.cell(row=1, column=c).value == "Fundamental Status":
+            col = c
+            break
+    if col is None:
+        return
+    status = dict(zip(df["symbol"], df["swing_pass"]))
+    for r in _table_rows(ws):
+        sym = str(ws.cell(row=r, column=1).value).strip().upper()
+        v = status.get(sym, "n/a")
+        c = ws.cell(row=r, column=col, value=v)
+        c.font = st["Font"](name=st["F"])
+        if v in st["status"]:
+            c.fill = st["status"][v]
 
 
 def save_standalone(path, fund_df, banner, shp_q):

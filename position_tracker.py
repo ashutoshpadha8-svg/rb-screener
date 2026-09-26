@@ -68,6 +68,14 @@ import daily_screener as ds     # shared price / Dhan code -- rules untouched
 CLIENT_ID = ""                  # read from the token at start-up
 TOKEN_FILE = ds.TOKEN_FILE
 SPLIT_FILE = os.path.join(ds.HERE, "split.csv")
+RANKS_FILE = os.path.join(ds.DATA, "momentum_ranks_latest.csv")
+MOMENTUM_KEEP_RANK = 40         # momentum_screener: keep while rank <= 2 x 20
+# Smart trailing stop for the MOMENTUM leg. OFF because it destroyed the
+# backtest (RAMOM 18.3%/yr -> 2.4%/yr with a 3xATR trail; breakeven at +20%
+# alone 18.3% -> 16.6%). Set True only if you accept that.
+MOMENTUM_SMART_SL = False
+SMART_SL_ATR = 3.0
+SMART_SL_BREAKEVEN = 0.20
 
 DHAN_HOLDINGS = "https://api.dhan.co/v2/holdings"
 
@@ -148,14 +156,15 @@ def load_split(holdings):
     """split.csv is the one file you maintain by hand."""
     if not os.path.exists(SPLIT_FILE):
         rows = [{"symbol": h["symbol"], "swing_qty": 0,
-                 "investing_qty": int(h["qty"]),
+                 "investing_qty": int(h["qty"]), "momentum_qty": 0,
                  "entry_price": h["avg_price"],
-                 "entry_date": dt.date.today().isoformat(),
+                 "entry_date": dt.date.today().isoformat(), "strategy": "",
                  "note": "EDIT ME -- move qty into swing_qty as needed"}
                 for h in holdings]
         if not rows:
             rows = [{"symbol": "EXAMPLE", "swing_qty": 0, "investing_qty": 0,
-                     "entry_price": 0, "entry_date": "2026-09-24",
+                     "momentum_qty": 0, "entry_price": 0,
+                     "entry_date": "2026-09-24", "strategy": "",
                      "note": "delete this row"}]
         pd.DataFrame(rows).to_csv(SPLIT_FILE, index=False)
         print("Created %s from your holdings.\n"
@@ -164,7 +173,12 @@ def load_split(holdings):
         sys.exit(0)
 
     sp = pd.read_csv(SPLIT_FILE)
-    sp["symbol"] = sp["symbol"].str.upper().str.strip()
+    sp["symbol"] = sp["symbol"].astype(str).str.upper().str.strip()
+    # v3 columns (auto_tracker_update.py): momentum leg + strategy label
+    if "momentum_qty" not in sp:
+        sp["momentum_qty"] = 0
+    if "strategy" not in sp:
+        sp["strategy"] = ""
     return sp
 
 
@@ -209,10 +223,11 @@ def load_prices(token, symbols, warns):
     today = now.date()
     # before 09:15 (or on a weekend) the live price is just an old close
     session_started = today.weekday() < 5 and (now.hour, now.minute) >= (9, 15)
-    closes, lows, prov = {}, {}, {}
+    closes, lows, highs, prov = {}, {}, {}, {}
     for s, df in frames.items():
         c = df["Close"].copy()
         lo = df["Low"].copy()
+        hi = df["High"].copy()
         p = False
         if s in live and session_started:
             if c.index[-1].date() < today and not (
@@ -221,18 +236,21 @@ def load_prices(token, symbols, warns):
                 # today's bar not in history yet -> use the live price
                 c.loc[pd.Timestamp(today)] = live[s]
                 lo.loc[pd.Timestamp(today)] = live[s]   # intraday low unknown
+                hi.loc[pd.Timestamp(today)] = live[s]
                 p = ds.market_open()
             elif c.index[-1].date() == today and ds.market_open():
                 c.iloc[-1] = live[s]
                 lo.iloc[-1] = min(lo.iloc[-1], live[s])
+                hi.iloc[-1] = max(hi.iloc[-1], live[s])
                 p = True
         closes[s], lows[s], prov[s] = c, lo, p
+        highs[s] = hi
     last = max(c.index[-1] for c in closes.values()).date()
     note = "data to %s | %s" % (last, "Dhan live price" if live
                                 else "NO live price")
     if last < want:
         note += "  !!! DATA IS BEHIND (expected %s) -- do not act on it" % want
-    return closes, lows, prov, note
+    return closes, lows, highs, prov, note
 
 
 # ------------------------------------------------------------------ rules
@@ -304,6 +322,56 @@ def judge_investing(c, entry_date):
     return "HOLD", "%.1f%% above the 30-week MA" % ((px / cur - 1) * 100), px, cur
 
 
+def load_ranks(warns):
+    """Latest full momentum ranking written by momentum_screener.py."""
+    if not os.path.exists(RANKS_FILE):
+        warns.append("no momentum ranking yet -- run rbscan "
+                     "(momentum_screener.py) first")
+        return {}, None
+    d = pd.read_csv(RANKS_FILE)
+    day = str(d["date"].iloc[0]) if "date" in d and len(d) else None
+    if day and (pd.Timestamp(ds.now_ist().date()) - pd.Timestamp(day)).days > 5:
+        warns.append("momentum ranking is from %s -- run rbscan for fresh "
+                     "ranks" % day)
+    return dict(zip(d["symbol"].astype(str).str.upper(), d["rank"])), day
+
+
+def judge_momentum(sym, c, lo, hi, entry, entry_date, ranks):
+    """Backtest rule: hold while rank <= 40, sell at the next monthly
+    rebalance (1st trading day) once it drops below. Optional smart stop."""
+    px = float(c.iloc[-1])
+    rk = ranks.get(sym)
+    stop = None
+    if MOMENTUM_SMART_SL and entry > 0:
+        tr = np.maximum(np.maximum(hi - lo, (hi - c.shift(1)).abs()),
+                        (lo - c.shift(1)).abs())
+        atr = tr.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+        idx = _since(c, entry_date)
+        a0 = float(atr.reindex(idx).iloc[0]) if len(idx) else float(atr.iloc[-1])
+        stop, top = entry - SMART_SL_ATR * a0, entry
+        for d in idx:
+            if lo[d] <= stop:
+                return ("EXIT", "smart stop %.1f hit on %s (3xATR trail)"
+                        % (stop, d.date()), px, rk, stop)
+            top = max(top, c[d])
+            stop = max(stop, top - SMART_SL_ATR * float(atr[d]))
+            if c[d] >= entry * (1 + SMART_SL_BREAKEVEN):
+                stop = max(stop, entry)
+    if rk is None:
+        return ("SELL@REBAL", "not in the eligible ranking (below Rs 10k Cr, "
+                "illiquid or no data) -> sell at the next rebalance", px, rk,
+                stop)
+    if rk > MOMENTUM_KEEP_RANK:
+        return ("SELL@REBAL", "rank %d > %d -> sell at the next monthly "
+                "rebalance (1st trading day)" % (rk, MOMENTUM_KEEP_RANK), px,
+                rk, stop)
+    if rk > MOMENTUM_KEEP_RANK - 5:
+        return "WATCH", "rank %d, close to the %d cut" % (rk, MOMENTUM_KEEP_RANK), \
+            px, rk, stop
+    return "HOLD", "rank %d (keep while <= %d)" % (rk, MOMENTUM_KEEP_RANK), \
+        px, rk, stop
+
+
 # ------------------------------------------------------------------ main
 def main():
     token = read_token()
@@ -319,24 +387,28 @@ def main():
     syms = [str(x).strip().upper() for x in split["symbol"]
             if str(x).strip().upper() not in ("", "EXAMPLE", "NAN")]
     print("Loading prices (free history + Dhan fill + live) ...")
-    closes, lows, prov, data_note = load_prices(token, syms, warnings)
+    closes, lows, highs, prov, data_note = load_prices(token, syms, warnings)
+    ranks, ranks_date = load_ranks(warnings)
+    mom_rows = []
 
     for _, r in split.iterrows():
         sym = str(r["symbol"]).strip().upper()
         if sym in ("", "EXAMPLE", "NAN"):
             continue
-        sw = float(r.get("swing_qty") or 0)
-        iv = float(r.get("investing_qty") or 0)
-        if sw + iv == 0:
+        sw = float(pd.to_numeric(r.get("swing_qty"), errors="coerce") or 0)
+        iv = float(pd.to_numeric(r.get("investing_qty"), errors="coerce") or 0)
+        mo = float(pd.to_numeric(r.get("momentum_qty"), errors="coerce") or 0)
+        sw, iv, mo = [0.0 if x != x else x for x in (sw, iv, mo)]
+        if sw + iv + mo == 0:
             continue
 
         held = hq.get(sym)
         if held is None:
             warnings.append("%s is in split.csv but not in your Dhan holdings"
-                            % sym)
-        elif abs(held["qty"] - (sw + iv)) > 0.5:
+                            " (fine if you are paper trading)" % sym)
+        elif abs(held["qty"] - (sw + iv + mo)) > 0.5:
             warnings.append("%s: split.csv totals %g but Dhan shows %g"
-                            % (sym, sw + iv, held["qty"]))
+                            % (sym, sw + iv + mo, held["qty"]))
 
         entry = float(r.get("entry_price") or 0)
         if entry <= 0 and held:
@@ -366,6 +438,18 @@ def main():
                 "verdict": verdict, "reason": why,
             })
 
+        if mo > 0:
+            verdict, why, px, rk, stop = judge_momentum(
+                sym, c, lows[sym], highs[sym], entry, edate, ranks)
+            mom_rows.append({
+                "symbol": sym, "qty": int(mo), "entry": round(entry, 1),
+                "price": round(px, 1),
+                "pnl_pct": round((px / entry - 1) * 100, 1) if entry else 0,
+                "rank": rk if rk is not None else "-",
+                "smart_stop": round(stop, 1) if stop is not None else "off",
+                "verdict": verdict, "reason": why,
+            })
+
         if iv > 0:
             verdict, why, px, ma30w = judge_investing(c, edate)
             if star and verdict != "HOLD" and "already fired" not in why:
@@ -387,7 +471,8 @@ def main():
             print("  (none)")
             return
         d = pd.DataFrame(rows)
-        order = {"EXIT": 0, "EXIT*": 0, "WATCH": 1, "WATCH*": 1, "HOLD": 2}
+        order = {"EXIT": 0, "EXIT*": 0, "SELL@REBAL": 0, "WATCH": 1,
+                 "WATCH*": 1, "HOLD": 2}
         d = d.sort_values("verdict", key=lambda s: s.map(order))
         print(d.drop(columns=["reason"]).to_string(index=False))
         for _, x in d.iterrows():
@@ -400,6 +485,8 @@ def main():
     print("\n" + data_note)
     show("SWING LEG", swing_rows, "tracker_swing")
     show("INVESTING LEG", inv_rows, "tracker_investing")
+    show("MOMENTUM LEG (ranking of %s)" % (ranks_date or "n/a"), mom_rows,
+         "tracker_momentum")
 
     if warnings:
         print("\n---- check these ----")
@@ -413,6 +500,9 @@ REMEMBER
   returns in every backtest we ran.
   The investing leg is meant to survive scary drawdowns. Its only
   exit is a Stage 4 breakdown.
+  Momentum leg: trade only on the 1st trading day of the month. Sell a
+  holding when its rank is > 40 then; no stop (a trailing stop cut the
+  backtest from ~18%/yr to ~2%/yr).
 """)
 
 
