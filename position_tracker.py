@@ -452,7 +452,7 @@ def main():
         for _, x in d.iterrows():
             if x["verdict"] != "HOLD":
                 print("   %-12s %-5s  %s" % (x["symbol"], x["verdict"], x["reason"]))
-        p = os.path.join(ds.REPORTS, "%s_%s.csv" % (fname, stamp))
+        p = os.path.join(ds.REPORTS, "%s_%s%s.csv" % (fname, ds.tag(), stamp))
         d.to_csv(p, index=False)
         print("  saved: %s" % p)
 

@@ -68,6 +68,7 @@ import requests
 HERE = os.path.join(os.path.expanduser("~"), "Desktop", "RB_Screener")
 DATA = os.path.join(HERE, "data")
 REPORTS = os.path.join(HERE, "reports")
+TAG = ""               # broker in file names, e.g. "DHAN" (set by account.py)
 CACHE = os.path.join(DATA, "screener_pages")
 for _d in (HERE, DATA, REPORTS, CACHE):
     os.makedirs(_d, exist_ok=True)
@@ -948,12 +949,14 @@ def main():
     try:
         if syms:
             path = save_standalone(os.path.join(
-                REPORTS, "RB_Fundamentals_%s.xlsx" % stamp), one, banner, shp_q)
+                REPORTS, "RB_Fundamentals_%s%s.xlsx" % (TAG + "_" if TAG else "",
+                                                        stamp)), one, banner, shp_q)
         else:
             path = save_report(src, df, one, banner, shp_q)
     except ImportError:
-        path = os.path.join(REPORTS, "RB_Fundamentals_%s.csv"
-                            % dt.date.today().isoformat())
+        path = os.path.join(REPORTS, "RB_Fundamentals_%s%s.csv"
+                            % (TAG + "_" if TAG else "",
+                               dt.date.today().isoformat()))
         one.to_csv(path, index=False)
         print("! openpyxl not installed (pip3 install openpyxl) -> CSV saved")
 

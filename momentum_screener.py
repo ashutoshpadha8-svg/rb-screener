@@ -180,8 +180,7 @@ def rebalance_plan(top, full):
 
 
 def todays_report():
-    today = os.path.join(ds.REPORTS, "RB_Screener_%s.xlsx"
-                         % ds.now_ist().date().isoformat())
+    today = ds.report_path(ds.now_ist().date().isoformat())
     if os.path.exists(today):
         return today
     files = [f for f in glob.glob(os.path.join(ds.REPORTS, "RB_Screener_*.xlsx"))

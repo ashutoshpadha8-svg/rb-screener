@@ -4,7 +4,7 @@ DAILY SWING + INVESTING SCREENER  (NSE)   --  v4
 ================================================
 
 v4: results go to ONE Excel file with two sheets, "Swing" and
-    "Investing" (reports/RB_Screener_YYYY-MM-DD.xlsx).
+    "Investing" (reports/RB_Screener_<BROKER>_YYYY-MM-DD.xlsx).
     Broker, client ID and token come from token.txt via account.py;
     every broker call (Dhan / Angel / Zerodha) goes through broker_api.py.
 
@@ -88,6 +88,7 @@ for _d in (HERE, DATA, REPORTS):
     os.makedirs(_d, exist_ok=True)
 TOKEN_FILE = os.path.join(HERE, "token.txt")
 OLD_TOKEN_FILE = os.path.join(HERE, "dhan_token.txt")   # name until 26 Sep 2026
+TAG = ""              # broker in report names, e.g. "DHAN" (set by account.py)
 MCAP_CACHE = os.path.join(DATA, "_nse_mcap_latest.csv")
 
 EOD_BASE = "https://raw.githubusercontent.com/BennyThadikaran/eod2_data/main/daily/"
@@ -130,6 +131,16 @@ IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 
 
 # ================================================================== helpers
+def tag():
+    """'DHAN_' etc. for file names ('' when no account is active)."""
+    return TAG + "_" if TAG else ""
+
+
+def report_path(stamp):
+    """reports/RB_Screener_<BROKER>_<YYYY-MM-DD>.xlsx"""
+    return os.path.join(REPORTS, "RB_Screener_%s%s.xlsx" % (tag(), stamp))
+
+
 def now_ist():
     return dt.datetime.now(IST)
 
@@ -270,8 +281,9 @@ def write_excel(stamp, swing, inv, banner):
     except ImportError:
         print("\n! openpyxl not installed -> run:  pip3 install openpyxl")
         print("  Saving CSV files instead.")
-        swing.to_csv(os.path.join(REPORTS, "swing_%s.csv" % stamp), index=False)
-        inv.to_csv(os.path.join(REPORTS, "investing_%s.csv" % stamp),
+        swing.to_csv(os.path.join(REPORTS, "swing_%s%s.csv" % (tag(), stamp)),
+                     index=False)
+        inv.to_csv(os.path.join(REPORTS, "investing_%s%s.csv" % (tag(), stamp)),
                    index=False)
         return None
 
@@ -404,12 +416,12 @@ def write_excel(stamp, swing, inv, banner):
         "Nifty. Stocks delisted since are missing -> results a bit too good.",
     ])
 
-    path = os.path.join(REPORTS, "RB_Screener_%s.xlsx" % stamp)
+    path = report_path(stamp)
     try:
         wb.save(path)
     except PermissionError:           # file already open in Excel/Numbers
-        path = os.path.join(REPORTS, "RB_Screener_%s_%s.xlsx"
-                            % (stamp, now_ist().strftime("%H%M")))
+        path = report_path(stamp).replace(
+            ".xlsx", "_%s.xlsx" % now_ist().strftime("%H%M"))
         wb.save(path)
     return path
 
