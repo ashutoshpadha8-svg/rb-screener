@@ -16,6 +16,8 @@
   position_tracker.py   # hold/exit tracker for my positions (swing + investing legs)
   fundamentals.py       # fundamental check on the screener shortlist (Screener.in public pages)
   backtest.py           # backtest of the screener rules (pit10k / today10k / b173 universes)
+  fusion_backtest.py    # Fusion vs W+TT, cash + stock futures, real Dhan costs + Indian tax
+  fno_data.py           # downloads NSE F&O bhavcopy history (2013+) into data/fno/
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
   dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
   data/                 # cached price history, NSE market-cap file, Dhan scrip master
@@ -119,6 +121,33 @@ YoY >= 20, total revenue YoY >= 15, 3y ROE >= 10, D/E <= 1.5; pledge/auditor unt
 - VERDICT: the fundamental gate does NOT improve this system. Keep fundamentals.py as information only.
   -> Watchlist FAIL-exclusion and Watch Score removed (26 Sep 2026, RB agreed).
 
+## Fusion backtest (fusion_backtest.py, 26 Sep 2026) - cash + stock futures, real costs, tax
+Rules unchanged from the old chat. Engine check: Fusion on the old 173 survivors = 17.7% CAGR / -26.9% DD
+(old chat 17.4% / -25.3%) -> engine matches. Costs = Dhan pricing page (delivery 0 brokerage, STT 0.1% both sides,
+stamp, exchange, GST, DP Rs 12.5+GST per sell) + 0.10% slippage/side; futures Rs 20/order, STT 0.025% sell,
+0.03% slippage, ACTUAL NSE futures prices (fno_data.py, 3,383 days 2013-2026), monthly roll, collateral 6%.
+Tax: STCG 20.8%, LTCG 13% over 1.25L, F&O = business income 31.2%. Rs 2 lakh start, 2013-01 to 2026-09.
+| Cash, >= Rs 10k pit | slots | 2013-19 | 2020-26 | FULL pre | FULL post-tax | maxDD |
+|---|---|---|---|---|---|---|
+| Fusion | 20 | 9.6 | 18.3 | 13.9 | 12.7 | -42.5 |
+| Fusion | 8 | 15.9 | 23.7 | 20.4 | 18.2 | -46.1 |
+| Fusion | 5 | 13.9 | 28.0 | 20.6 | 17.5 | -42.6 |
+| W+TT investing exit | 20 | 10.6 | 17.7 | 14.2 | 13.9 | -38.6 |
+| W+TT swing exit | 8 | 7.2 | 8.8 | 9.5 | 9.1 | -45.5 |
+| Nifty 50 ETF (price only) | - | 10.8 | 10.2 | 10.5 | 9.8 | -38.4 |
+- Old "Fusion 17.4%" was survivorship: on the honest universe 20 slots = 13.9% pre-tax with DD -42.5%.
+- Slot luck (40 random orderings of same-day signals): Fusion 8 slots random median 11.4%, best 17.3%; RS-ranked
+  20.4% -> RS ranking is what makes concentrated Fusion work (matches the old chat's RS finding).
+  8 slots was chosen after seeing 20/8/5 -> treat 18% post-tax as optimistic; 20 slots ~ 12-13% is the floor.
+- F&O (330 of 363 F&O names had spot history; 33 renamed/delisted dropped), 20 slots:
+  cash on F&O stocks 10.0% pre / 9.4% post; futures LONG 1x 8.9 / 4.9; LONG 2x 11.5 / 6.2 (DD -58%);
+  SHORT only -7.2 / -11.6 (DD -76%); long+short -0.1 / -4.2. Fusion shorts: PF 0.6, win 30% -> never short it.
+  Futures lose to cash because of carry (futures premium ~ interest) + 31.2% slab tax vs 20.8% STCG.
+- Rs 2 lakh and real lot sizes: median 1-lot margin Rs 1.5-2 lakh since 2016; 4 lots within Rs 2 lakh: ~0% of
+  stocks since 2021 -> with Rs 2 lakh you can hold ONE futures position, no diversification.
+- VERDICT: no F&O for this strategy. Best cash candidate = Fusion, RS-ranked, 5-8 slots (beat Nifty in both halves),
+  but -46% drawdowns and 2013-19 was only ~5 pts above Nifty. Paper-trade before money.
+
 ## Fundamental layer (research done)
 Order of checks: 1) red flags (promoter pledge > 20% = out, auditor resignation/qualification, SEBI/forensic action)
 2) quality (ROE/ROCE >= 15% investing, >= 10-12% swing; D/E <= 1 non-financials; CFO/PAT >= 0.7-0.8 over 3-5 yrs; no loss year in 5-6 yrs)
@@ -151,9 +180,7 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 4. DONE: RS >= 85 worse in both halves -> keep RS >= 70.
 5. DONE: 20 slots beat 10 slots in both halves -> keep 20 x 5%.
 6. Paper-trade 2-3 months before real money on the new universe.
-7. (from CHAT_HANDOFF) Rs 2 lakh = Rs 10k per slot at 20 slots. Backtest a concentrated 5-8 position version
-   with real Indian delivery costs (STT, stamp, exchange, GST, DP charge per sell) + slippage.
-8. (from CHAT_HANDOFF) Fusion strategy (EMA20>50, MACD, MFI>60, ADX>20, upper BB) on the pit10k universe vs
-   Weinstein+TT; also test combining them.
+7. DONE: 5/8/20 slots with real Dhan costs + tax (see "Fusion backtest"): W+TT swing collapses at 5-8 slots.
+8. DONE: Fusion cash + F&O backtest (see "Fusion backtest"). Next: a live Fusion screener (RS-ranked) if RB wants it.
 9. Tax (STCG/LTCG) in the portfolio sim. Optional: strategies on Gold ETF / BTC-ETH with fees.
 10. Optional: VCP rule test (Minervini) - old chat: "Minervini alone" 6.75% CAGR, "O'Neil L+M" 6.81% (173 stocks).
