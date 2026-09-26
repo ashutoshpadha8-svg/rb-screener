@@ -296,6 +296,8 @@ def sync(tok):
 
 # ================================================================== main
 def main():
+    import account
+    acc = account.activate()
     a = sys.argv[1:]
     dry, no_orders, use_limit = ("--dry-run" in a, "--no-orders" in a,
                                  "--limit" in a)
@@ -354,6 +356,7 @@ def main():
         print("! Some prices came from the free source, not Dhan.")
     if live:
         print("After tomorrow's open run:  rbtrack --sync   (real fill prices)")
+    account.banner(acc)
 
 
 if __name__ == "__main__":

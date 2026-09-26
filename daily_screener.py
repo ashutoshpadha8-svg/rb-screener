@@ -539,6 +539,8 @@ def write_excel(stamp, swing, inv, banner):
 # ================================================================== main
 def main():
     global CLIENT_ID
+    import account                     # per-account folders (accounts/<ID>/)
+    acc = account.activate()
     want = last_expected_session()
     tok = read_token()
     warns = []
@@ -804,6 +806,7 @@ REMINDERS
     (price only), drawdowns ~-40%. Bad years exist (2015, 2018, 2024-25).
 """)
     print("Reports saved in: %s" % REPORTS)
+    account.banner(acc)
 
 
 if __name__ == "__main__":

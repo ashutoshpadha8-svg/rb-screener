@@ -870,6 +870,8 @@ def save_standalone(path, fund_df, banner, shp_q):
 
 # ================================================================== main
 def main():
+    import account
+    acc = account.activate()
     args = sys.argv[1:]
     src, syms = None, None
     if "--file" in args:
@@ -986,6 +988,7 @@ def main():
           "nothing is removed.")
     print("Not checked: pledge (unless Screener flags it), auditor, SEBI.")
     print("\nExcel: %s" % path)
+    account.banner(acc)
 
 
 if __name__ == "__main__":

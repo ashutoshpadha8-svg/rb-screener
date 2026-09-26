@@ -411,6 +411,8 @@ def mtf_summary(rows):
 # ------------------------------------------------------------------ main
 def main():
     token = read_token()
+    import account
+    acc = account.activate()
     print("Fetching holdings from Dhan ...")
     holdings = get_holdings(token)
     hq = {h["symbol"]: h for h in holdings}
@@ -559,6 +561,7 @@ def main():
         for w in warnings:
             print("  !", w)
 
+    account.banner(acc)
     print("""
 REMEMBER
   The swing stop is fixed at 20% below your entry. Do not trail it,

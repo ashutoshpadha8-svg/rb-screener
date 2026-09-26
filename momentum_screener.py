@@ -529,6 +529,8 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red,
 
 # ================================================================== main
 def main():
+    import account
+    acc = account.activate()
     tok = get_token()
     print("MOMENTUM SCREENER -- NSE-style momentum, top %d, max %s per sector"
           % (SLOTS, SECTOR_CAP))
@@ -631,6 +633,7 @@ def main():
     if old_action:
         print("  kept your existing Action entries: %s"
               % ", ".join("%s=%s" % kv for kv in old_action.items()))
+    account.banner(acc)
 
 
 if __name__ == "__main__":

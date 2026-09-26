@@ -28,11 +28,23 @@
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
+  account.py            # per-account folders: client ID from the token -> accounts/<ID>/ (see below)
   dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
-  data/                 # cached price history, NSE market-cap file, Dhan scrip master
-  reports/              # RB_Screener_YYYY-MM-DD.xlsx (sheets: Swing, Investing; fundamentals.py
-                        #   adds green columns to both + a Fundamentals sheet in the SAME file)
+  data/                 # SHARED market data: price history, NSE files, scrip master, Screener pages,
+                        #   momentum_ranks_latest.csv, _nse_industry.csv (same for every account)
+  accounts/<CLIENT_ID>/ # PER ACCOUNT (since 26 Sep 2026)
+    data/               #   split.csv, split_backup.csv, orders_log.csv
+    reports/            #   RB_Screener_YYYY-MM-DD.xlsx (Swing, Investing, Momentum_Top20, Strategy_Comparison,
+                        #   Rebalance_Dashboard, Fundamentals), RB_Fundamentals_*, tracker_*.csv
+  accounts/.migrated    # marker: the one-time move of the old global files is done
 ```
+Multi-account (account.py): all 5 live scripts call account.activate() first. It reads the client ID from
+dhan_token.txt (digits only, 5-15), STOPS if missing/invalid, routes split/orders_log/reports to
+accounts/<ID>/, prints a bold "=== ACTIVE ACCOUNT: <ID> ===" (start and end). First account ever activated
+gets the old global split.csv / split_backup.csv / data/orders_log.csv / reports/RB_Screener_* etc. MOVED in;
+then the marker blocks any further migration (a 2nd account starts empty; a stray old split.csv is ignored
+with a warning). Switch account = paste that account's token. An expired token still names the account.
+Routing also covers the `__main__` copy (python3 daily_screener.py runs as __main__, not daily_screener).
 Shortcut: `rbscan` (zsh alias, since 26 Sep 2026) = daily_screener -> momentum_screener -> fundamentals
 (each step only runs if the previous one succeeded). `rbtrack` = auto_tracker_update.py.
 Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
