@@ -5,7 +5,7 @@ DAILY SWING + INVESTING SCREENER  (NSE)   --  v4
 
 v4: results go to ONE Excel file with two sheets, "Swing" and
     "Investing" (reports/RB_Screener_YYYY-MM-DD.xlsx).
-    Broker, client ID and token come from dhan_token.txt via account.py;
+    Broker, client ID and token come from token.txt via account.py;
     every broker call (Dhan / Angel / Zerodha) goes through broker_api.py.
 
 v3: UNIVERSE = every NSE-listed company with market cap >= Rs 10,000 Cr,
@@ -43,10 +43,10 @@ TODAY'S FIT CHECK (per stock)
            entries are NOT backed by the numbers.
   NO FIT : fails at today's price (reason printed).
 
-SETUP (put this file, position_tracker.py and dhan_token.txt in
+SETUP (put this file, position_tracker.py and token.txt in
        ~/Desktop/RB_Screener)
     pip3 install pandas numpy requests openpyxl
-    dhan_token.txt : Broker / Client ID / Name / Token lines (account.py)
+    token.txt : Broker / Client ID / Name / Token lines (account.py)
   Without a token the screener still runs, but on possibly stale data,
   and it will say so loudly.
 
@@ -86,7 +86,8 @@ DATA = os.path.join(HERE, "data")
 REPORTS = os.path.join(HERE, "reports")
 for _d in (HERE, DATA, REPORTS):
     os.makedirs(_d, exist_ok=True)
-TOKEN_FILE = os.path.join(HERE, "dhan_token.txt")
+TOKEN_FILE = os.path.join(HERE, "token.txt")
+OLD_TOKEN_FILE = os.path.join(HERE, "dhan_token.txt")   # name until 26 Sep 2026
 MCAP_CACHE = os.path.join(DATA, "_nse_mcap_latest.csv")
 
 EOD_BASE = "https://raw.githubusercontent.com/BennyThadikaran/eod2_data/main/daily/"

@@ -4,7 +4,7 @@ BROKER API  --  one adapter for Dhan, Angel One (SmartAPI), Zerodha (Kite)
 =========================================================================
 
 Every live script talks to a broker ONLY through this file. The active
-broker / client / token come from account.py (dhan_token.txt), so the
+broker / client / token come from account.py (token.txt), so the
 scripts never know which broker is behind them.
 
 STATUS (be honest about it):
@@ -32,18 +32,18 @@ PUBLIC FUNCTIONS
   refresh(sess, frames, bm, want, warns)  gap-fill + live prices for screens
 
 CREDENTIALS (Angel / Zerodha only; Dhan needs just the token)
-  Either as extra lines in dhan_token.txt ("API Key:", "MPIN:",
+  Either as extra lines in token.txt ("API Key:", "MPIN:",
   "TOTP Secret:", "API Secret:") or in the file below; the txt wins.
   accounts/<BROKER>_<CLIENT_ID>/credentials.json -- created as a template
   the first time you activate such an account. Never printed, never in git.
     ANGEL:   {"api_key": "...", "mpin": "...", "totp_secret": "..."}
-             Token line in dhan_token.txt: paste a jwtToken, OR write AUTO
+             Token line in token.txt: paste a jwtToken, OR write AUTO
              and the script logs in itself (client code + MPIN + TOTP).
     ZERODHA: {"api_key": "...", "api_secret": "..."}
              Daily: open the login URL (python3 broker_api.py zerodha-url),
              log in, copy request_token from the redirect URL, then
              python3 broker_api.py zerodha-login REQUEST_TOKEN
-             -> writes the access token into dhan_token.txt for you.
+             -> writes the access token into token.txt for you.
 
 COMMAND LINE
   python3 broker_api.py check      who am I + funds + one live price (no orders)
@@ -166,7 +166,7 @@ class Session(object):
             self.client_id = dhan_client_id(self.token)
         self.creds_file = creds_file
         self._creds = None
-        self._extra = dict(extra or {})  # keys written in dhan_token.txt
+        self._extra = dict(extra or {})  # keys written in token.txt
         self._jwt = None                 # Angel session token (memory only)
         self._verified = None
 
@@ -189,7 +189,7 @@ class Session(object):
     def need(self, *keys):
         miss = [k for k in keys if not str(self.creds.get(k) or "").strip()]
         if miss:
-            raise BrokerError("fill %s in dhan_token.txt (or %s)"
+            raise BrokerError("fill %s in token.txt (or %s)"
                               % (", ".join(miss), self.creds_file or
                                  "credentials.json"))
         return [str(self.creds[k]).strip() for k in keys]
@@ -816,7 +816,7 @@ def _cli():
                      "nothing written." % (d.get("user_id"), acc.cid))
         account.write_token_file("ZERODHA", acc.cid, acc.name,
                                  d["access_token"])
-        print("Access token saved in dhan_token.txt for %s (valid till ~06:00 "
+        print("Access token saved in token.txt for %s (valid till ~06:00 "
               "tomorrow)." % acc.cid)
         return
     acc = account.activate()

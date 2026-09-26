@@ -29,8 +29,8 @@
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
-  account.py            # dhan_token.txt -> broker + client + token -> accounts/<BROKER>_<ID>/ (see below)
-  dhan_token.txt        # Broker: / Client ID: / Name: / Token: lines. NEVER print or copy the token anywhere
+  account.py            # token.txt -> broker + client + token -> accounts/<BROKER>_<ID>/ (see below)
+  token.txt             # (was dhan_token.txt, auto-renamed once) Broker: / Client ID: / Name: / Token: lines. NEVER print or copy the token anywhere
   data/                 # SHARED market data: price history, NSE files, scrip master, Screener pages,
                         #   momentum_ranks_latest.csv, _nse_industry.csv (same for every account)
   accounts/<BROKER>_<CLIENT_ID>/  # PER ACCOUNT, e.g. DHAN_1100120973 (name never in the path)
@@ -44,7 +44,7 @@
 ```
 Multi-account + multi-broker (account.py + broker_api.py, 26 Sep 2026): all 5 live scripts call
 account.activate() first; NO script calls a broker directly any more (only broker_api.py does).
-- dhan_token.txt: "Broker: DHAN|ANGEL|ZERODHA", "Client ID:", "Name:", "Token:" (":" "-" "=" all ok).
+- token.txt: "Broker: DHAN|ANGEL|ZERODHA", "Client ID:", "Name:", "Token:" (":" "-" "=" all ok).
   Token-only file (Cmd+A Cmd+V): Dhan -> broker + ID read from the JWT; other brokers -> broker/ID/name from
   accounts/.last_session.json. Old 1-2 line files still work.
 - STOPS: no token, unknown broker, bad ID, Dhan JWT ID != "Client ID:", Broker line contradicts the token
@@ -53,7 +53,7 @@ account.activate() first; NO script calls a broker directly any more (only broke
   in the JWT; Angel getProfile / Kite /user/profile) or NOTHING is sent. AMOs refused during 09:15-15:30
   (in rbtrack AND in the adapter). qty >= 1, symbol must be in the broker's symbol list.
 - MTF mapping: Dhan productType MTF / Angel producttype MARGIN / Kite product MTF. CNC: CNC / DELIVERY / CNC.
-- Keys may also be extra lines in dhan_token.txt ("API Key:", "MPIN:", "TOTP Secret:", "API Secret:";
+- Keys may also be extra lines in token.txt ("API Key:", "MPIN:", "TOTP Secret:", "API Secret:";
   txt wins over credentials.json; never written to .last_session.json). "BO ID:" = Client ID.
 - Angel: credentials.json api_key + mpin + totp_secret; Token: <jwtToken> or AUTO (login with stdlib TOTP,
   RFC 6238 test vectors pass). Zerodha: api_key + api_secret; daily `python3 broker_api.py zerodha-url`,
@@ -69,7 +69,7 @@ account.activate() first; NO script calls a broker directly any more (only broke
 - Routing also covers the `__main__` copy (python3 daily_screener.py runs as __main__, not daily_screener).
 Shortcut: `rbscan` (zsh alias, since 26 Sep 2026) = daily_screener -> momentum_screener -> fundamentals
 (each step only runs if the previous one succeeded). `rbtrack` = auto_tracker_update.py.
-Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
+Daily routine: paste fresh Dhan token into token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
 review Rebalance_Dashboard + Strategy_Comparison, pick BUY / BUY MTF (real AMO), PAPER / PAPER MTF (mock) or WATCH
 (no order) from the Action DROPDOWN (data validation on the stock rows only), save, close
 Excel, then `rbtrack` after 15:30 (it refuses AMOs during market hours). Next morning after the open:

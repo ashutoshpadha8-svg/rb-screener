@@ -35,7 +35,7 @@ SETUP  (one time)
     pip3 install pandas numpy requests
 
     Keep this file next to daily_screener.py in ~/Desktop/RB_Screener
-    (it re-uses the screener's price code). dhan_token.txt (Broker /
+    (it re-uses the screener's price code). token.txt (Broker /
     Client ID / Name / Token) picks the account; split.csv lives in
     accounts/<BROKER>_<CLIENT_ID>/data/ and is auto-created on the first run.
 
@@ -48,7 +48,7 @@ PRICES  (v2)
 
 DAILY USE
 ---------
-    1. paste today's token into dhan_token.txt
+    1. paste today's token into token.txt
     2. python3 ~/Desktop/RB_Screener/position_tracker.py
 """
 
@@ -86,7 +86,7 @@ def get_holdings(sess):
         return ba.holdings(sess)
     except ba.AuthError as e:
         print("\n*** %s rejected the token (%s).\n    It has most likely "
-              "expired. Paste a fresh one into dhan_token.txt and run "
+              "expired. Paste a fresh one into token.txt and run "
               "again. ***\n" % (sess.label, e))
         sys.exit(1)
     except ba.BrokerError as e:
@@ -334,7 +334,7 @@ def main():
     import account
     acc = account.activate()
     if not acc.token_ok:
-        print("Token in dhan_token.txt expired. Paste a fresh one.")
+        print("Token in token.txt expired. Paste a fresh one.")
         sys.exit(1)
     sess = acc.session
     broker = sess.label

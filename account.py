@@ -6,7 +6,7 @@ ACCOUNT ISOLATION  --  one folder per broker account
 Every live script (daily_screener, momentum_screener, fundamentals,
 auto_tracker_update, position_tracker) calls activate() first.
 
-1. dhan_token.txt (the name stays, whatever the broker) holds 4 lines:
+1. token.txt (the name stays, whatever the broker) holds 4 lines:
        Broker: DHAN            (DHAN / ANGEL / ZERODHA)
        Client ID: 1100120973
        Name: Ashutosh
@@ -39,7 +39,7 @@ auto_tracker_update, position_tracker) calls activate() first.
        blocks it for every later account).
 5. Prints "=== ACTIVE ACCOUNT: DHAN | 1100120973 | Ashutosh ===".
 
-The token is never printed or stored anywhere except dhan_token.txt.
+The token is never printed or stored anywhere except token.txt.
 """
 
 import os
@@ -108,7 +108,7 @@ def _clean_name(txt):
 
 # ================================================================== file
 def read_token_file():
-    """dhan_token.txt -> {"broker", "client_id", "name", "token"} (strings,
+    """token.txt -> {"broker", "client_id", "name", "token"} (strings,
     empty when absent). Never prints anything."""
     out = {"broker": "", "client_id": "", "name": "", "token": "", "creds": {}}
     if not os.path.exists(TOKEN_FILE):
@@ -149,7 +149,7 @@ def read_token_file():
 
 
 def write_token_file(broker, cid, name, token):
-    """Rewrite dhan_token.txt in the 4-line format (used by zerodha-login)."""
+    """Rewrite token.txt in the 4-line format (used by zerodha-login)."""
     tmp = TOKEN_FILE + ".tmp"
     with open(tmp, "w") as f:
         f.write("Broker: %s\nClient ID: %s\nName: %s\nToken: %s\n"
@@ -180,9 +180,9 @@ def resolve():
     f = read_token_file()
     tok = f["token"]
     if not os.path.exists(TOKEN_FILE):
-        return None, None, "", "", False, "dhan_token.txt not found in %s" % ROOT
+        return None, None, "", "", False, "token.txt not found in %s" % ROOT
     if not tok:
-        return None, None, "", "", False, "no token found in dhan_token.txt"
+        return None, None, "", "", False, "no token found in token.txt"
     broker = ""
     if f["broker"]:
         broker = ba.norm_broker(f["broker"])
@@ -209,7 +209,7 @@ def resolve():
         last = _last()
         if not last.get("broker"):
             return None, None, "", "", False, (
-                "only a token in dhan_token.txt and no earlier session -- "
+                "only a token in token.txt and no earlier session -- "
                 "add the Broker / Client ID / Name lines once")
         if last["broker"] == "DHAN":
             return None, None, "", "", False, (
@@ -233,6 +233,17 @@ def resolve():
 
 
 # ================================================================== migration
+def _rename_token_file():
+    """dhan_token.txt (old name) -> token.txt, once."""
+    old = ds.OLD_TOKEN_FILE
+    if os.path.exists(old) and not os.path.exists(TOKEN_FILE):
+        os.rename(old, TOKEN_FILE)
+        print("  renamed: dhan_token.txt -> token.txt (use token.txt from now on)")
+    elif os.path.exists(old):
+        print("%s  ! dhan_token.txt is ignored -- the scripts read token.txt "
+              "(delete the old file)%s" % (YEL, END))
+
+
 def _rename_old_folders():
     """accounts/<digits>/ (first version) -> accounts/DHAN_<digits>/."""
     done = []
@@ -327,10 +338,11 @@ def activate(quiet=False):
     if _active is not None:
         _route(_active)
         return _active
+    _rename_token_file()
     broker, cid, name, tok, cached, err = resolve()
     if err:
         print("\n%s%s!!! NO ACTIVE ACCOUNT: %s.%s" % (BOLD, RED, err, END))
-        print("    dhan_token.txt should hold:  Broker: DHAN / Client ID: ... "
+        print("    token.txt should hold:  Broker: DHAN / Client ID: ... "
               "/ Name: ... / Token: ...")
         print("    (Every account keeps its own files under "
               "accounts/<BROKER>_<CLIENT_ID>/, so this is required.)")
@@ -373,7 +385,7 @@ def activate(quiet=False):
             print("  ! old global file(s) ignored (not this account's): %s"
                   % ", ".join(os.path.relpath(p, ROOT) for p in stray))
         if cached:
-            print("%s  (dhan_token.txt had only the token -- using %s %s from "
+            print("%s  (token.txt had only the token -- using %s %s from "
                   "the last run; orders check it with the broker first)%s"
                   % (YEL, broker, cid, END))
         if broker in ba.UNTESTED:
@@ -400,7 +412,7 @@ def banner(acc=None):
         print("\n%s=== ACTIVE ACCOUNT: %s ===%s" % (BOLD, acc.label, END))
         print("    files: accounts/%s/  (data/, reports/)" % acc.key)
         if not acc.name:
-            print("    (to add a name: a 'Name: ...' line in dhan_token.txt)")
+            print("    (to add a name: a 'Name: ...' line in token.txt)")
 
 
 def _label_of(key):
