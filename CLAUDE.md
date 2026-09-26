@@ -53,6 +53,8 @@ account.activate() first; NO script calls a broker directly any more (only broke
   in the JWT; Angel getProfile / Kite /user/profile) or NOTHING is sent. AMOs refused during 09:15-15:30
   (in rbtrack AND in the adapter). qty >= 1, symbol must be in the broker's symbol list.
 - MTF mapping: Dhan productType MTF / Angel producttype MARGIN / Kite product MTF. CNC: CNC / DELIVERY / CNC.
+- Keys may also be extra lines in dhan_token.txt ("API Key:", "MPIN:", "TOTP Secret:", "API Secret:";
+  txt wins over credentials.json; never written to .last_session.json). "BO ID:" = Client ID.
 - Angel: credentials.json api_key + mpin + totp_secret; Token: <jwtToken> or AUTO (login with stdlib TOTP,
   RFC 6238 test vectors pass). Zerodha: api_key + api_secret; daily `python3 broker_api.py zerodha-url`,
   log in, then `python3 broker_api.py zerodha-login REQUEST_TOKEN` (checks user_id, writes the Token line).

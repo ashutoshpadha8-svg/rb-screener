@@ -11,6 +11,8 @@ auto_tracker_update, position_tracker) calls activate() first.
        Client ID: 1100120973
        Name: Ashutosh
        Token: eyJ0eXAi...      (Angel: jwtToken or AUTO; Zerodha: access token)
+   Angel / Zerodha keys may be extra lines here too (instead of
+   credentials.json): "API Key:", "MPIN:", "TOTP Secret:", "API Secret:".
    Labels may use ":" "-" or "=". A file holding ONLY the token (Cmd+A,
    Cmd+V) also works:
      * Dhan token  -> broker and client ID are read from the token itself.
@@ -59,7 +61,10 @@ TOKEN_FILE = ds.TOKEN_FILE
 _ID_OK = {"DHAN": re.compile(r"^[0-9]{5,15}$"),
           "ANGEL": re.compile(r"^[A-Z0-9]{3,15}$"),
           "ZERODHA": re.compile(r"^[A-Z0-9]{3,15}$")}
-_LABELS = r"broker|client\s*id|client\s*code|user\s*id|name|access\s*token|token"
+_LABELS = (r"broker|client\s*id|client\s*code|user\s*id|bo\s*id|name|"
+           r"api\s*key|api\s*secret|mpin|totp\s*secret|totp|access\s*token|token")
+_CRED_KEYS = {"api key": "api_key", "api secret": "api_secret", "mpin": "mpin",
+              "totp secret": "totp_secret", "totp": "totp_secret"}
 BOLD, RED, YEL, END = "\033[1m", "\033[91m", "\033[93m", "\033[0m"
 
 _active = None
@@ -105,7 +110,7 @@ def _clean_name(txt):
 def read_token_file():
     """dhan_token.txt -> {"broker", "client_id", "name", "token"} (strings,
     empty when absent). Never prints anything."""
-    out = {"broker": "", "client_id": "", "name": "", "token": ""}
+    out = {"broker": "", "client_id": "", "name": "", "token": "", "creds": {}}
     if not os.path.exists(TOKEN_FILE):
         return out
     lines = [x.strip() for x in open(TOKEN_FILE).read().splitlines()
@@ -116,12 +121,15 @@ def read_token_file():
         if not m:
             plain.append(line)
             continue
-        key, val = m.group(1).lower(), m.group(2).strip()
+        key = " ".join(m.group(1).lower().split())
+        val = m.group(2).strip()
         if val in ("", "-") or (val.startswith("[") and val.endswith("]")):
             continue
         if key == "broker":
             out["broker"] = val
-        elif key.startswith(("client", "user")):
+        elif key in _CRED_KEYS:            # Angel / Zerodha keys (optional)
+            out["creds"][_CRED_KEYS[key]] = val
+        elif key.startswith(("client", "user", "bo")):
             out["client_id"] = val.upper()
         elif key == "name":
             out["name"] = _clean_name(val)
@@ -335,12 +343,14 @@ def activate(quiet=False):
         os.makedirs(d, exist_ok=True)
     if name and name != acc.name:
         set_name(acc, name)                   # remembered even if the line goes
-    if broker in ba.CRED_TEMPLATE and not os.path.exists(acc.creds_file):
+    if broker in ba.CRED_TEMPLATE and not os.path.exists(acc.creds_file) \
+            and not read_token_file()["creds"]:
         with open(acc.creds_file, "w") as f:
             json.dump(ba.CRED_TEMPLATE[broker], f, indent=2)
     moves = _migrate_legacy(acc)
     acc.from_cache = cached
-    acc.session = ba.Session(broker, tok, cid, acc.creds_file)
+    acc.session = ba.Session(broker, tok, cid, acc.creds_file,
+                             extra=read_token_file()["creds"])
     acc.expiry = ba.token_expiry(tok)
     acc.token_ok = not (acc.expiry and acc.expiry < ds.now_ist())
     _route(acc)

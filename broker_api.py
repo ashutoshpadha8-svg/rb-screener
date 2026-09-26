@@ -32,6 +32,8 @@ PUBLIC FUNCTIONS
   refresh(sess, frames, bm, want, warns)  gap-fill + live prices for screens
 
 CREDENTIALS (Angel / Zerodha only; Dhan needs just the token)
+  Either as extra lines in dhan_token.txt ("API Key:", "MPIN:",
+  "TOTP Secret:", "API Secret:") or in the file below; the txt wins.
   accounts/<BROKER>_<CLIENT_ID>/credentials.json -- created as a template
   the first time you activate such an account. Never printed, never in git.
     ANGEL:   {"api_key": "...", "mpin": "...", "totp_secret": "..."}
@@ -152,7 +154,8 @@ def totp_now(secret, t=None, step=30, digits=6):
 class Session(object):
     """Broker + client + token (+ credentials file for Angel/Zerodha)."""
 
-    def __init__(self, broker, token, client_id="", creds_file=None):
+    def __init__(self, broker, token, client_id="", creds_file=None,
+                 extra=None):
         self.broker = norm_broker(broker)
         if not self.broker:
             raise BrokerError("unknown broker '%s' (use DHAN, ANGEL or "
@@ -163,6 +166,7 @@ class Session(object):
             self.client_id = dhan_client_id(self.token)
         self.creds_file = creds_file
         self._creds = None
+        self._extra = dict(extra or {})  # keys written in dhan_token.txt
         self._jwt = None                 # Angel session token (memory only)
         self._verified = None
 
@@ -179,14 +183,15 @@ class Session(object):
                     self._creds = json.load(open(self.creds_file))
                 except ValueError:
                     raise BrokerError("credentials.json is not valid JSON")
+            self._creds.update({k: v for k, v in self._extra.items() if v})
         return self._creds
 
     def need(self, *keys):
         miss = [k for k in keys if not str(self.creds.get(k) or "").strip()]
         if miss:
-            raise BrokerError("fill %s in %s" % (", ".join(miss),
-                                                 self.creds_file or
-                                                 "credentials.json"))
+            raise BrokerError("fill %s in dhan_token.txt (or %s)"
+                              % (", ".join(miss), self.creds_file or
+                                 "credentials.json"))
         return [str(self.creds[k]).strip() for k in keys]
 
     # -------------------------------------------------------- headers
