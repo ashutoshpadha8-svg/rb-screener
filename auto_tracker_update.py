@@ -118,7 +118,7 @@ def action_rows(path):
     # "buy  mtf" / "Buy MTF" -> "BUY MTF"; anything else is ignored
     d["act"] = d["Action"].astype(str).str.upper().str.split().str.join(" ")
     bad = d[(d["Action"].notna()) & (d["act"] != "NAN") & (d["act"] != "")
-            & ~d["act"].isin(list(ACTIONS))]
+            & (d["act"] != "WATCH") & ~d["act"].isin(list(ACTIONS))]
     if len(bad):
         print("! Ignored unknown Action values: " + ", ".join(
             "%s='%s'" % (t, a) for t, a in zip(bad["Ticker"], bad["Action"])))

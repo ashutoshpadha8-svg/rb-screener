@@ -64,6 +64,8 @@ INDUSTRY_URL = ("https://nsearchives.nseindia.com/content/indices/"
                 "ind_niftytotalmarket_list.csv")
 SPLIT_FILE = os.path.join(ds.HERE, "split.csv")
 RED = "High Risk - Market Red"
+# Action dropdown in Strategy_Comparison (rbtrack acts on the first four)
+ACTIONS = ("BUY", "BUY MTF", "PAPER", "PAPER MTF", "WATCH")
 
 
 # ================================================================== helpers
@@ -298,6 +300,7 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red,
     from openpyxl import load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
     F = "Arial"
     head = Font(name=F, bold=True, color="FFFFFF")
     fill_h = PatternFill("solid", fgColor="7030A0")
@@ -441,10 +444,21 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red,
     last = wc.max_row
     wc.auto_filter.ref = "A1:%s%d" % (get_column_letter(len(ccols)),
                                       max(last, 2))
+    # dropdown on every stock row of Action (no typing errors); the note rows
+    # below the table get none, so a stray pick there cannot become an order
+    col = get_column_letter(len(ccols))
+    dv = DataValidation(type="list", formula1='"%s"' % ",".join(ACTIONS),
+                        allow_blank=True, showErrorMessage=True,
+                        errorTitle="Action", error="Pick from the list: " +
+                        ", ".join(ACTIONS), promptTitle="Action",
+                        prompt="BUY / BUY MTF = real AMO, PAPER = mock, "
+                               "WATCH = no order", showInputMessage=True)
+    dv.add("%s2:%s%d" % (col, col, max(last, 2)))
+    wc.add_data_validation(dv)
     notes(wc, last + 2, [
         banner,
-        "Type BUY in the yellow Action column for what you actually bought, "
-        "save the file, then run: rbtrack",
+        "Pick an Action from the dropdown (yellow column), save + close the "
+        "file, then run: rbtrack   (WATCH = just a reminder, no order)",
         "Super-Buy = in BOTH the W+TT Swing list and the Momentum top %d. "
         "(Not backtested as a separate strategy.)" % SLOTS,
         "Momentum only -> tracked as Strategy=Momentum (exit: rank > %d at the "

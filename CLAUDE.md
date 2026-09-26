@@ -68,7 +68,8 @@ account.activate() first; NO script calls a broker directly any more (only broke
 Shortcut: `rbscan` (zsh alias, since 26 Sep 2026) = daily_screener -> momentum_screener -> fundamentals
 (each step only runs if the previous one succeeded). `rbtrack` = auto_tracker_update.py.
 Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
-review Rebalance_Dashboard + Strategy_Comparison, type BUY (real, AMO) or PAPER (mock) in Action, save, close
+review Rebalance_Dashboard + Strategy_Comparison, pick BUY / BUY MTF (real AMO), PAPER / PAPER MTF (mock) or WATCH
+(no order) from the Action DROPDOWN (data validation on the stock rows only), save, close
 Excel, then `rbtrack` after 15:30 (it refuses AMOs during market hours). Next morning after the open:
 `rbtrack --sync` (real fill prices). position_tracker.py shows LIVE legs, a PAPER PORTFOLIO section, totals and news
 (`--no-news` to skip). Momentum trades only on the 1st trading day of the month; keep while rank <= 40.
