@@ -53,7 +53,7 @@ Kholne ke liye: `open ~/Desktop/RB_Screener/reports/`  aur  `open ~/Desktop/RB_S
 6. Agli subah: `rbsync`
 
 Options: `rbscan --force` (dobara scan), `rbport --no-news` (tez), `rbport --no-fund`.
-WATCH chuna = koi order nahi; stock tumhari watchlist mein jaata hai aur `rbport` roz uska analysis dikhata hai
+WATCH chuna = koi order nahi; agle `rbport` pe stock tumhari watchlist mein chala jaata hai (rbtrack ki zarurat nahi) aur `rbport` roz uska analysis dikhata hai
 (STRONG / WEAK / AVOID). Hatana: `rbtrack --unwatch SYMBOL` (kai ho to SYM1,SYM2).
 Sell kabhi automatic nahi -- broker app mein khud.
 

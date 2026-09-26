@@ -151,6 +151,23 @@ def positions(broker_holdings, sp):
     return out
 
 
+def add_watch(items):
+    """[(symbol, price, source)] -> watchlist.csv (skips ones already on it)."""
+    if not items:
+        return []
+    cols = ["symbol", "added", "price_added", "source"]
+    w = pd.read_csv(WATCH_FILE) if os.path.exists(WATCH_FILE) else \
+        pd.DataFrame(columns=cols)
+    have = set(w["symbol"].astype(str).str.upper())
+    new = [{"symbol": s, "added": ds.now_ist().date().isoformat(),
+            "price_added": px, "source": src}
+           for s, px, src in items if s not in have]
+    if new:
+        pd.concat([w, pd.DataFrame(new)], ignore_index=True).to_csv(
+            WATCH_FILE, index=False)
+    return [x["symbol"] for x in new]
+
+
 # ================================================================== analysis
 def technicals(c, lo, hi):
     px = float(c.iloc[-1])
@@ -471,6 +488,23 @@ def main():
     else:
         warns.append("token missing/expired -> demat holdings NOT read, only "
                      "the PAPER portfolio")
+    # Action picks already made in today's file (kept on re-run); WATCH picks
+    # need no order and no money, so they go straight onto the watchlist
+    old_actions, prev_ltp = {}, {}
+    prev = path_for()
+    if os.path.exists(prev):
+        o = ms._read_sheet(prev, "Actions")
+        if "Ticker" in o and "Action" in o:
+            for _, r in o.iterrows():
+                v = r["Action"]
+                if isinstance(v, str) and v.strip():
+                    t = str(r["Ticker"]).upper()
+                    old_actions[t] = " ".join(v.upper().split())
+                    prev_ltp[t] = (r.get("LTP"), r.get("Strategy Overlap", ""))
+    added = add_watch([(t,) + prev_ltp[t] for t, v in old_actions.items()
+                       if v == "WATCH"])
+    if added:
+        print("  WATCH picks added to the watchlist: %s" % ", ".join(added))
     sp = read_split()
     pos = positions(broker, sp)
     syms = sorted({p["symbol"] for p in pos})
@@ -529,15 +563,6 @@ def main():
     held_modes = {}
     for p in pos:
         held_modes.setdefault(p["symbol"], set()).add(p["mode"])
-    old_actions = {}
-    prev = path_for()
-    if os.path.exists(prev):
-        o = ms._read_sheet(prev, "Actions")
-        if "Ticker" in o and "Action" in o:
-            old_actions = {str(t).upper(): str(v) for t, v in
-                           zip(o["Ticker"], o["Action"])
-                           if isinstance(v, str) and v.strip()}
-
     # ---- terminal
     live_rows = [h for h in hold if h["Mode"] == "LIVE"]
     val = sum(h.get("Value (Rs)") or 0 for h in live_rows)
