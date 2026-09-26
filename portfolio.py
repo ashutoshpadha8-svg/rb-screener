@@ -374,7 +374,12 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner):
                     v = float(v)
                 if isinstance(v, float) and v != v:
                     v = None
-                ws.cell(row=r, column=i, value=v)
+                c = ws.cell(row=r, column=i, value=v)
+                if h in ("Promoter Δ", "FII Δ", "DII Δ") and \
+                        isinstance(v, (int, float)) and v:
+                    c.font = Font(bold=True, color="006100" if v > 0
+                                  else "C00000")
+                    c.number_format = "+0.00;-0.00"
             if fills:
                 k, fmap = fills
                 col = fmap.get(x.get(k))
