@@ -64,6 +64,7 @@ import json
 import re
 import time
 import base64
+import shutil
 import zipfile
 import datetime as dt
 
@@ -139,6 +140,12 @@ def tag():
 def report_path(stamp):
     """reports/RB_Screener_<BROKER>_<YYYY-MM-DD>.xlsx"""
     return os.path.join(REPORTS, "RB_Screener_%s%s.xlsx" % (tag(), stamp))
+
+
+def prev_path(path):
+    """Hidden copy of today's report taken before a same-day re-run."""
+    d, f = os.path.split(path)
+    return os.path.join(d, "." + f.replace(".xlsx", ".prev.xlsx"))
 
 
 def now_ist():
@@ -417,6 +424,11 @@ def write_excel(stamp, swing, inv, banner):
     ])
 
     path = report_path(stamp)
+    if os.path.exists(path):          # re-run the same day: keep the old
+        try:                          # copy so your Action picks survive
+            shutil.copyfile(path, prev_path(path))
+        except OSError:
+            pass
     try:
         wb.save(path)
     except PermissionError:           # file already open in Excel/Numbers

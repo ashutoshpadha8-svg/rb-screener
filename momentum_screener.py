@@ -593,6 +593,9 @@ def main():
             fund_status = dict(zip(fund["Symbol"].astype(str).str.upper(),
                                    fund[col].astype(str)))
     old = _read_sheet(path, "Strategy_Comparison")
+    if old.empty or "Action" not in old:      # screener re-ran today and
+        old = _read_sheet(ds.prev_path(path),  # rewrote the file -> use the
+                          "Strategy_Comparison")  # copy it kept first
     old_action = {}
     if not old.empty and "Ticker" in old and "Action" in old:
         old_action = {str(t).upper(): str(a) for t, a in
