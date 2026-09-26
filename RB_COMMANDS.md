@@ -11,12 +11,13 @@ Pehle se hain:
 rbscan    = daily_screener -> momentum_screener -> fundamentals  (Excel banti hai)
 rbtrack   = Excel ke Action (BUY / PAPER ...) -> order / split.csv
 rbsync    = agli subah asli fill prices
-rbpos     = positions ka HOLD / EXIT report
+rbpos     = positions ka HOLD / EXIT report (split.csv wale)
+rbreview  = demat ki SAARI holdings: KEEP / WEAK / SELL + wajah, aur ADD list
 ```
 
 Naye 2 jodne ke liye (ek baar):
 ```
-echo "alias rbtoken='open -e ~/Desktop/RB_Screener/token.txt'" >> ~/.zshrc && echo "alias rbcheck='python3 ~/Desktop/RB_Screener/broker_api.py check'" >> ~/.zshrc && source ~/.zshrc
+echo "alias rbreview='python3 ~/Desktop/RB_Screener/holdings_review.py'" >> ~/.zshrc && echo "alias rbtoken='open -e ~/Desktop/RB_Screener/token.txt'" >> ~/.zshrc && echo "alias rbcheck='python3 ~/Desktop/RB_Screener/broker_api.py check'" >> ~/.zshrc && source ~/.zshrc
 ```
 
 Saare shortcuts dekhne ke liye:

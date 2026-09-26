@@ -26,6 +26,8 @@
   broker_api.py         # ONLY place that talks to a broker: Dhan / Angel One (SmartAPI) / Zerodha (Kite)
                         #   prices, history fill, holdings, funds, AMO BUY (CNC/MTF), order status. No selling.
   news_feed.py          # Google News RSS headlines (no key, no extra package)
+  holdings_review.py    # rbreview: REAL demat holdings -> KEEP / WEAK / SELL + why, and ADD (momentum top 20 not held)
+                        #   rules: rank<=40, 40w MA, Stage 4, sector cap; sheet Holdings_Review; --paper; --no-excel
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
