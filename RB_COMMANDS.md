@@ -26,6 +26,14 @@ alias | grep rb
 
 ---
 
+## 1b. Files kahan banti hain
+
+```
+accounts/DHAN_1100120973/reports/RB_Screener_DHAN_Ashutosh_2026-09-26.xlsx   <- roz nayi (us din ka scan)
+accounts/DHAN_1100120973/data/split.csv                                    <- hamesha ek (tumhare positions)
+```
+Same din rbscan dobara chalao to Action picks bache rehte hain.
+
 ## 2. Roz ka routine
 
 | Kab | Command | Kya karna hai |
