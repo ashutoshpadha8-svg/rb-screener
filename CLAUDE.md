@@ -18,6 +18,7 @@
   backtest.py           # backtest of the screener rules (pit10k / today10k / b173 universes)
   fusion_backtest.py    # Fusion vs W+TT, cash + stock futures, real Dhan costs + Indian tax
   fno_data.py           # downloads NSE F&O bhavcopy history (2013+) into data/fno/
+  strategy_lab.py       # 16 pre-registered strategies (momentum, low-vol, mean reversion, timing) vs baselines
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
   dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
   data/                 # cached price history, NSE market-cap file, Dhan scrip master
@@ -147,6 +148,31 @@ Tax: STCG 20.8%, LTCG 13% over 1.25L, F&O = business income 31.2%. Rs 2 lakh sta
   stocks since 2021 -> with Rs 2 lakh you can hold ONE futures position, no diversification.
 - VERDICT: no F&O for this strategy. Best cash candidate = Fusion, RS-ranked, 5-8 slots (beat Nifty in both halves),
   but -46% drawdowns and 2013-19 was only ~5 pts above Nifty. Paper-trade before money.
+
+## Strategy lab (strategy_lab.py, 26 Sep 2026) - 16 pre-registered strategies, same honest setup
+Rs 2 lakh, >= Rs 10k pit universe + Rs 5 Cr liquidity, real Dhan costs + 0.10% slippage, tax, cash 6%, 2013-01..2026-09.
+Rank strategies = monthly top-N equal weight, keep while rank < 2N. Post-tax CAGR %:
+| Strategy | 2013-19 | 2020-26 | FULL | maxDD | trades/yr |
+|---|---|---|---|---|---|
+| RAMOM (NSE momentum style: z(6m/vol)+z(12m/vol)) top20 monthly | 11.5 | 26.7 | 18.7 | -40.0 | 43 |
+| RAMOM top10 monthly | 10.4 | 31.2 | 21.1 | -42.0 | 26 |
+| MOM12-1 top20 | 10.1 | 28.2 | 18.5 | -45.8 | 36 |
+| MOM6 (RS) top20 | 11.2 | 22.4 | 17.5 | -39.5 | 52 |
+| RAMOM + Nifty>200DMA | 5.2 | 21.0 | 12.8 | -29.8 | 47 |
+| Low-vol top20 | 14.6 | 10.3 | 12.1 | -27.6 | 11 |
+| 52W-high top20 | 4.4 | 11.2 | 7.8 | -33.5 | 113 |
+| Fusion 8 slots | 14.3 | 19.2 | 17.1 | -47.4 | 22 |
+| W+TT investing 20 | 9.9 | 16.1 | 13.0 | -38.9 | 20 |
+| Mean reversion RSI-2 (58% of trades beat the universe) | -2.2 | -3.0 | -2.9 | -51.4 | 490 |
+| Nifty 200DMA timing | 5.3 | 10.6 | 7.9 | -17.2 | 2 |
+| Nifty buy & hold | 10.3 | 9.8 | 9.8 | -38.4 | - |
+- Momentum robustness: RAMOM 18.7-20.8% for rebalance day 1/6/11/16; 17.6-21.1% for N = 10..30 -> not a fluke of
+  settings. Independent support: NSE Momentum indices. BUT 2013-19 momentum only ~= Nifty; the edge is 2020-26.
+- Mean reversion: high hit rate but costs (STT 0.1% each side + slippage, 490 trades/yr) make it lose money -> reject.
+- Low-vol: best 2013-19 and lowest DD of stock strategies, lagged 2020-26.
+- Stock finding (6-month excess vs universe per pick): RAMOM top10 +6.2%, W+TT +4.2% (only 38% of W+TT picks beat
+  the universe - it lives on a few big winners), Fusion +2.4%, 52WH +0.5%, low-vol -1.6%.
+- 16 strategies tested -> discount the winner. Momentum was expected to win from prior research (not a data-mined pick).
 
 ## Fundamental layer (research done)
 Order of checks: 1) red flags (promoter pledge > 20% = out, auditor resignation/qualification, SEBI/forensic action)
