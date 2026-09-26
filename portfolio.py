@@ -118,10 +118,13 @@ def positions(broker_holdings, sp):
     for _, r in (live[~live["symbol"].isin(held)].iterrows() if len(live)
                  else []):
         q = r["swing_qty"] + r["investing_qty"] + r["momentum_qty"]
+        legs = {leg: r["%s_qty" % leg] for leg in ("swing", "investing",
+                                                   "momentum")
+                if r["%s_qty" % leg] > 0}
         if q > 0:
             out.append({"mode": "LIVE", "symbol": r["symbol"], "qty": q,
                         "entry": r["entry_price"], "entry_date":
-                        r.get("entry_date"), "legs": {}, "note":
+                        r.get("entry_date"), "legs": legs, "note":
                         "in split.csv but NOT in demat (AMO pending? rbsync)"})
     paper = sp[sp["mode"] == "PAPER"] if len(sp) else sp
     for s, g in (paper.groupby("symbol") if len(paper) else []):
@@ -207,10 +210,12 @@ def fundamentals_for(syms, fund_sheet, fetch):
             if p is None or p["pl"].empty:
                 continue
             m = fu.metrics(p)
-            out[s] = {"P/E": m.get("pe"), "ROCE %": m.get("roce_now"),
-                      "ROE %": m.get("roe_now"), "D/E": m.get("de"),
-                      "Qtr Profit YoY %": m.get("q_profit_yoy"),
-                      "Qtr Sales YoY %": m.get("q_sales_yoy"),
+            r1 = lambda k: round(m[k], 1) if isinstance(m.get(k), (int, float)) \
+                and m[k] == m[k] else None
+            out[s] = {"P/E": r1("pe"), "ROCE %": r1("roce_now"),
+                      "ROE %": r1("roe_now"), "D/E": r1("de"),
+                      "Qtr Profit YoY %": r1("q_profit_yoy"),
+                      "Qtr Sales YoY %": r1("q_sales_yoy"),
                       "Fund Swing": fu.verdict(fu.swing_rules(m)),
                       "Fund Invest": fu.verdict(fu.invest_rules(m)),
                       "Promoter Δ": m.get("d_prom"), "FII Δ": m.get("d_fii"),
@@ -482,6 +487,11 @@ def main():
     top = rk[rk.get("in_top", False) == True] if "in_top" in rk else \
         rk[rk["rank"] <= ms.SLOTS]                                  # noqa
     rebal = ms.rebalance_plan(top, full) if len(top) else []
+    demat = {h["symbol"] for h in broker}
+    for x in rebal:        # already owned, just not tagged Momentum in split.csv
+        if x["Section"] == "BUY" and x["Mode"] == "LIVE" and x["Symbol"] in demat:
+            x["Note"] = ("ALREADY IN DEMAT (not tagged Momentum) -- don't buy "
+                         "again; set momentum_qty/strategy in split.csv")
     comp = ms._read_sheet(master, "Strategy_Comparison")
     if len(comp) and "Ticker" in comp:
         comp = comp[comp["Ticker"].notna() & comp["Strategy Overlap"].isin(
@@ -518,14 +528,17 @@ def main():
                            h["Qty"], "%+.1f%%" % h["P&L %"]
                            if h.get("P&L %") is not None else "  n/a",
                            h.get("Stage", ""), h.get("RSI 14", "-"),
-                           h.get("Mom Rank", "-"), h.get("W+TT today", "-")))
+                           h.get("Mom Rank") if h.get("Mom Rank") is not None
+                           else "-", h.get("W+TT today", "-")))
         print("    why: %s" % h["Why"])
         if h.get("Fund (swing)") or h.get("P/E"):
-            print("    fundamentals: P/E %s, ROCE %s, qtr profit YoY %s, "
-                  "check %s/%s (info)" % (h.get("P/E"), h.get("ROCE %"),
-                                          h.get("Qtr Profit YoY %"),
-                                          h.get("Fund (swing)"),
-                                          h.get("Fund (invest)")))
+            f = lambda v: "n/a" if v is None or v != v else (
+                "%.0f" % v if isinstance(v, float) else str(v))
+            print("    fundamentals (info): P/E %s, ROCE %s%%, qtr profit YoY "
+                  "%s%%, check swing %s / invest %s"
+                  % (f(h.get("P/E")), f(h.get("ROCE %")),
+                     f(h.get("Qtr Profit YoY %")), h.get("Fund (swing)"),
+                     h.get("Fund (invest)")))
         if h.get("News (7 days)"):
             print("    news: %s" % h["News (7 days)"][:220])
     if not hold:
