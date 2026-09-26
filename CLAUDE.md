@@ -21,10 +21,11 @@
   strategy_lab.py       # 16 pre-registered strategies (momentum, low-vol, mean reversion, timing) vs baselines
   momentum_screener.py  # LIVE momentum (RAMOM top 20, sector cap 4) -> Momentum_Top20 + Strategy_Comparison sheets
   auto_tracker_update.py# rbtrack: Action BUY -> Dhan AMO (CNC, MARKET @ open, type YES) -> split.csv LIVE;
-                        #   Action PAPER -> split.csv PAPER; --sync = real fills; --no-orders; --dry-run
+                        #   BUY MTF -> productType MTF, qty floor(10000x4/LTP), type "YES MTF";
+                        #   PAPER / PAPER MTF -> split.csv PAPER; --sync = real fills; --no-orders; --dry-run
   dhan_orders.py        # Dhan v2 order/fund/trade helpers (BUY CNC only, no selling from code)
   news_feed.py          # Google News RSS headlines (no key, no extra package)
-  split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,order_id,note
+  split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
   dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
@@ -199,6 +200,17 @@ Rank strategies = monthly top-N equal weight, keep while rank < 2N. Post-tax CAG
 (BASE moves +/-0.4 between runs as the data cache refreshes.) Sector map: NSE Nifty Total Market list
 (data/_nse_industry.csv, weekly refresh); ~4 of the top 20 are usually outside it ("?", not capped).
 
+## MTF leverage check (26 Sep 2026, momentum top 20 + sector cap, pre-tax, Dhan MTF 12.49%/yr on the funded part)
+| Leverage | CAGR | maxDD | worst month | Rs 2L -> |
+|---|---|---|---|---|
+| 1x (CNC) | 22.8 | -34.5 | -21.3 | 33.3 L |
+| 2x | 27.4 | -69.4 | -41.4 | 55.2 L |
+| 3x | 26.0 | -90.3 | -58.6 | 47.3 L |
+| 4x (RB's BUY MTF) | 18.4 | -97.5 | -72.7 | 20.2 L |
+- Simulation holds through drawdowns; a real margin call would have liquidated 3-4x at the Mar-2020 bottom.
+- 4x returns LESS than 1x. BUY MTF exists because RB asked; tracker shows interest and P&L on own money.
+  Not every stock gets 4x on Dhan (lower limit -> reject / more margin).
+
 ## Fundamental layer (research done)
 Order of checks: 1) red flags (promoter pledge > 20% = out, auditor resignation/qualification, SEBI/forensic action)
 2) quality (ROE/ROCE >= 15% investing, >= 10-12% swing; D/E <= 1 non-financials; CFO/PAT >= 0.7-0.8 over 3-5 yrs; no loss year in 5-6 yrs)
@@ -236,5 +248,6 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 9. Tax (STCG/LTCG) in the portfolio sim. Optional: strategies on Gold ETF / BTC-ETH with fees.
 10. Optional: VCP rule test (Minervini) - old chat: "Minervini alone" 6.75% CAGR, "O'Neil L+M" 6.81% (173 stocks).
 11. DONE: live momentum chain (momentum_screener.py, auto_tracker_update.py, tracker momentum leg). Next: paper trade it.
-12. DONE: PAPER mode + news, Dhan AMO buy bridge (untested against the real Dhan API from the cloud -- first live use:
+12. DONE: BUY MTF / PAPER MTF (4x qty, "YES MTF" confirm, MTF summary in tracker) -- leverage test above says no.
+13. DONE: PAPER mode + news, Dhan AMO buy bridge (untested against the real Dhan API from the cloud -- first live use:
     ONE row, ONE share, then check the Dhan order book), Rebalance_Dashboard sheet (SELL/BUY/HOLD per LIVE/PAPER).

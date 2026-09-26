@@ -6,9 +6,17 @@ AUTO TRACKER UPDATE + DHAN AMO BRIDGE  (rbtrack)
 Reads the "Action" column of Strategy_Comparison in today's
 reports/RB_Screener_YYYY-MM-DD.xlsx (save + close Excel first):
 
-  PAPER -> added to split.csv with mode=PAPER (mock portfolio, no order,
-           no effect on live money). Entry price = today's Dhan LTP/close.
-  BUY   -> LIVE. By default places a Dhan AMO (After Market Order):
+  PAPER     -> added to split.csv with mode=PAPER (mock portfolio, no order,
+               no effect on live money). Entry price = today's Dhan LTP/close.
+  PAPER MTF -> same, but with the MTF (4x) quantity -- test leverage for free.
+  BUY MTF   -> LIVE Margin Trading Facility order: productType MTF,
+               quantity = floor(Rs 10,000 x 4 / price). Your own money stays
+               ~Rs 10,000 per slot, the broker funds the rest at 12.49%/yr.
+               BACKTEST (momentum top 20, 2013-26): 1x 22.8%/yr, max DD -35%;
+               4x 18.4%/yr, max DD -97.5%, worst month -73% -> in real life a
+               margin call would have closed you out at the Mar-2020 bottom.
+               You must type "YES MTF" to send MTF orders.
+  BUY       -> LIVE. By default places a Dhan AMO (After Market Order):
              CNC delivery, NSE_EQ, BUY, MARKET at the next open (amoTime OPEN)
              = the backtest's "buy next open". Shares = floor(Rs slot / price).
            You see every order and must type YES before anything is sent.
@@ -53,9 +61,13 @@ import dhan_orders as do
 SPLIT_FILE = ms.SPLIT_FILE
 BACKUP = os.path.join(ds.HERE, "split_backup.csv")
 COLUMNS = ["symbol", "swing_qty", "investing_qty", "momentum_qty",
-           "entry_price", "entry_date", "strategy", "mode", "order_id", "note"]
+           "entry_price", "entry_date", "strategy", "mode", "product",
+           "order_id", "note"]
 QTY = ("swing_qty", "investing_qty", "momentum_qty")
 LIMIT_BUFFER = 0.02        # --limit: pay at most 2% above the last price
+MTF_LEVERAGE = 4           # BUY MTF: quantity = floor(slot x 4 / price)
+ACTIONS = {"BUY": ("LIVE", "CNC"), "BUY MTF": ("LIVE", "MTF"),
+           "PAPER": ("PAPER", "CNC"), "PAPER MTF": ("PAPER", "MTF")}
 
 
 # ================================================================== split.csv
@@ -68,6 +80,7 @@ def read_split():
         if c not in sp:
             sp[c] = 0 if c.endswith("_qty") else ""
     sp["mode"] = sp["mode"].fillna("").replace("", "LIVE").astype(str).str.upper()
+    sp["product"] = sp["product"].fillna("").replace("", "CNC").astype(str).str.upper()
     sp["symbol"] = sp["symbol"].astype(str).str.upper().str.strip()
     for c in QTY:
         sp[c] = pd.to_numeric(sp[c], errors="coerce").fillna(0)
@@ -99,8 +112,14 @@ def action_rows(path):
     if "Ticker" not in d or "Action" not in d:
         print("! Strategy_Comparison has no Ticker/Action column.")
         sys.exit(1)
-    d["act"] = d["Action"].astype(str).str.strip().str.upper()
-    return d[d["act"].isin(["BUY", "PAPER"])].copy()
+    # "buy  mtf" / "Buy MTF" -> "BUY MTF"; anything else is ignored
+    d["act"] = d["Action"].astype(str).str.upper().str.split().str.join(" ")
+    bad = d[(d["Action"].notna()) & (d["act"] != "NAN") & (d["act"] != "")
+            & ~d["act"].isin(list(ACTIONS))]
+    if len(bad):
+        print("! Ignored unknown Action values: " + ", ".join(
+            "%s='%s'" % (t, a) for t, a in zip(bad["Ticker"], bad["Action"])))
+    return d[d["act"].isin(list(ACTIONS))].copy()
 
 
 # ================================================================== prices
@@ -133,7 +152,7 @@ def plan(rows, px, sp):
     today = ds.now_ist().date().isoformat()
     for _, r in rows.iterrows():
         s = str(r["Ticker"]).upper().strip()
-        mode = "PAPER" if r["act"] == "PAPER" else "LIVE"
+        mode, product = ACTIONS[r["act"]]
         if s in held(sp, mode) or any(x["symbol"] == s and x["mode"] == mode
                                       for x in new):
             skip.append("%s (%s already in split.csv)" % (s, mode))
@@ -147,16 +166,20 @@ def plan(rows, px, sp):
         price, src = px[s]
         overlap = str(r.get("Strategy Overlap", ""))
         mom = overlap in ("Momentum only", "Super-Buy")
-        shares = ms.shares_for(ms.CAPITAL / ms.SLOTS, price)
+        slot = ms.CAPITAL / ms.SLOTS              # your own money per slot
+        exposure = slot * (MTF_LEVERAGE if product == "MTF" else 1)
+        shares = ms.shares_for(exposure, price)
         if shares < 1:
-            skip.append("%s (price %.0f > slot)" % (s, price))
+            skip.append("%s (price %.0f > Rs %d)" % (s, price, exposure))
             continue
         new.append({"symbol": s, "swing_qty": 0 if mom else shares,
                     "investing_qty": 0, "momentum_qty": shares if mom else 0,
                     "entry_price": round(price, 2), "entry_date": today,
                     "strategy": "Momentum" if mom else "W+TT", "mode": mode,
-                    "order_id": "", "shares": shares,
-                    "note": "%s | %s" % (overlap, src)})
+                    "product": product, "order_id": "", "shares": shares,
+                    "note": "%s | %s%s" % (overlap, src,
+                                           " | MTF %dx" % MTF_LEVERAGE
+                                           if product == "MTF" else "")})
     return new, skip
 
 
@@ -174,16 +197,30 @@ def place_orders(tok, scrip, live, use_limit, dry):
         print("! Not in the Dhan scrip master, skipped: " + ", ".join(missing))
     live = [x for x in live if x["symbol"] in scrip]
     total = sum(x["shares"] * x["entry_price"] for x in live)
+    own = sum(x["shares"] * x["entry_price"] /
+              (MTF_LEVERAGE if x["product"] == "MTF" else 1) for x in live)
+    mtf = [x for x in live if x["product"] == "MTF"]
     otype = "LIMIT" if use_limit else "MARKET"
-    print("\nDHAN AMO ORDERS (CNC delivery, BUY, %s at next open):" % otype)
+    print("\nDHAN AMO ORDERS (BUY, %s at next open):" % otype)
     for x in live:
         lim = round(x["entry_price"] * (1 + LIMIT_BUFFER), 1)
-        print("  %-12s qty %4d  ~Rs %9s%s" % (
-            x["symbol"], x["shares"], format(int(x["shares"] * x["entry_price"]),
-                                             ","),
+        print("  %-12s %-3s qty %4d  exposure ~Rs %9s%s" % (
+            x["symbol"], x["product"], x["shares"],
+            format(int(x["shares"] * x["entry_price"]), ","),
             "  limit %.1f" % lim if use_limit else ""))
-    print("  total ~Rs %s (MARKET fills at the open, can differ)"
-          % format(int(total), ","))
+    print("  total exposure ~Rs %s | your own money ~Rs %s "
+          "(MARKET fills at the open, can differ)"
+          % (format(int(total), ","), format(int(own), ",")))
+    if mtf:
+        funded = sum(x["shares"] * x["entry_price"] * (1 - 1.0 / MTF_LEVERAGE)
+                     for x in mtf)
+        print("\n  !!! MTF: broker-funded ~Rs %s at 12.49%%/yr = ~Rs %d per "
+              "day interest." % (format(int(funded), ","), funded * 0.1249 / 365))
+        print("  !!! At %dx a %d%% fall wipes out the money you put in. "
+              "Backtest: 4x momentum max DD -97.5%% (1x: -35%%)."
+              % (MTF_LEVERAGE, 100 // MTF_LEVERAGE))
+        print("  !!! Not every stock gets 4x on Dhan -- if the stock's MTF "
+              "limit is lower, Dhan will reject or ask more margin.")
     if dry:
         print("(--dry-run: no orders sent)")
         return []
@@ -192,12 +229,15 @@ def place_orders(tok, scrip, live, use_limit, dry):
         print("! Could not read Dhan funds (%s). No orders sent." % err)
         return []
     print("  Dhan available balance: Rs %s" % format(int(funds), ","))
-    if funds < total * 1.02:
-        print("! Not enough funds for all orders (need ~Rs %s incl. buffer). "
-              "No orders sent." % format(int(total * 1.02), ","))
+    if funds < own * 1.02:
+        print("! Not enough funds for all orders (need ~Rs %s of your own "
+              "money incl. buffer). No orders sent." % format(int(own * 1.02),
+                                                               ","))
         return []
-    ans = input("\nType YES to send these %d order(s) to Dhan: " % len(live))
-    if ans.strip() != "YES":
+    word = "YES MTF" if mtf else "YES"
+    ans = input("\nType %s to send these %d order(s) to Dhan: "
+                % (word, len(live)))
+    if " ".join(ans.upper().split()) != word:
         print("Cancelled -- nothing sent.")
         return []
     accepted = []
@@ -205,14 +245,17 @@ def place_orders(tok, scrip, live, use_limit, dry):
         lim = round(round(x["entry_price"] * (1 + LIMIT_BUFFER) / 0.05) * 0.05, 2)
         ok, res, status = do.place_amo_buy(
             tok, scrip[x["symbol"]], x["shares"], x["symbol"],
-            order_type=otype, price=lim if use_limit else 0.0)
+            order_type=otype, price=lim if use_limit else 0.0,
+            product=x["product"])
         do.log_order({"date": dt.date.today().isoformat(),
                       "time": ds.now_ist().strftime("%H:%M:%S"),
                       "symbol": x["symbol"], "qty": x["shares"],
+                      "product": x["product"],
                       "type": otype, "ok": ok, "order_id": res if ok else "",
                       "status": status, "error": "" if ok else res})
         if ok:
-            print("  OK   %-12s order %s (%s)" % (x["symbol"], res, status))
+            print("  OK   %-12s %s order %s (%s)" % (x["symbol"], x["product"],
+                                                   res, status))
             x["order_id"] = res
             x["note"] += " | AMO %s pending -> rbtrack --sync" % otype
             accepted.append(x)
@@ -273,8 +316,9 @@ def main():
                                                          today))
     rows = action_rows(path)
     if rows.empty:
-        print("No BUY / PAPER in the Action column of Strategy_Comparison.")
-        print("Type BUY or PAPER, SAVE and CLOSE the file, then run again.")
+        print("No BUY / BUY MTF / PAPER / PAPER MTF in the Action column of "
+              "Strategy_Comparison.")
+        print("Type one of them, SAVE and CLOSE the file, then run again.")
         return
     sp = read_split()
     px, scrip = prices(tok, [str(t).upper().strip() for t in rows["Ticker"]])
@@ -299,8 +343,8 @@ def main():
         return
     show = pd.DataFrame(add)
     print("\nTo add to split.csv:")
-    print(show[["symbol", "mode", "strategy", "momentum_qty", "swing_qty",
-                "entry_price", "order_id"]].to_string(index=False))
+    print(show[["symbol", "mode", "product", "strategy", "momentum_qty",
+                "swing_qty", "entry_price", "order_id"]].to_string(index=False))
     if dry:
         print("\n(--dry-run: nothing written)")
         return

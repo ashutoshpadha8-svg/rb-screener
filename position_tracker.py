@@ -76,6 +76,8 @@ MOMENTUM_KEEP_RANK = 40         # momentum_screener: keep while rank <= 2 x 20
 MOMENTUM_SMART_SL = False
 SMART_SL_ATR = 3.0
 SMART_SL_BREAKEVEN = 0.20
+MTF_LEVERAGE = 4                # must match auto_tracker_update.py
+MTF_RATE = 0.1249               # Dhan MTF interest p.a. (up to Rs 5 lakh)
 
 DHAN_HOLDINGS = "https://api.dhan.co/v2/holdings"
 
@@ -185,6 +187,10 @@ def load_split(holdings):
     sp["mode"] = sp["mode"].fillna("").astype(str).str.upper().replace("", "LIVE")
     if "order_id" not in sp:
         sp["order_id"] = ""
+    if "product" not in sp:
+        sp["product"] = "CNC"
+    sp["product"] = sp["product"].fillna("").astype(str).str.upper() \
+        .replace("", "CNC")
     return sp
 
 
@@ -378,6 +384,30 @@ def judge_momentum(sym, c, lo, hi, entry, entry_date, ranks):
         px, rk, stop
 
 
+def mtf_summary(rows):
+    """Leverage view: your own money, interest so far, P&L on your money."""
+    if not rows:
+        return
+    print("\n==== MTF (%dx margin) -- P&L on YOUR money, after interest ===="
+          % MTF_LEVERAGE)
+    for x in rows:
+        expo = x["qty"] * x["entry"]
+        own = expo / MTF_LEVERAGE
+        try:
+            days = max(0, (pd.Timestamp(ds.now_ist().date()) -
+                           pd.Timestamp(x["entry_date"])).days)
+        except (ValueError, TypeError):
+            days = 0
+        interest = (expo - own) * MTF_RATE * days / 365
+        pnl = x["qty"] * (x["price"] - x["entry"]) - interest
+        print("  %-5s %-12s own Rs %7s | interest so far Rs %6s | P&L on own "
+              "money %+6.1f%%%s" % (
+                  x["mode"], x["symbol"], format(int(own), ","),
+                  format(int(interest), ","), 100 * pnl / own if own else 0,
+                  "   !!! more than half your margin is gone"
+                  if own and pnl < -0.5 * own else ""))
+
+
 # ------------------------------------------------------------------ main
 def main():
     token = read_token()
@@ -409,6 +439,7 @@ def main():
             continue
 
         mode = str(r.get("mode") or "LIVE").upper()
+        product = str(r.get("product") or "CNC").upper()
         held = hq.get(sym)
         if mode == "PAPER":
             held = None                  # mock trade: never compared to Dhan
@@ -441,7 +472,8 @@ def main():
                 verdict, why = verdict + star, why + " (live price -- only " \
                     "counts if it CLOSES here)"
             swing_rows.append({
-                "mode": mode, "leg": "swing",
+                "mode": mode, "leg": "swing", "product": product,
+                "entry_date": str(edate),
                 "symbol": sym, "qty": int(sw), "entry": round(entry, 1),
                 "price": round(px, 1),
                 "pnl_pct": round((px / entry - 1) * 100, 1) if entry else 0,
@@ -453,7 +485,8 @@ def main():
             verdict, why, px, rk, stop = judge_momentum(
                 sym, c, lows[sym], highs[sym], entry, edate, ranks)
             mom_rows.append({
-                "mode": mode, "leg": "momentum",
+                "mode": mode, "leg": "momentum", "product": product,
+                "entry_date": str(edate),
                 "symbol": sym, "qty": int(mo), "entry": round(entry, 1),
                 "price": round(px, 1),
                 "pnl_pct": round((px / entry - 1) * 100, 1) if entry else 0,
@@ -468,7 +501,8 @@ def main():
                 verdict, why = verdict + star, why + " (live price -- only " \
                     "counts if it CLOSES here)"
             inv_rows.append({
-                "mode": mode, "leg": "investing",
+                "mode": mode, "leg": "investing", "product": product,
+                "entry_date": str(edate),
                 "symbol": sym, "qty": int(iv), "entry": round(entry, 1),
                 "price": round(px, 1),
                 "pnl_pct": round((px / entry - 1) * 100, 1) if entry else 0,
@@ -512,6 +546,8 @@ def main():
                      format(int(now - inv), ","),
                      100 * (now / inv - 1) if inv else 0))
     show("PAPER PORTFOLIO (mock -- not real money)", paper, "tracker_paper")
+    mtf_summary([x for x in swing_rows + inv_rows + mom_rows
+                 if x.get("product") == "MTF"])
     if "--no-news" not in sys.argv:
         import news_feed
         syms = list(dict.fromkeys(x["symbol"] for x in

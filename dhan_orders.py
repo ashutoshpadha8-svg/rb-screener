@@ -3,8 +3,8 @@
 DHAN ORDER HELPERS  --  used by auto_tracker_update.py
 ======================================================
 
-Cash market only: productType CNC (delivery), NSE_EQ, BUY. No F&O, no
-intraday, no selling from code.
+Cash market only: NSE_EQ BUY, productType CNC (delivery) or MTF (Margin
+Trading Facility, leveraged delivery). No F&O, no intraday, no selling.
 
 Endpoints (DhanHQ v2 docs, checked 26 Sep 2026):
   POST /v2/orders            place order (afterMarketOrder + amoTime for AMO)
@@ -82,14 +82,16 @@ def available_funds(tok):
 
 
 def place_amo_buy(tok, security_id, qty, symbol, order_type="MARKET",
-                  price=0.0, amo_time="OPEN"):
-    """CNC delivery BUY as an After Market Order. Returns (ok, orderId or
-    error text, status)."""
+                  price=0.0, amo_time="OPEN", product="CNC"):
+    """Delivery BUY (CNC or MTF) as an After Market Order. Returns (ok,
+    orderId or error text, status)."""
+    if product not in ("CNC", "MTF"):
+        return False, "product %s not allowed" % product, "ERROR"
     body = {"dhanClientId": ds.CLIENT_ID,
             "correlationId": ("RB%s%s" % (dt.date.today().strftime("%y%m%d"),
                                           symbol))[:30],
             "transactionType": "BUY", "exchangeSegment": "NSE_EQ",
-            "productType": "CNC", "orderType": order_type, "validity": "DAY",
+            "productType": product, "orderType": order_type, "validity": "DAY",
             "securityId": str(security_id), "quantity": int(qty),
             "disclosedQuantity": 0,
             "price": float(price) if order_type == "LIMIT" else 0.0,
