@@ -35,7 +35,7 @@
                         #   momentum_ranks_latest.csv, _nse_industry.csv (same for every account)
   accounts/<BROKER>_<CLIENT_ID>/  # PER ACCOUNT, e.g. DHAN_1100120973 (name never in the path)
     data/               #   split.csv, split_backup.csv, orders_log.csv
-    reports/            #   RB_Screener_<BROKER>_YYYY-MM-DD.xlsx (Swing, Investing, Momentum_Top20, Strategy_Comparison,
+    reports/            #   RB_Screener_<BROKER>_<Name>_YYYY-MM-DD.xlsx (Swing, Investing, Momentum_Top20, Strategy_Comparison,
                         #   Rebalance_Dashboard, Fundamentals), RB_Fundamentals_<BROKER>_*, tracker_*_<BROKER>_*.csv (broker tag since 26 Sep)
     credentials.json    #   Angel/Zerodha api_key etc. (template auto-created; never printed)
     account_name.txt    #   display name

@@ -27,7 +27,7 @@ auto_tracker_update, position_tracker) calls activate() first.
 3. Files of that account live in
        ~/Desktop/RB_Screener/accounts/<BROKER>_<CLIENT_ID>/
            data/     split.csv, split_backup.csv, orders_log.csv
-           reports/  RB_Screener_<BROKER>_YYYY-MM-DD.xlsx, RB_Fundamentals_*, tracker_*
+           reports/  RB_Screener_<BROKER>_<Name>_YYYY-MM-DD.xlsx, RB_Fundamentals_*, tracker_*
            credentials.json   (Angel / Zerodha keys, see broker_api.py)
            account_name.txt   (display name)
    The Name is never part of the path (a typo must not create a new, empty
@@ -315,11 +315,19 @@ def _mods(name):
     return out
 
 
+def file_tag(acc):
+    """'DHAN_Ashutosh' for report file names: broker + name (letters/digits
+    only, spaces -> '_'); broker alone when there is no name."""
+    safe = re.sub(r"[^A-Za-z0-9]+", "_", acc.name).strip("_")[:25]
+    return acc.broker + ("_" + safe if safe else "")
+
+
 def _route(acc):
     """Point every loaded module's ACCOUNT paths at this account's folder."""
+    tag = file_tag(acc)                      # RB_Screener_DHAN_Ashutosh_<date>
     for m in _mods("daily_screener"):
         m.REPORTS = acc.reports
-        m.TAG = acc.broker                   # RB_Screener_DHAN_<date>.xlsx
+        m.TAG = tag
     for m in _mods("momentum_screener"):
         m.SPLIT_FILE = acc.split
     for m in _mods("auto_tracker_update"):
@@ -330,7 +338,7 @@ def _route(acc):
         m.ORDER_LOG = acc.orders_log
     for m in _mods("fundamentals"):
         m.REPORTS = acc.reports
-        m.TAG = acc.broker
+        m.TAG = tag
 
 
 # ================================================================== activate
