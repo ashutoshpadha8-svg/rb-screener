@@ -55,6 +55,20 @@ class Account(object):
         self.split = os.path.join(self.data, "split.csv")
         self.split_backup = os.path.join(self.data, "split_backup.csv")
         self.orders_log = os.path.join(self.data, "orders_log.csv")
+        self.name_file = os.path.join(self.dir, "account_name.txt")
+
+    @property
+    def name(self):
+        """Your own label for this account (display only, never a path)."""
+        try:
+            txt = open(self.name_file).read().strip().splitlines()[0]
+        except (IOError, OSError, IndexError):
+            return ""
+        return "".join(c for c in txt if c.isprintable())[:40]
+
+    @property
+    def label(self):
+        return "%s (%s)" % (self.cid, self.name) if self.name else self.cid
 
 
 def client_id_from_token():
@@ -180,5 +194,23 @@ def activate(quiet=False):
 def banner(acc=None):
     acc = acc or _active
     if acc:
-        print("\n\033[1m=== ACTIVE ACCOUNT: %s ===\033[0m" % acc.cid)
+        print("\n\033[1m=== ACTIVE ACCOUNT: %s ===\033[0m" % acc.label)
         print("    files: accounts/%s/  (data/, reports/)" % acc.cid)
+        if not acc.name:
+            print('    (add a name once: python3 account.py --name "Your Name")')
+
+
+if __name__ == "__main__":
+    # python3 account.py                 -> show the active account
+    # python3 account.py --name "Ashu"   -> set the name for the token's account
+    a = sys.argv[1:]
+    acc = activate(quiet=True)
+    if "--name" in a and a.index("--name") + 1 < len(a):
+        with open(acc.name_file, "w") as f:
+            f.write(a[a.index("--name") + 1].strip() + "\n")
+        print("Name saved for %s." % acc.cid)
+    banner(acc)
+    others = sorted(d for d in os.listdir(ACCOUNTS)
+                    if not d.startswith(".") and d != acc.cid)
+    for d in others:
+        print("    other account: %s" % Account(d).label)
