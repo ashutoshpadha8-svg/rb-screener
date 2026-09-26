@@ -225,7 +225,15 @@ def fundamentals_for(syms, fund_sheet, fetch):
     return out
 
 
-def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news):
+def fmt_filings(fl):
+    if fl is None:
+        return "(NSE did not answer -- try again later)"
+    return " || ".join("%s%s %s: %s" % ("!! " if red else "", d, c, t)
+                       for d, c, t, red in fl)
+
+
+def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
+            filings=None):
     s = pos["symbol"]
     c = closes.get(s)
     base = {"Mode": pos["mode"], "Symbol": s, "Qty": pos["qty"],
@@ -289,7 +297,11 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news):
         "Fund (swing)": f.get("Fund Swing"), "Fund (invest)": f.get("Fund Invest"),
         "Promoter Δ": f.get("Promoter Δ"), "FII Δ": f.get("FII Δ"),
         "DII Δ": f.get("DII Δ"),
-        "News (7 days)": " || ".join("%s: %s (%s)" % x for x in n)})
+        "News (7 days)": " || ".join("%s: %s (%s)" % x for x in n),
+        "NSE filings (30d)": fmt_filings((filings or {}).get(s, []))
+        if filings is not None else "",
+        "Red flag": "YES" if any(x[3] for x in ((filings or {}).get(s) or []))
+        else ""})
     return base
 
 
@@ -299,8 +311,8 @@ HCOLS = ["Recommendation", "Mode", "Symbol", "Qty", "Entry", "LTP", "P&L %",
          "50 DMA", "RSI 14", "From 52w High %", "ATR %", "6m Ret %",
          "12m Ret %", "Mom Rank", "W+TT today", "P/E", "ROCE %", "ROE %", "D/E",
          "Qtr Profit YoY %", "Qtr Sales YoY %", "Fund (swing)", "Fund (invest)",
-         "Promoter Δ", "FII Δ", "DII Δ", "News (7 days)"]
-WIDTH = {"Why": 70, "News (7 days)": 90, "Basis": 16, "Stage": 16,
+         "Promoter Δ", "FII Δ", "DII Δ", "Red flag", "NSE filings (30d)", "News (7 days)"]
+WIDTH = {"Why": 70, "News (7 days)": 90, "NSE filings (30d)": 90, "Red flag": 8, "Basis": 16, "Stage": 16,
          "Recommendation": 13, "Symbol": 13, "Fund (swing)": 9,
          "Fund (invest)": 9}
 REC_FILL = {"EXIT": "F8CBAD", "SELL": "F8CBAD", "SELL@REBAL": "FCE4D6",
@@ -470,14 +482,18 @@ def main():
         if "Symbol" in sw and "Action" in sw else {}
     fund = fundamentals_for(syms, ms._read_sheet(master, "Fundamentals"),
                             "--no-fund" not in a)
-    news = {}
+    news, filings = {}, None
     if syms and "--no-news" not in a:
         import news_feed as nf
         print("News for %d stock(s) ..." % len(syms))
         news = {s: nf.latest(s, n=2) for s in syms}
+        print("NSE filings (last 30 days) ...")
+        filings = {s: nf.nse_announcements(s) for s in syms}
+    else:
+        filings = None
 
-    hold = [analyse(p, closes, lows, highs, prov, ranks, wtt, fund, news)
-            for p in pos]
+    hold = [analyse(p, closes, lows, highs, prov, ranks, wtt, fund, news,
+                    filings) for p in pos]
     hold.sort(key=lambda x: (x["Mode"] != "LIVE",
                              LEG_ORDER.get(x["Recommendation"], 8),
                              -(x.get("Value (Rs)") or 0)))
@@ -539,6 +555,9 @@ def main():
                   % (f(h.get("P/E")), f(h.get("ROCE %")),
                      f(h.get("Qtr Profit YoY %")), h.get("Fund (swing)"),
                      h.get("Fund (invest)")))
+        if h.get("NSE filings (30d)"):
+            print("    %sNSE filings: %s" % ("!! RED FLAG -- " if h.get("Red flag")
+                                           else "", h["NSE filings (30d)"][:260]))
         if h.get("News (7 days)"):
             print("    news: %s" % h["News (7 days)"][:220])
     if not hold:

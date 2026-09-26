@@ -25,7 +25,9 @@
                         #   PAPER / PAPER MTF -> split.csv PAPER; --sync = real fills; --no-orders; --dry-run
   broker_api.py         # ONLY place that talks to a broker: Dhan / Angel One (SmartAPI) / Zerodha (Kite)
                         #   prices, history fill, holdings, funds, AMO BUY (CNC/MTF), order status. No selling.
-  news_feed.py          # Google News RSS headlines (no key, no extra package)
+  news_feed.py          # Google News RSS headlines + NSE corporate announcements (nse_announcements: official
+                        #   filings, routine ones skipped, red flags = pledge/resign/default/strike/downgrade/...;
+                        #   NSE sometimes 403s -> retries; works from the cloud too, 26 Sep). Info only, never a rule.
   rb_scan.py            # rbscan: MASTER scan = daily_screener -> momentum_screener -> fundamentals, ONCE a day,
                         #   shared by all accounts (skips if done; re-runs once if the last scan was intraday; --force)
   portfolio.py          # rbport: per account -> Portfolio_<BROKER>_<Name>_<date>.xlsx: Holdings (demat + PAPER:
@@ -84,7 +86,7 @@ Daily routine: rbtoken (fresh Dhan token) -> rbscan (best after 15:30) -> rbport
 PAPER / PAPER MTF / WATCH dropdown) in the Portfolio file, save, close -> rbtrack after 15:30 -> next morning rbsync.
 Recommendation logic in portfolio.py: split.csv-tagged legs -> that strategy's backtested exit rule (worst leg
 wins: EXIT > SELL@REBAL > WATCH > HOLD); untagged holdings -> combined check SELL (Stage 4, or < 40w MA AND rank
-> 40) / WEAK / KEEP -- NOT backtested as a whole. Fundamentals + news never change the verdict.
+> 40) / WEAK / KEEP -- NOT backtested as a whole. Fundamentals, news and NSE filings ("Red flag" column) never change the verdict.
 Momentum trades only on the 1st trading day of the month; keep while rank <= 40. Sells are NOT automated.
 
 ## How fundamentals.py works

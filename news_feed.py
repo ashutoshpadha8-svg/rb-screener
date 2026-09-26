@@ -8,6 +8,7 @@ Headlines are information only -- none of the backtested rules use news.
 """
 
 import os
+import re
 import time
 import datetime as dt
 import xml.etree.ElementTree as ET
@@ -81,3 +82,84 @@ def print_news(symbols, label=""):
             print("     (no headlines found)")
         for d, t, src in items:
             print("     %s  %s%s" % (d, t[:100], ("  [%s]" % src) if src else ""))
+
+
+# ================================================================== NSE filings
+# Official corporate announcements (what the company itself files with NSE).
+# Free, no key. NSE's bot filter sometimes answers 403 -> fresh session +
+# retry; on failure the list is just empty (information only, never a rule).
+NSE_API = "https://www.nseindia.com/api/corporate-announcements"
+NSE_HDR = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 "
+                         "Safari/537.36",
+           "Accept": "application/json, text/plain, */*",
+           "Accept-Language": "en-US,en;q=0.9",
+           "Referer": "https://www.nseindia.com/"}
+# routine filings nobody needs to read
+NSE_SKIP = ("trading window", "analysts/institutional investor meet",
+            "newspaper publication", "copy of newspaper", "loss of share",
+            "duplicate share", "certificate under sebi (depositories",
+            "esop", "esos", "esps", "record date", "general updates",
+            "shareholders meeting", "change in rta", "investor presentation")
+# worth a red flag (checked in the category AND the text)
+NSE_RED = re.compile(
+    r"\bpledg|\bencumb|\bresign|\bsebi (order|adjudicat)|\bpenalt|\bfraud|"
+    r"\bdefault|\binsolvency|\bcirp\b|search and seizure|income tax search|"
+    r"\braid|\bdowngrad|\bstrikes?\b|\blockout|\bsuspension|\bforensic|"
+    r"qualified opinion|\blitigation|\bdisturbance|\bdelay in|\bcessation")
+_nse = None
+
+
+def _nse_session(fresh=False):
+    global _nse
+    if _nse is None or fresh:
+        _nse = requests.Session()
+        try:
+            _nse.get("https://www.nseindia.com/", headers=NSE_HDR, timeout=15)
+        except requests.RequestException:
+            pass
+    return _nse
+
+
+def nse_announcements(symbol, days=30, n=4):
+    """Up to n recent, non-routine NSE filings, red flags first.
+    [(date 'dd Mon', category, short text, is_red_flag)]"""
+    to = dt.date.today()
+    fr = to - dt.timedelta(days=days)
+    params = {"index": "equities", "symbol": symbol,
+              "from_date": fr.strftime("%d-%m-%Y"),
+              "to_date": to.strftime("%d-%m-%Y")}
+    data = None
+    for attempt in range(3):
+        try:
+            r = _nse_session(fresh=attempt > 0).get(
+                NSE_API, headers=NSE_HDR, params=params, timeout=20)
+            if r.status_code == 200 and r.content[:1] in (b"[", b"{"):
+                data = r.json()
+                break
+        except (requests.RequestException, ValueError):
+            pass
+        time.sleep(1.5 * (attempt + 1))
+    time.sleep(0.4)
+    if not isinstance(data, list):
+        return None                                  # unknown (blocked)
+    out = []
+    for x in data:
+        cat = str(x.get("desc") or "")
+        txt = " ".join(str(x.get("attchmntText") or "").split())
+        low = (cat + " " + txt).lower()
+        if any(k in cat.lower() for k in NSE_SKIP) or "pursuant to esop" in low:
+            continue
+        red = bool(NSE_RED.search(low)) or (
+            "auditor" in low and any(k in low for k in ("cessation", "removal",
+                                                        "resign", "qualif")))
+        try:
+            d = dt.datetime.strptime(str(x.get("an_dt")), "%d-%b-%Y %H:%M:%S")
+        except ValueError:
+            continue
+        short = re.sub(r"^%s\s*:\s*" % re.escape(symbol), "", txt)
+        short = re.sub(r"^.{0,80}?has informed the Exchange (about|regarding) ",
+                       "", short, flags=re.I)
+        out.append((d, cat, short[:140], red))
+    out.sort(key=lambda t: (not t[3], -t[0].timestamp()))
+    return [(d.strftime("%d %b"), c, s, red) for d, c, s, red in out[:n]]

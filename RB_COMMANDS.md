@@ -11,7 +11,7 @@ Sab kuch `~/Desktop/RB_Screener` mein. Terminal (zsh) mein chalao.
 | `rbtoken` | token.txt kholta hai (naya token paste) | roz (Dhan) |
 | `rbcheck` | account + funds + 1 price check, koi order nahi | jab chaaho |
 | `rbscan` | **MASTER scan** -- sab accounts ke liye ek file | din mein 1 baar (dobara chalao to skip) |
-| `rbport` | **TUMHARA portfolio**: har holding ka trend, technical, fundamental, news, strategy test, HOLD/EXIT + wajah, rebalance, Actions | jab chaaho |
+| `rbport` | **TUMHARA portfolio**: har holding ka trend, technical, fundamental, news, NSE filings (red flag), strategy test, HOLD/EXIT + wajah, rebalance, Actions | jab chaaho |
 | `rbtrack` | Actions sheet ke BUY / PAPER -> order / split.csv | 15:30 ke baad |
 | `rbsync` | agli subah asli fill prices | subah 9:15 ke baad |
 
