@@ -34,6 +34,10 @@ OPTIONS
                 entry_price / quantity for LIVE rows whose order is pending;
                 rejected / cancelled orders are marked and set to 0 shares
   --file PATH   use another report
+  --unwatch A,B remove symbols from the watchlist
+
+  WATCH       -> no order; the symbol goes on this account's watchlist
+                 (data/watchlist.csv) and rbport analyses it every run
 
 SAFETY
   * AMOs are refused during market hours (09:15-15:30) -- run it at night.
@@ -65,6 +69,7 @@ import portfolio as pf
 
 SPLIT_FILE = ms.SPLIT_FILE
 BACKUP = os.path.join(ds.HERE, "split_backup.csv")
+WATCH_FILE = os.path.join(ds.DATA, "watchlist.csv")     # routed per account
 COLUMNS = ["symbol", "swing_qty", "investing_qty", "momentum_qty",
            "entry_price", "entry_date", "strategy", "mode", "product",
            "order_id", "note"]
@@ -124,7 +129,41 @@ def action_rows(path):
     if len(bad):
         print("! Ignored unknown Action values: " + ", ".join(
             "%s='%s'" % (t, a) for t, a in zip(bad["Ticker"], bad["Action"])))
-    return d[d["act"].isin(list(ACTIONS))].copy()
+    return d[d["act"].isin(list(ACTIONS) + ["WATCH"])].copy()
+
+
+def load_watch():
+    cols = ["symbol", "added", "price_added", "source"]
+    if not os.path.exists(WATCH_FILE):
+        return pd.DataFrame(columns=cols)
+    return pd.read_csv(WATCH_FILE)
+
+
+def save_watch(rows):
+    """WATCH picks -> accounts/<..>/data/watchlist.csv (no order, no money).
+    rbport then analyses them next to your holdings."""
+    w = load_watch()
+    have = set(w["symbol"].astype(str).str.upper())
+    add = []
+    for _, r in rows.iterrows():
+        s = str(r["Ticker"]).upper().strip()
+        if s in have:
+            continue
+        add.append({"symbol": s, "added": ds.now_ist().date().isoformat(),
+                    "price_added": r.get("LTP"),
+                    "source": r.get("Strategy Overlap", "")})
+        have.add(s)
+    if add:
+        pd.concat([w, pd.DataFrame(add)], ignore_index=True).to_csv(
+            WATCH_FILE, index=False)
+    return [x["symbol"] for x in add]
+
+
+def unwatch(symbols):
+    w = load_watch()
+    keep = w[~w["symbol"].astype(str).str.upper().isin(symbols)]
+    keep.to_csv(WATCH_FILE, index=False)
+    return len(w) - len(keep)
 
 
 # ================================================================== prices
@@ -321,6 +360,11 @@ def main():
     a = sys.argv[1:]
     dry, no_orders, use_limit = ("--dry-run" in a, "--no-orders" in a,
                                  "--limit" in a)
+    if "--unwatch" in a and a.index("--unwatch") + 1 < len(a):
+        syms = [x.strip().upper() for x in
+                a[a.index("--unwatch") + 1].split(",") if x.strip()]
+        print("Removed %d from the watchlist." % unwatch(syms))
+        return
     sess = ms.get_session()
     if "--sync" in a:
         if not sess:
@@ -338,6 +382,19 @@ def main():
         print("! Using %s -- NOT today's report (%s)." % (os.path.basename(path),
                                                          today))
     rows = action_rows(path)
+    watch = rows[rows["act"] == "WATCH"]
+    rows = rows[rows["act"] != "WATCH"]
+    if len(watch):
+        added = save_watch(watch) if not dry else []
+        print("WATCH (no order, no money): %s -> %s" % (
+            ", ".join(watch["Ticker"].astype(str)),
+            "added to your watchlist; rbport analyses them"
+            if added else ("already on the watchlist" if not dry
+                           else "(--dry-run: not saved)")))
+        print("  remove later with:  rbtrack --unwatch SYMBOL")
+    if rows.empty and len(watch):
+        account.banner(acc)
+        return
     if rows.empty:
         print("No BUY / BUY MTF / PAPER / PAPER MTF in the Action column of "
               "the Actions sheet (%s)." % os.path.basename(path))

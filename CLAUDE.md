@@ -88,6 +88,9 @@ Recommendation logic in portfolio.py: split.csv-tagged legs -> that strategy's b
 wins: EXIT > SELL@REBAL > WATCH > HOLD); untagged holdings -> combined check SELL (Stage 4, or < 40w MA AND rank
 > 40) / WEAK / KEEP -- NOT backtested as a whole. Fundamentals, news and NSE filings ("Red flag" column) never change the verdict.
 Momentum trades only on the 1st trading day of the month; keep while rank <= 40. Sells are NOT automated.
+WATCH (Action): no order; rbtrack saves it to accounts/<..>/data/watchlist.csv (symbol, added, price_added,
+source); rbport analyses watchlist rows (Mode WATCH: STRONG / WEAK / AVOID via the combined check, P&L since added).
+`rbtrack --unwatch A,B` removes them.
 
 ## How fundamentals.py works
 - Input: latest reports/RB_Screener_*.xlsx (or `--file PATH`). `--symbols A,B` writes a separate RB_Fundamentals file.

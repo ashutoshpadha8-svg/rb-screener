@@ -55,9 +55,11 @@ import position_tracker as pt
 
 REPORTS = os.path.join(ds.HERE, "reports")     # routed to the account folder
 TAG = ""                                       # e.g. DHAN_Ashutosh (routed)
+WATCH_FILE = os.path.join(ds.DATA, "watchlist.csv")   # routed per account
 KEEP_RANK = ms.BUFFER * ms.SLOTS
 LEG_ORDER = {"EXIT": 0, "SELL@REBAL": 1, "SELL": 1, "WATCH": 2, "WEAK": 2,
-             "HOLD": 3, "KEEP": 3}
+             "HOLD": 3, "KEEP": 3, "AVOID": 4, "STRONG": 4}
+WATCH_WORD = {"KEEP": "STRONG", "WEAK": "WEAK", "SELL": "AVOID"}
 
 
 def path_for(day=None):
@@ -126,6 +128,15 @@ def positions(broker_holdings, sp):
                         "entry": r["entry_price"], "entry_date":
                         r.get("entry_date"), "legs": legs, "note":
                         "in split.csv but NOT in demat (AMO pending? rbsync)"})
+    if os.path.exists(WATCH_FILE):          # WATCH picks from rbtrack
+        w = pd.read_csv(WATCH_FILE)
+        for _, r in w.iterrows():
+            out.append({"mode": "WATCH", "symbol": str(r["symbol"]).upper(),
+                        "qty": 0, "entry": float(r["price_added"])
+                        if r.get("price_added") == r.get("price_added") and
+                        r.get("price_added") else 0,
+                        "entry_date": None, "legs": {},
+                        "note": "on watchlist since %s" % r.get("added")})
     paper = sp[sp["mode"] == "PAPER"] if len(sp) else sp
     for s, g in (paper.groupby("symbol") if len(paper) else []):
         legs = {leg: g["%s_qty" % leg].sum() for leg in
@@ -266,6 +277,8 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
     else:
         rec = combined(t, stage4_now(c), rk)
         basis = "untagged (combined check)"
+        if pos["mode"] == "WATCH":
+            rec, basis = WATCH_WORD[rec], "watchlist (combined check)"
         why.append("%s: %s 40w MA %.0f; momentum rank %s"
                    % (rec, "above" if t["px"] > t["ma200"] else "BELOW",
                       t["ma200"], rk if rk is not None else "none (outside "
@@ -317,7 +330,8 @@ WIDTH = {"Why": 70, "News (7 days)": 90, "NSE filings (30d)": 90, "Red flag": 8,
          "Fund (invest)": 9}
 REC_FILL = {"EXIT": "F8CBAD", "SELL": "F8CBAD", "SELL@REBAL": "FCE4D6",
             "WATCH": "FFE699", "WEAK": "FFE699", "HOLD": "C6EFCE",
-            "KEEP": "C6EFCE", "NO DATA": "D9D9D9"}
+            "KEEP": "C6EFCE", "NO DATA": "D9D9D9", "STRONG": "C6EFCE",
+            "AVOID": "F8CBAD"}
 
 
 def write_book(path, hold, rebal, comp, held_modes, old_actions, banner):
@@ -494,7 +508,7 @@ def main():
 
     hold = [analyse(p, closes, lows, highs, prov, ranks, wtt, fund, news,
                     filings) for p in pos]
-    hold.sort(key=lambda x: (x["Mode"] != "LIVE",
+    hold.sort(key=lambda x: ({"LIVE": 0, "PAPER": 1}.get(x["Mode"], 2),
                              LEG_ORDER.get(x["Recommendation"], 8),
                              -(x.get("Value (Rs)") or 0)))
 

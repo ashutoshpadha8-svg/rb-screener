@@ -82,6 +82,7 @@ class Account(object):
         self.split = os.path.join(self.data, "split.csv")
         self.split_backup = os.path.join(self.data, "split_backup.csv")
         self.orders_log = os.path.join(self.data, "orders_log.csv")
+        self.watchlist = os.path.join(self.data, "watchlist.csv")
         self.name_file = os.path.join(self.dir, "account_name.txt")
         self.creds_file = os.path.join(self.dir, "credentials.json")
         self.expiry = None
@@ -334,6 +335,7 @@ def _route(acc):
         m.SPLIT_FILE = acc.split
     for m in _mods("auto_tracker_update"):
         m.SPLIT_FILE, m.BACKUP = acc.split, acc.split_backup
+        m.WATCH_FILE = acc.watchlist
     for m in _mods("position_tracker"):
         m.SPLIT_FILE = acc.split
     for m in _mods("broker_api"):
@@ -343,6 +345,7 @@ def _route(acc):
         m.TAG = ""
     for m in _mods("portfolio"):             # per account
         m.REPORTS = acc.reports
+        m.WATCH_FILE = acc.watchlist
         m.TAG = tag
 
 
