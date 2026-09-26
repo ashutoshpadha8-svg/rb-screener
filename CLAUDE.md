@@ -23,32 +23,48 @@
   auto_tracker_update.py# rbtrack: Action BUY -> Dhan AMO (CNC, MARKET @ open, type YES) -> split.csv LIVE;
                         #   BUY MTF -> productType MTF, qty floor(10000x4/LTP), type "YES MTF";
                         #   PAPER / PAPER MTF -> split.csv PAPER; --sync = real fills; --no-orders; --dry-run
-  dhan_orders.py        # Dhan v2 order/fund/trade helpers (BUY CNC only, no selling from code)
+  broker_api.py         # ONLY place that talks to a broker: Dhan / Angel One (SmartAPI) / Zerodha (Kite)
+                        #   prices, history fill, holdings, funds, AMO BUY (CNC/MTF), order status. No selling.
   news_feed.py          # Google News RSS headlines (no key, no extra package)
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
-  account.py            # per-account folders: client ID from the token -> accounts/<ID>/ (see below)
-  dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
+  account.py            # dhan_token.txt -> broker + client + token -> accounts/<BROKER>_<ID>/ (see below)
+  dhan_token.txt        # Broker: / Client ID: / Name: / Token: lines. NEVER print or copy the token anywhere
   data/                 # SHARED market data: price history, NSE files, scrip master, Screener pages,
                         #   momentum_ranks_latest.csv, _nse_industry.csv (same for every account)
-  accounts/<CLIENT_ID>/ # PER ACCOUNT (since 26 Sep 2026)
+  accounts/<BROKER>_<CLIENT_ID>/  # PER ACCOUNT, e.g. DHAN_1100120973 (name never in the path)
     data/               #   split.csv, split_backup.csv, orders_log.csv
     reports/            #   RB_Screener_YYYY-MM-DD.xlsx (Swing, Investing, Momentum_Top20, Strategy_Comparison,
                         #   Rebalance_Dashboard, Fundamentals), RB_Fundamentals_*, tracker_*.csv
+    credentials.json    #   Angel/Zerodha api_key etc. (template auto-created; never printed)
+    account_name.txt    #   display name
   accounts/.migrated    # marker: the one-time move of the old global files is done
+  accounts/.last_session.json  # broker/client/name of the last good run (NO token) -> token-only paste works
 ```
-Multi-account (account.py): all 5 live scripts call account.activate() first. It reads the client ID from
-dhan_token.txt (digits only, 5-15), STOPS if missing/invalid, routes split/orders_log/reports to
-accounts/<ID>/, prints a bold "=== ACTIVE ACCOUNT: <ID> ===" (start and end). First account ever activated
-gets the old global split.csv / split_backup.csv / data/orders_log.csv / reports/RB_Screener_* etc. MOVED in;
-then the marker blocks any further migration (a 2nd account starts empty; a stray old split.csv is ignored
-with a warning). Switch account = paste that account's token. An expired token still names the account.
-dhan_token.txt may be labelled: "Client ID: ..." (must match the token, else STOP), "Name: ...",
-"Token: ..." (token found by its x.y.z shape, label optional, so a plain Cmd+A Cmd+V paste still works).
-Name: "Name:" line / plain 2nd line of dhan_token.txt (or `python3 account.py --name "RB Main"`) saves accounts/<ID>/account_name.txt -> banner "<ID> (RB Main)";
-`python3 account.py` shows the active + other accounts. Folder stays the ID (name is display only).
-Routing also covers the `__main__` copy (python3 daily_screener.py runs as __main__, not daily_screener).
+Multi-account + multi-broker (account.py + broker_api.py, 26 Sep 2026): all 5 live scripts call
+account.activate() first; NO script calls a broker directly any more (only broker_api.py does).
+- dhan_token.txt: "Broker: DHAN|ANGEL|ZERODHA", "Client ID:", "Name:", "Token:" (":" "-" "=" all ok).
+  Token-only file (Cmd+A Cmd+V): Dhan -> broker + ID read from the JWT; other brokers -> broker/ID/name from
+  accounts/.last_session.json. Old 1-2 line files still work.
+- STOPS: no token, unknown broker, bad ID, Dhan JWT ID != "Client ID:", Broker line contradicts the token
+  (Dhan JWT vs ANGEL/ZERODHA), Angel JWT username != Client ID, only one of Broker/Client ID given.
+- Orders: broker_api.verify_identity() must confirm the token belongs to the active Client ID (Dhan: signed
+  in the JWT; Angel getProfile / Kite /user/profile) or NOTHING is sent. AMOs refused during 09:15-15:30
+  (in rbtrack AND in the adapter). qty >= 1, symbol must be in the broker's symbol list.
+- MTF mapping: Dhan productType MTF / Angel producttype MARGIN / Kite product MTF. CNC: CNC / DELIVERY / CNC.
+- Angel: credentials.json api_key + mpin + totp_secret; Token: <jwtToken> or AUTO (login with stdlib TOTP,
+  RFC 6238 test vectors pass). Zerodha: api_key + api_secret; daily `python3 broker_api.py zerodha-url`,
+  log in, then `python3 broker_api.py zerodha-login REQUEST_TOKEN` (checks user_id, writes the Token line).
+  Kite historical candles are a paid add-on -> without it the gap-fill is skipped (free source + LTP).
+- `python3 broker_api.py check` = identity + funds + one LTP, no orders.
+- TESTED: Dhan price/history/holdings in daily use; every broker's payloads/parsing only against mocked
+  HTTP (26 Sep). Angel + Zerodha NEVER hit the real API; Dhan AMO never used on a real order -> 1 share first.
+- Migrations: accounts/<digits>/ -> accounts/DHAN_<digits>/ (automatic); first-ever account still gets the
+  old global split.csv/reports moved in (marker accounts/.migrated). Shared market data stays in data/
+  (_dhan_scrip_master.csv, _angel_scrip_master.json, _kite_instruments_nse.csv, weekly refresh).
+- `python3 account.py` shows the active + other accounts; `--name "X"` sets the display name.
+- Routing also covers the `__main__` copy (python3 daily_screener.py runs as __main__, not daily_screener).
 Shortcut: `rbscan` (zsh alias, since 26 Sep 2026) = daily_screener -> momentum_screener -> fundamentals
 (each step only runs if the previous one succeeded). `rbtrack` = auto_tracker_update.py.
 Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
@@ -265,5 +281,6 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 10. Optional: VCP rule test (Minervini) - old chat: "Minervini alone" 6.75% CAGR, "O'Neil L+M" 6.81% (173 stocks).
 11. DONE: live momentum chain (momentum_screener.py, auto_tracker_update.py, tracker momentum leg). Next: paper trade it.
 12. DONE: BUY MTF / PAPER MTF (4x qty, "YES MTF" confirm, MTF summary in tracker) -- leverage test above says no.
+14. DONE: multi-broker adapter (broker_api.py) + accounts/<BROKER>_<ID>/. Angel/Zerodha untested live.
 13. DONE: PAPER mode + news, Dhan AMO buy bridge (untested against the real Dhan API from the cloud -- first live use:
     ONE row, ONE share, then check the Dhan order book), Rebalance_Dashboard sheet (SELL/BUY/HOLD per LIVE/PAPER).

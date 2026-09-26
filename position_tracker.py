@@ -6,7 +6,8 @@ DAILY POSITION TRACKER  --  swing + investing legs
 
 WHAT IT DOES
 ------------
-1. Pulls your live holdings from Dhan (symbol + total quantity + avg price).
+1. Pulls your live holdings from the ACTIVE account's broker (Dhan / Angel /
+   Zerodha via broker_api.py): symbol + total quantity + avg price.
 2. Reads split.csv -- YOUR decision of how much of each holding is a
    SWING position and how much is a LONG-TERM INVESTING position.
 3. Applies the exit rules that won the backtests, separately per leg.
@@ -34,14 +35,14 @@ SETUP  (one time)
     pip3 install pandas numpy requests
 
     Keep this file next to daily_screener.py in ~/Desktop/RB_Screener
-    (it re-uses the screener's Dhan price code). dhan_token.txt is the
-    same file the screener reads. split.csv is auto-created on the
-    first run. The Dhan client ID is read from the token itself.
+    (it re-uses the screener's price code). dhan_token.txt (Broker /
+    Client ID / Name / Token) picks the account; split.csv lives in
+    accounts/<BROKER>_<CLIENT_ID>/data/ and is auto-created on the first run.
 
 PRICES  (v2)
 ------------
-    Free history (lags a few days) + missing days filled from Dhan +
-    today's live price from Dhan. During market hours today's price is
+    Free history (lags a few days) + missing days filled from the broker +
+    today's live price from the broker. During market hours today's price is
     PROVISIONAL: a verdict marked "*" only counts if the stock closes
     there. Without a valid token it says loudly that data is old.
 
@@ -53,20 +54,17 @@ DAILY USE
 
 import os
 import sys
-import json
 import datetime as dt
 
 import numpy as np
 import pandas as pd
-import requests
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import daily_screener as ds     # shared price / Dhan code -- rules untouched
+import daily_screener as ds     # shared price code -- rules untouched
+import broker_api as ba         # holdings + prices, whichever broker
 
 # ------------------------------------------------------------------ config
-CLIENT_ID = ""                  # read from the token at start-up
-TOKEN_FILE = ds.TOKEN_FILE
 SPLIT_FILE = os.path.join(ds.HERE, "split.csv")
 RANKS_FILE = os.path.join(ds.DATA, "momentum_ranks_latest.csv")
 MOMENTUM_KEEP_RANK = 40         # momentum_screener: keep while rank <= 2 x 20
@@ -77,80 +75,23 @@ MOMENTUM_SMART_SL = False
 SMART_SL_ATR = 3.0
 SMART_SL_BREAKEVEN = 0.20
 MTF_LEVERAGE = 4                # must match auto_tracker_update.py
-MTF_RATE = 0.1249               # Dhan MTF interest p.a. (up to Rs 5 lakh)
-
-DHAN_HOLDINGS = "https://api.dhan.co/v2/holdings"
+MTF_RATE = 0.1249               # Dhan MTF interest p.a. (Angel/Zerodha differ)
 
 
-# ------------------------------------------------------------------ token
-def read_token():
-    if not os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, "w") as f:
-            f.write("")
-        print("Created %s -- paste today's Dhan access token into it, "
-              "then run again." % TOKEN_FILE)
-        sys.exit(1)
-    tok = ds.read_token()
-    if not tok:
-        print("dhan_token.txt is empty. Paste today's token and run again.")
-        sys.exit(1)
-    cid, exp = ds.token_info(tok)
-    if not cid:
-        print("Could not read the client id from the token -- is "
-              "dhan_token.txt holding the full token?")
-        sys.exit(1)
-    if exp and exp < ds.now_ist():
-        print("Token in dhan_token.txt expired at %s. Paste a fresh one."
-              % exp.strftime("%d %b %H:%M"))
-        sys.exit(1)
-    global CLIENT_ID
-    CLIENT_ID = ds.CLIENT_ID = cid      # ds.dhan_headers() uses it
-    if exp:
-        print("  Dhan token OK, valid till %s" % exp.strftime("%d %b %H:%M"))
-    return tok
-
-
-def get_holdings(token):
+# ------------------------------------------------------------------ broker
+def get_holdings(sess):
     """Returns list of dicts: symbol, qty, avg_price. Exits loudly on a
     stale token rather than silently returning nothing."""
-    r = requests.get(
-        DHAN_HOLDINGS,
-        headers={"access-token": token, "client-id": CLIENT_ID,
-                 "Accept": "application/json"},
-        timeout=30,
-    )
-    if r.status_code in (401, 403):
-        print("\n*** Dhan rejected the token (HTTP %d). It has most likely "
-              "expired -- tokens last 24 hours.\n    Paste a fresh one into "
-              "dhan_token.txt and run again. ***\n" % r.status_code)
-        sys.exit(1)
     try:
-        data = r.json()
-    except Exception:
-        print("Unexpected reply from Dhan:", r.text[:300])
+        return ba.holdings(sess)
+    except ba.AuthError as e:
+        print("\n*** %s rejected the token (%s).\n    It has most likely "
+              "expired. Paste a fresh one into dhan_token.txt and run "
+              "again. ***\n" % (sess.label, e))
         sys.exit(1)
-
-    if isinstance(data, dict):
-        code = str(data.get("errorCode", ""))
-        if "1111" in code or "No holdings" in json.dumps(data):
-            print("Dhan reports no holdings in the demat account.")
-            return []
-        if data.get("errorType") or data.get("errorCode"):
-            print("Dhan error:", json.dumps(data)[:300])
-            sys.exit(1)
-        data = data.get("data", [])
-
-    out = []
-    for h in data:
-        qty = float(h.get("totalQty") or h.get("availableQty") or 0)
-        if qty <= 0:
-            continue
-        out.append({
-            "symbol": (h.get("tradingSymbol") or h.get("symbol") or "").upper(),
-            "qty": qty,
-            "avg_price": float(h.get("avgCostPrice") or 0),
-        })
-    return out
+    except ba.BrokerError as e:
+        print("%s error: %s" % (sess.label, e))
+        sys.exit(1)
 
 
 # ------------------------------------------------------------------ split
@@ -195,8 +136,8 @@ def load_split(holdings):
 
 
 # ------------------------------------------------------------------ prices
-def load_prices(token, symbols, warns):
-    """Free history + Dhan gap-fill + today's live price.
+def load_prices(sess, symbols, warns):
+    """Free history + broker gap-fill + today's live price.
     Returns ({sym: close Series}, {sym: True if last bar is provisional},
     data_note)."""
     want = ds.last_expected_session()
@@ -208,28 +149,8 @@ def load_prices(token, symbols, warns):
             continue
         frames[s] = df
     if not frames:
-        return {}, {}, "no price data"
-    scrip, live = {}, {}
-    try:
-        scrip = ds.load_scrip_map()
-        for s in list(frames):
-            sid = scrip.get(s)
-            if not sid:
-                warns.append("%s: not in Dhan scrip master -- no gap-fill / "
-                             "live price" % s)
-                continue
-            frames[s] = ds.gap_fill(frames[s], token, sid, "NSE_EQ", "EQUITY",
-                                    want, warns, s)
-        ids = {s: scrip[s] for s in frames if s in scrip}
-        ltp = ds.dhan_ltp(token, list(ids.values()))
-        live = {s: ltp[i] for s, i in ids.items() if i in ltp}
-    except PermissionError as e:
-        print("\n*** Dhan refused the request (%s)." % e)
-        print("*** Token not expired by its own clock -> check that Data API "
-              "access is active on your Dhan account.")
-        print("*** Continuing WITHOUT Dhan -- prices below may be OLD. ***\n")
-    except Exception as e:
-        print("\n  ! Dhan price step failed (%s). Continuing without it." % e)
+        return {}, {}, {}, {}, "no price data"
+    frames, _, live = ba.refresh(sess, frames, None, want, warns)
 
     now = ds.now_ist()
     today = now.date()
@@ -258,7 +179,7 @@ def load_prices(token, symbols, warns):
         closes[s], lows[s], prov[s] = c, lo, p
         highs[s] = hi
     last = max(c.index[-1] for c in closes.values()).date()
-    note = "data to %s | %s" % (last, "Dhan live price" if live
+    note = "data to %s | %s" % (last, "%s live price" % sess.label if live
                                 else "NO live price")
     if last < want:
         note += "  !!! DATA IS BEHIND (expected %s) -- do not act on it" % want
@@ -410,11 +331,15 @@ def mtf_summary(rows):
 
 # ------------------------------------------------------------------ main
 def main():
-    token = read_token()
     import account
     acc = account.activate()
-    print("Fetching holdings from Dhan ...")
-    holdings = get_holdings(token)
+    if not acc.token_ok:
+        print("Token in dhan_token.txt expired. Paste a fresh one.")
+        sys.exit(1)
+    sess = acc.session
+    broker = sess.label
+    print("Fetching holdings from %s ..." % broker)
+    holdings = get_holdings(sess)
     hq = {h["symbol"]: h for h in holdings}
     print("  %d holdings" % len(holdings))
 
@@ -424,8 +349,8 @@ def main():
 
     syms = [str(x).strip().upper() for x in split["symbol"]
             if str(x).strip().upper() not in ("", "EXAMPLE", "NAN")]
-    print("Loading prices (free history + Dhan fill + live) ...")
-    closes, lows, highs, prov, data_note = load_prices(token, syms, warnings)
+    print("Loading prices (free history + %s fill + live) ..." % broker)
+    closes, lows, highs, prov, data_note = load_prices(sess, syms, warnings)
     ranks, ranks_date = load_ranks(warnings)
     mom_rows = []
 
@@ -444,14 +369,14 @@ def main():
         product = str(r.get("product") or "CNC").upper()
         held = hq.get(sym)
         if mode == "PAPER":
-            held = None                  # mock trade: never compared to Dhan
+            held = None                  # mock trade: never compared to broker
         elif held is None:
-            warnings.append("%s is in split.csv as LIVE but not in your Dhan "
+            warnings.append("%s is in split.csv as LIVE but not in your %s "
                             "holdings (AMO not filled yet? run rbtrack --sync)"
-                            % sym)
+                            % (sym, broker))
         elif abs(held["qty"] - (sw + iv + mo)) > 0.5:
-            warnings.append("%s: split.csv totals %g but Dhan shows %g"
-                            % (sym, sw + iv + mo, held["qty"]))
+            warnings.append("%s: split.csv totals %g but %s shows %g"
+                            % (sym, sw + iv + mo, broker, held["qty"]))
 
         entry = float(r.get("entry_price") or 0)
         if entry <= 0 and held:
@@ -463,8 +388,8 @@ def main():
         star = "*" if prov.get(sym) else ""
         edate = r.get("entry_date")
         if sw > 0 and entry <= 0:
-            warnings.append("%s: no entry price in split.csv and not in Dhan "
-                            "holdings -- swing leg not judged" % sym)
+            warnings.append("%s: no entry price in split.csv and not in %s "
+                            "holdings -- swing leg not judged" % (sym, broker))
             sw = 0
 
         if sw > 0:

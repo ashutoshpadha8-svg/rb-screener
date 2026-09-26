@@ -5,8 +5,8 @@ DAILY SWING + INVESTING SCREENER  (NSE)   --  v4
 
 v4: results go to ONE Excel file with two sheets, "Swing" and
     "Investing" (reports/RB_Screener_YYYY-MM-DD.xlsx).
-    Dhan client ID and token expiry are read from the token itself --
-    nothing to configure except dhan_token.txt.
+    Broker, client ID and token come from dhan_token.txt via account.py;
+    every broker call (Dhan / Angel / Zerodha) goes through broker_api.py.
 
 v3: UNIVERSE = every NSE-listed company with market cap >= Rs 10,000 Cr,
     read fresh each day from NSE's own MCAP file (inside the daily
@@ -16,7 +16,7 @@ WHAT CHANGED FROM v1
   * Signal rules now match the backtest EXACTLY (v1 used a looser
     Weinstein rule, so its list was not what we tested).
   * The free history source can lag by several days. v2 fills the
-    missing days from Dhan and checks every stock at TODAY's price
+    missing days from the broker and checks every stock at TODAY's price
     (live LTP during market hours, last close after hours).
 
 RULES (straight from the backtest -- do not edit)
@@ -46,8 +46,7 @@ TODAY'S FIT CHECK (per stock)
 SETUP (put this file, position_tracker.py and dhan_token.txt in
        ~/Desktop/RB_Screener)
     pip3 install pandas numpy requests openpyxl
-    dhan_token.txt : today's Dhan access token on line 1 (24h validity);
-                     optional line 2 = a name for the account
+    dhan_token.txt : Broker / Client ID / Name / Token lines (account.py)
   Without a token the screener still runs, but on possibly stale data,
   and it will say so loudly.
 
@@ -73,7 +72,6 @@ import pandas as pd
 import requests
 
 # ------------------------------------------------------------------ config
-CLIENT_ID = ""        # optional: normally read from the token itself
 
 LOOKBACK = 20          # how many sessions back a signal may be
 LATE_PCT = 10.0        # above this % past signal price -> LATE
@@ -90,12 +88,8 @@ for _d in (HERE, DATA, REPORTS):
     os.makedirs(_d, exist_ok=True)
 TOKEN_FILE = os.path.join(HERE, "dhan_token.txt")
 MCAP_CACHE = os.path.join(DATA, "_nse_mcap_latest.csv")
-SCRIP_FILE = os.path.join(DATA, "_dhan_scrip_master.csv")
 
 EOD_BASE = "https://raw.githubusercontent.com/BennyThadikaran/eod2_data/main/daily/"
-SCRIP_URL = "https://images.dhan.co/api-data/api-scrip-master.csv"
-DHAN_HIST = "https://api.dhan.co/v2/charts/historical"
-DHAN_LTP = "https://api.dhan.co/v2/marketfeed/ltp"
 NSE_PR = "https://nsearchives.nseindia.com/archives/equities/bhavcopy/pr/PR%s.zip"
 NSE_HDRS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:109.0) "
@@ -153,64 +147,6 @@ def last_expected_session():
 def market_open():
     n = now_ist()
     return n.weekday() < 5 and (9, 15) <= (n.hour, n.minute) < (15, 30)
-
-
-def read_token_file():
-    """dhan_token.txt -> (token, name, client_id_written).
-
-    Either the plain token (one line, as before), or labelled lines:
-        Client ID: 1100123456
-        Name: Ashutosh Main
-        Token: eyJ0eXAi...
-    The token is recognised by its shape (a long x.y.z string) with or
-    without the label; a plain 2nd line is taken as the name."""
-    tok, name, cid, plain = None, "", "", []
-    if not os.path.exists(TOKEN_FILE):
-        return None, "", ""
-    for line in open(TOKEN_FILE).read().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        m = re.match(r"(?i)^(client\s*id|name|token)\s*[:=\-]\s*(.*)$", line)
-        key, val = (m.group(1).lower(), m.group(2).strip()) if m else ("", line)
-        if val in ("", "-"):
-            continue
-        if key.startswith("client"):
-            cid = val
-        elif key == "name":
-            name = val
-        elif tok is None and (key == "token" or
-                              (val.count(".") == 2 and len(val) > 40
-                               and " " not in val)):
-            tok = val
-        elif not key:
-            plain.append(val)
-    if not name and plain:
-        name = plain[0]
-    return tok, name[:40], cid
-
-
-def read_token():
-    return read_token_file()[0]
-
-
-def token_info(tok):
-    """Dhan tokens are JWTs: the client id and expiry time are inside.
-    Returns (client_id, expiry_datetime_ist) or ("", None)."""
-    try:
-        part = tok.split(".")[1]
-        part += "=" * (-len(part) % 4)
-        d = json.loads(base64.urlsafe_b64decode(part))
-        exp = d.get("exp")
-        exp_dt = dt.datetime.fromtimestamp(int(exp), IST) if exp else None
-        return str(d.get("dhanClientId") or ""), exp_dt
-    except Exception:
-        return "", None
-
-
-def dhan_headers(tok):
-    return {"access-token": tok, "client-id": CLIENT_ID,
-            "Content-Type": "application/json", "Accept": "application/json"}
 
 
 # ================================================================== universe
@@ -320,99 +256,6 @@ def fetch_eod(sym):
     df = df[["Open", "High", "Low", "Close", "Volume"]]
     df = df[~df.index.duplicated(keep="last")].sort_index()
     return df.iloc[-KEEP_ROWS:]
-
-
-# ================================================================== dhan
-def load_scrip_map():
-    """NSE equity symbol -> Dhan securityId. Cached for 7 days."""
-    stale = (not os.path.exists(SCRIP_FILE) or
-             time.time() - os.path.getmtime(SCRIP_FILE) > 7 * 86400)
-    if stale:
-        try:
-            print("  downloading Dhan scrip master (once a week) ...")
-            r = requests.get(SCRIP_URL, timeout=120)
-            if r.status_code == 200:
-                open(SCRIP_FILE, "wb").write(r.content)
-        except Exception as e:
-            print("  ! could not download scrip master:", e)
-    if not os.path.exists(SCRIP_FILE):
-        return {}
-    sm = pd.read_csv(SCRIP_FILE, low_memory=False)
-    c = {k.upper(): k for k in sm.columns}
-    need = ["SEM_EXM_EXCH_ID", "SEM_SEGMENT", "SEM_TRADING_SYMBOL",
-            "SEM_SMST_SECURITY_ID"]
-    if not all(n in c for n in need):
-        print("  ! scrip master format changed -- Dhan fill disabled")
-        return {}
-    m = sm[(sm[c["SEM_EXM_EXCH_ID"]] == "NSE") & (sm[c["SEM_SEGMENT"]] == "E")]
-    if "SEM_SERIES" in c:
-        m = m[m[c["SEM_SERIES"]].isin(["EQ", "BE"])]
-    return dict(zip(m[c["SEM_TRADING_SYMBOL"]].astype(str).str.upper(),
-                    m[c["SEM_SMST_SECURITY_ID"]].astype(str)))
-
-
-def dhan_daily(tok, sec_id, seg, instr, frm, to):
-    body = {"securityId": str(sec_id), "exchangeSegment": seg,
-            "instrument": instr, "expiryCode": 0, "oi": False,
-            "fromDate": frm.isoformat(), "toDate": to.isoformat()}
-    r = requests.post(DHAN_HIST, headers=dhan_headers(tok), json=body,
-                      timeout=30)
-    if r.status_code in (401, 403):
-        raise PermissionError("HTTP %d %s" % (r.status_code, r.text[:160]))
-    j = r.json()
-    if not isinstance(j, dict) or not j.get("timestamp"):
-        return None
-    idx = (pd.to_datetime(j["timestamp"], unit="s", utc=True)
-           .tz_convert("Asia/Kolkata").normalize().tz_localize(None))
-    df = pd.DataFrame({"Open": j["open"], "High": j["high"], "Low": j["low"],
-                       "Close": j["close"], "Volume": j["volume"]},
-                      index=idx)
-    df.index.name = "Date"
-    return df[~df.index.duplicated(keep="last")]
-
-
-def dhan_ltp(tok, sec_ids):
-    out = {}
-    ids = [int(s) for s in sec_ids]
-    for i in range(0, len(ids), 900):
-        chunk = ids[i:i + 900]
-        r = requests.post(DHAN_LTP, headers=dhan_headers(tok),
-                          json={"NSE_EQ": chunk}, timeout=30)
-        if r.status_code in (401, 403):
-            raise PermissionError("HTTP %d %s" % (r.status_code, r.text[:160]))
-        d = (r.json() or {}).get("data", {}).get("NSE_EQ", {})
-        for k, v in d.items():
-            p = v.get("last_price") if isinstance(v, dict) else None
-            if p:
-                out[str(k)] = float(p)
-        time.sleep(1.1)
-    return out
-
-
-def gap_fill(df, tok, sec_id, seg, instr, want, warns, name):
-    """Append missing sessions from Dhan. Skips if a split/bonus is
-    suspected (Dhan prices are unadjusted)."""
-    last = df.index[-1].date()
-    if last >= want:
-        return df
-    frm = last + dt.timedelta(days=1)
-    to = now_ist().date() + dt.timedelta(days=1)
-    add = dhan_daily(tok, sec_id, seg, instr, frm, to)
-    time.sleep(0.25)
-    if add is None or add.empty:
-        return df
-    add = add[add.index > df.index[-1]]
-    # today's bar during market hours is incomplete -> drop it
-    if market_open():
-        add = add[add.index.date < now_ist().date()]
-    if add.empty:
-        return df
-    jump = add["Close"].iloc[0] / df["Close"].iloc[-1]
-    if jump > 1.4 or jump < 0.6:
-        warns.append("%s: %.0f%% gap between sources -- possible split/"
-                     "bonus, Dhan fill skipped" % (name, (jump - 1) * 100))
-        return df
-    return pd.concat([df, add])
 
 
 # ================================================================== excel
@@ -572,26 +415,12 @@ def write_excel(stamp, swing, inv, banner):
 
 # ================================================================== main
 def main():
-    global CLIENT_ID
-    import account                     # per-account folders (accounts/<ID>/)
+    import account                     # accounts/<BROKER>_<ID>/ + token
+    import broker_api as ba            # every broker call goes through here
     acc = account.activate()
+    sess = acc.session if acc.token_ok else None
     want = last_expected_session()
-    tok = read_token()
     warns = []
-    if tok:
-        cid, exp = token_info(tok)
-        if cid:
-            CLIENT_ID = cid
-        if exp and exp < now_ist():
-            print("! Token in dhan_token.txt expired at %s. Paste a fresh one."
-                  % exp.strftime("%d %b %H:%M"))
-            tok = None
-        elif not CLIENT_ID:
-            print("! Could not read the client id from the token -- is "
-                  "dhan_token.txt holding the full token?")
-            tok = None
-        elif exp:
-            print("  Dhan token OK, valid till %s" % exp.strftime("%d %b %H:%M"))
 
     print("Building universe ...")
     SYMBOLS, caps = build_universe(warns)
@@ -626,42 +455,10 @@ def main():
     print("  free source last date: %s   (expected: %s)" % (src_last, want))
 
     live = {}
-    scrip = {}
-    if tok:
-        try:
-            scrip = load_scrip_map()
-            if src_last < want:
-                print("  source is behind -- filling missing days from Dhan ...")
-                bm = gap_fill(bm, tok, "13", "IDX_I", "INDEX", want, warns,
-                              "NIFTY")
-                for i, s in enumerate(list(frames), 1):
-                    sid = scrip.get(s.upper())
-                    if i % 10 == 0 or i == len(frames):
-                        sys.stdout.write("\r    %3d/%d" % (i, len(frames)))
-                        sys.stdout.flush()
-                    if not sid:
-                        warns.append("%s: not found in Dhan scrip master, "
-                                     "not filled" % s)
-                        continue
-                    frames[s] = gap_fill(frames[s], tok, sid, "NSE_EQ",
-                                         "EQUITY", want, warns, s)
-                print()
-            ids = {s: scrip[s.upper()] for s in frames if s.upper() in scrip}
-            print("  fetching today's prices from Dhan ...")
-            ltp = dhan_ltp(tok, list(ids.values()))
-            live = {s: ltp[i] for s, i in ids.items() if i in ltp}
-        except PermissionError as e:
-            print("\n*** Dhan refused the request (%s)." % e)
-            print("*** The token is not expired by its own clock, so check:")
-            print("***   - token copied fully into dhan_token.txt")
-            print("***   - Dhan Data API access is active on your account")
-            print("*** Continuing WITHOUT Dhan -- prices below may be old. ***\n")
-            live = {}
-        except Exception as e:
-            print("\n  ! Dhan step failed (%s). Continuing without it." % e)
-            live = {}
+    if sess:
+        frames, bm, live = ba.refresh(sess, frames, bm, want, warns)
     else:
-        print("  (no usable Dhan token -- running on the free source only)")
+        print("  (no usable broker token -- running on the free source only)")
 
     # ---------------------------------------------------------------- panel
     cal = bm.index
@@ -759,13 +556,13 @@ def main():
     stamp = str(now_ist().date())
     print("\n" + "=" * 70)
     print(" DATA: last complete session %s | prices: %s"
-          % (data_date, "Dhan live/LTP" if live else "last close in data"))
+          % (data_date, "broker live/LTP" if live else "last close in data"))
     if stale and not live:
         print(" !!! DATA IS BEHIND (expected %s). Prices and stops below are"
               % want)
-        print(" !!! OLD. Add today's Dhan token for a correct run.")
+        print(" !!! OLD. Add today's broker token for a correct run.")
     elif stale:
-        print(" ! Signals use data to %s (expected %s). Dhan may not have"
+        print(" ! Signals use data to %s (expected %s). the broker may not have"
               % (data_date, want))
         print("   published today's daily candle yet. Prices ARE today's.")
     print("=" * 70)
@@ -809,7 +606,7 @@ def main():
         xl = write_excel(stamp, swing, inv,
                          "Data to %s | prices: %s%s" % (
                              data_date,
-                             "Dhan live/LTP" if live else "last close in data",
+                             "broker live/LTP" if live else "last close in data",
                              "  | !!! DATA IS BEHIND -- do not trade from this"
                              if (stale and not live) else ""))
         if xl:

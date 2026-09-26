@@ -50,6 +50,7 @@ import requests
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import daily_screener as ds
+import broker_api as ba
 
 # ------------------------------------------------------------------ config
 CAPITAL = 200000          # Rs, total momentum capital
@@ -66,20 +67,12 @@ RED = "High Risk - Market Red"
 
 
 # ================================================================== helpers
-def get_token():
-    """Dhan token from dhan_token.txt (client id read from the token)."""
-    tok = ds.read_token()
-    if not tok:
-        return None
-    cid, exp = ds.token_info(tok)
-    if exp and exp < ds.now_ist():
-        print("! Token expired at %s -- running on the free source only."
-              % exp.strftime("%d %b %H:%M"))
-        return None
-    if not cid:
-        return None
-    ds.CLIENT_ID = cid
-    return tok
+def get_session():
+    """The active account's broker session (account.py), or None when the
+    token is missing / expired -> screens run on the free source only."""
+    import account
+    acc = account.activate(quiet=True)
+    return acc.session if acc.token_ok else None
 
 
 def industry_map():
@@ -195,8 +188,8 @@ def todays_report():
 
 
 # ================================================================== data
-def load_data(tok):
-    """Universe (>= Rs 10k Cr today) + history, gap-filled from Dhan, and
+def load_data(sess):
+    """Universe (>= Rs 10k Cr today) + history, gap-filled from the broker, and
     live LTP. Same sources and steps as daily_screener.py."""
     warns = []
     want = ds.last_expected_session()
@@ -216,33 +209,10 @@ def load_data(tok):
         print("Could not load Nifty 50 history.")
         sys.exit(1)
     live = {}
-    if tok:
-        try:
-            scrip = ds.load_scrip_map()
-            last = max(f.index[-1] for f in frames.values()).date()
-            if last < want:
-                print("  free source is behind (%s) -- filling from Dhan ..." % last)
-                bm = ds.gap_fill(bm, tok, "13", "IDX_I", "INDEX", want, warns,
-                                 "NIFTY")
-                for i, s in enumerate(list(frames), 1):
-                    sid = scrip.get(s.upper())
-                    if sid:
-                        frames[s] = ds.gap_fill(frames[s], tok, sid, "NSE_EQ",
-                                                "EQUITY", want, warns, s)
-                    if i % 25 == 0 or i == len(frames):
-                        sys.stdout.write("\r    %3d/%d" % (i, len(frames)))
-                        sys.stdout.flush()
-                print()
-            ids = {s: scrip[s.upper()] for s in frames if s.upper() in scrip}
-            print("  fetching today's prices from Dhan ...")
-            ltp = ds.dhan_ltp(tok, list(ids.values()))
-            live = {s: ltp[i] for s, i in ids.items() if i in ltp}
-        except PermissionError as e:
-            print("! Dhan refused (%s) -- continuing on the free source." % e)
-        except Exception as e:
-            print("! Dhan step failed (%s) -- continuing without it." % e)
+    if sess:
+        frames, bm, live = ba.refresh(sess, frames, bm, want, warns, every=25)
     else:
-        print("  (no usable Dhan token -- free source only, prices may be old)")
+        print("  (no usable broker token -- free source only, prices may be old)")
     return frames, bm, caps, live, warns, want
 
 
@@ -482,7 +452,7 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red,
         % (BUFFER * SLOTS),
         "Fundamental Status is filled by fundamentals.py (information only -- "
         "the fundamental gate did not help in the 2018-26 backtest).",
-        "Action: BUY = real (rbtrack places a Dhan AMO after hours), PAPER = "
+        "Action: BUY = real (rbtrack places a broker AMO after hours), PAPER = "
         "mock portfolio only (no order, no money)."])
 
     # ---------------------------------------------------- Rebalance_Dashboard
@@ -517,7 +487,7 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red,
         "Rule = backtest: keep while rank <= %d, fill free slots with the best "
         "top-%d names (max %s per sector). No stop-loss." % (
             BUFFER * SLOTS, SLOTS, SECTOR_CAP),
-        "Sells are NOT automated -- place them yourself in Dhan. Buys: type "
+        "Sells are NOT automated -- place them yourself in your broker app. Buys: type "
         "BUY in Strategy_Comparison, then rbtrack."])
     try:
         wb.save(path)
@@ -531,10 +501,10 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red,
 def main():
     import account
     acc = account.activate()
-    tok = get_token()
+    sess = get_session()
     print("MOMENTUM SCREENER -- NSE-style momentum, top %d, max %s per sector"
           % (SLOTS, SECTOR_CAP))
-    frames, bm, caps, live, warns, want = load_data(tok)
+    frames, bm, caps, live, warns, want = load_data(sess)
     P = panels(frames, bm)
     tab, data_day, nifty, nifty200 = compute(P)
     sectors = industry_map()
@@ -566,7 +536,7 @@ def main():
     # terminal
     print("\n" + "=" * 70)
     print(" DATA: last complete session %s | prices: %s"
-          % (data_day, "Dhan live" if live else "last close"))
+          % (data_day, "broker live" if live else "last close"))
     if data_day < want and not live:
         print(" !!! DATA IS BEHIND (expected %s) -- do not trade from this." % want)
     print("=" * 70)

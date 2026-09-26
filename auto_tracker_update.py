@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-AUTO TRACKER UPDATE + DHAN AMO BRIDGE  (rbtrack)
-================================================
+AUTO TRACKER UPDATE + BROKER AMO BRIDGE  (rbtrack)
+==================================================
 
 Reads the "Action" column of Strategy_Comparison in today's
 reports/RB_Screener_YYYY-MM-DD.xlsx (save + close Excel first):
 
   PAPER     -> added to split.csv with mode=PAPER (mock portfolio, no order,
-               no effect on live money). Entry price = today's Dhan LTP/close.
+               no effect on live money). Entry price = today's broker LTP/close.
   PAPER MTF -> same, but with the MTF (4x) quantity -- test leverage for free.
   BUY MTF   -> LIVE Margin Trading Facility order: productType MTF,
                quantity = floor(Rs 10,000 x 4 / price). Your own money stays
@@ -16,26 +16,29 @@ reports/RB_Screener_YYYY-MM-DD.xlsx (save + close Excel first):
                4x 18.4%/yr, max DD -97.5%, worst month -73% -> in real life a
                margin call would have closed you out at the Mar-2020 bottom.
                You must type "YES MTF" to send MTF orders.
-  BUY       -> LIVE. By default places a Dhan AMO (After Market Order):
-             CNC delivery, NSE_EQ, BUY, MARKET at the next open (amoTime OPEN)
+  BUY       -> LIVE. By default places an AMO (After Market Order) with the
+             ACTIVE account's broker (broker_api.py: Dhan CNC / Angel DELIVERY /
+             Kite CNC), NSE, BUY, MARKET at the next open
              = the backtest's "buy next open". Shares = floor(Rs slot / price).
            You see every order and must type YES before anything is sent.
-           Only orders Dhan ACCEPTS are written to split.csv (mode=LIVE,
+           Only orders the broker ACCEPTS are written to split.csv (mode=LIVE,
            order_id kept, entry_price provisional until --sync).
 
 OPTIONS
   --dry-run     show what would happen, send nothing, write nothing
   --no-orders   BUY rows go to split.csv as LIVE without placing orders
-                (you buy manually in the Dhan app)
+                (you buy manually in the broker app)
   --limit       LIMIT AMO at last price + LIMIT_BUFFER instead of MARKET
-  --sync        after the market opens: read fills from Dhan and set the real
+  --sync        after the market opens: read fills from the broker and set the real
                 entry_price / quantity for LIVE rows whose order is pending;
                 rejected / cancelled orders are marked and set to 0 shares
   --file PATH   use another report
 
 SAFETY
   * AMOs are refused during market hours (09:15-15:30) -- run it at night.
-  * Funds are checked (Dhan fundlimit) before any order; not enough -> nothing.
+  * The token must belong to the active Client ID (Dhan: signed in the token;
+    Angel/Zerodha: asked from the broker) or nothing is sent.
+  * Funds are checked before any order; not enough -> nothing.
   * A symbol already held (same mode) in split.csv, or already ordered today
     (data/orders_log.csv), is skipped -> running twice never double-buys.
   * split.csv is backed up to split_backup.csv before every write.
@@ -56,7 +59,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import daily_screener as ds
 import momentum_screener as ms
-import dhan_orders as do
+import broker_api as ba
 
 SPLIT_FILE = ms.SPLIT_FILE
 BACKUP = os.path.join(ds.HERE, "split_backup.csv")
@@ -123,19 +126,17 @@ def action_rows(path):
 
 
 # ================================================================== prices
-def prices(tok, symbols):
-    """{symbol: (price, source)} -- Dhan LTP first, free-source close second."""
-    out, scrip = {}, {}
-    if tok:
+def prices(sess, symbols):
+    """{symbol: (price, source)} -- broker LTP first, free-source close second."""
+    out = {}
+    if sess:
         try:
-            scrip = ds.load_scrip_map()
-            ids = {s: scrip[s] for s in symbols if s in scrip}
-            ltp = ds.dhan_ltp(tok, list(ids.values()))
-            for s, i in ids.items():
-                if i in ltp:
-                    out[s] = (ltp[i], "Dhan")
+            ltp = ba.live_prices(sess, symbols)
+            for s, p in ltp.items():
+                out[s] = (p, sess.label)
         except Exception as e:
-            print("! Dhan price fetch failed (%s) -- using last close." % e)
+            print("! %s price fetch failed (%s) -- using last close."
+                  % (sess.label, e))
     for s in symbols:
         if s not in out:
             df = ds.fetch_eod(s.lower())
@@ -143,7 +144,7 @@ def prices(tok, symbols):
                 out[s] = (float(df["Close"].iloc[-1]),
                           "close %s (free source, may be old)"
                           % df.index[-1].date())
-    return out, scrip
+    return out
 
 
 def plan(rows, px, sp):
@@ -157,7 +158,7 @@ def plan(rows, px, sp):
                                       for x in new):
             skip.append("%s (%s already in split.csv)" % (s, mode))
             continue
-        if mode == "LIVE" and do.ordered_today(s):
+        if mode == "LIVE" and ba.ordered_today(s):
             skip.append("%s (order already placed today)" % s)
             continue
         if s not in px:
@@ -184,24 +185,29 @@ def plan(rows, px, sp):
 
 
 # ================================================================== orders
-def place_orders(tok, scrip, live, use_limit, dry):
-    """Returns the rows whose AMO Dhan accepted (order_id filled in)."""
+def place_orders(sess, live, use_limit, dry):
+    """Returns the rows whose AMO the broker accepted (order_id filled in)."""
     if not live:
         return []
     if ds.market_open():
         print("\n! Market is open (09:15-15:30). AMOs are placed after hours "
               "-- run rbtrack tonight, or use --no-orders.")
         return []
-    missing = [x["symbol"] for x in live if x["symbol"] not in scrip]
+    known = ba.symbol_map(sess)
+    missing = [x["symbol"] for x in live if x["symbol"] not in known]
     if missing:
-        print("! Not in the Dhan scrip master, skipped: " + ", ".join(missing))
-    live = [x for x in live if x["symbol"] in scrip]
+        print("! Not in the %s symbol list, skipped: %s"
+              % (sess.label, ", ".join(missing)))
+    live = [x for x in live if x["symbol"] in known]
+    if not live:
+        return []
     total = sum(x["shares"] * x["entry_price"] for x in live)
     own = sum(x["shares"] * x["entry_price"] /
               (MTF_LEVERAGE if x["product"] == "MTF" else 1) for x in live)
     mtf = [x for x in live if x["product"] == "MTF"]
     otype = "LIMIT" if use_limit else "MARKET"
-    print("\nDHAN AMO ORDERS (BUY, %s at next open):" % otype)
+    print("\n%s AMO ORDERS -- account %s (BUY, %s at next open):"
+          % (sess.label.upper(), sess.client_id, otype))
     for x in live:
         lim = round(x["entry_price"] * (1 + LIMIT_BUFFER), 1)
         print("  %-12s %-3s qty %4d  exposure ~Rs %9s%s" % (
@@ -219,35 +225,46 @@ def place_orders(tok, scrip, live, use_limit, dry):
         print("  !!! At %dx a %d%% fall wipes out the money you put in. "
               "Backtest: 4x momentum max DD -97.5%% (1x: -35%%)."
               % (MTF_LEVERAGE, 100 // MTF_LEVERAGE))
-        print("  !!! Not every stock gets 4x on Dhan -- if the stock's MTF "
-              "limit is lower, Dhan will reject or ask more margin.")
+        print("  !!! Not every stock gets 4x on %s -- if the stock's MTF "
+              "limit is lower, the broker will reject or ask more margin."
+              % sess.label)
+        if sess.broker != "DHAN":
+            print("  !!! 12.49%% is Dhan's MTF rate; %s charges its own."
+                  % sess.label)
     if dry:
         print("(--dry-run: no orders sent)")
         return []
-    funds, err = do.available_funds(tok)
-    if funds is None:
-        print("! Could not read Dhan funds (%s). No orders sent." % err)
+    ok, msg = ba.verify_identity(sess)
+    if not ok:
+        print("! Account check failed: %s. No orders sent." % msg)
         return []
-    print("  Dhan available balance: Rs %s" % format(int(funds), ","))
+    print("  %s" % msg)
+    funds, err = ba.available_funds(sess)
+    if funds is None:
+        print("! Could not read %s funds (%s). No orders sent."
+              % (sess.label, err))
+        return []
+    print("  %s available balance: Rs %s" % (sess.label,
+                                            format(int(funds), ",")))
     if funds < own * 1.02:
         print("! Not enough funds for all orders (need ~Rs %s of your own "
               "money incl. buffer). No orders sent." % format(int(own * 1.02),
                                                                ","))
         return []
     word = "YES MTF" if mtf else "YES"
-    ans = input("\nType %s to send these %d order(s) to Dhan: "
-                % (word, len(live)))
+    ans = input("\nType %s to send these %d order(s) to %s account %s: "
+                % (word, len(live), sess.label, sess.client_id))
     if " ".join(ans.upper().split()) != word:
         print("Cancelled -- nothing sent.")
         return []
     accepted = []
     for x in live:
         lim = round(round(x["entry_price"] * (1 + LIMIT_BUFFER) / 0.05) * 0.05, 2)
-        ok, res, status = do.place_amo_buy(
-            tok, scrip[x["symbol"]], x["shares"], x["symbol"],
-            order_type=otype, price=lim if use_limit else 0.0,
-            product=x["product"])
-        do.log_order({"date": dt.date.today().isoformat(),
+        ok, res, status = ba.place_amo_order(
+            x["symbol"], x["shares"], x["product"] == "MTF", sess=sess,
+            order_type=otype, price=lim if use_limit else 0.0)
+        ba.log_order({"date": dt.date.today().isoformat(),
+                      "broker": sess.broker, "client_id": sess.client_id,
                       "time": ds.now_ist().strftime("%H:%M:%S"),
                       "symbol": x["symbol"], "qty": x["shares"],
                       "product": x["product"],
@@ -261,13 +278,14 @@ def place_orders(tok, scrip, live, use_limit, dry):
             accepted.append(x)
         else:
             print("  FAIL %-12s %s" % (x["symbol"], res))
-            if "token" in res or "HTTP 401" in res or "HTTP 403" in res:
+            if "token" in res or "HTTP 401" in res or "HTTP 403" in res or \
+                    "identity" in res:
                 print("! Stopping: authentication problem.")
                 break
     return accepted
 
 
-def sync(tok):
+def sync(sess):
     """Replace provisional entry prices with real fills."""
     sp = read_split()
     pend = sp[(sp["mode"] == "LIVE") & (sp["order_id"].astype(str).str.len() > 3)
@@ -277,10 +295,10 @@ def sync(tok):
         return
     for i, r in pend.iterrows():
         oid = str(r["order_id"]).split(".")[0]
-        q, avg = do.fills(tok, oid)
-        st = do.order_status(tok, oid) or "?"
+        o = ba.check_order_status(oid, sess=sess)
+        q, avg, st = o["filled_qty"], o["avg_price"], o["status"] or o["raw"] or "?"
         leg = "momentum_qty" if r["momentum_qty"] > 0 else "swing_qty"
-        if q > 0:
+        if q > 0 and avg:
             sp.at[i, leg] = q
             sp.at[i, "entry_price"] = round(avg, 2)
             sp.at[i, "note"] = str(r["note"]).replace("pending", "filled")
@@ -301,12 +319,13 @@ def main():
     a = sys.argv[1:]
     dry, no_orders, use_limit = ("--dry-run" in a, "--no-orders" in a,
                                  "--limit" in a)
-    tok = ms.get_token()
+    sess = ms.get_session()
     if "--sync" in a:
-        if not tok:
-            print("! --sync needs a valid Dhan token.")
+        if not sess:
+            print("! --sync needs a valid (not expired) broker token.")
             sys.exit(1)
-        sync(tok)
+        sync(sess)
+        account.banner(acc)
         return
     path = a[a.index("--file") + 1] if "--file" in a else ms.todays_report()
     if not path or not os.path.exists(path):
@@ -323,7 +342,7 @@ def main():
         print("Type one of them, SAVE and CLOSE the file, then run again.")
         return
     sp = read_split()
-    px, scrip = prices(tok, [str(t).upper().strip() for t in rows["Ticker"]])
+    px = prices(sess, [str(t).upper().strip() for t in rows["Ticker"]])
     new, skip = plan(rows, px, sp)
     if skip:
         print("Skipped: " + "; ".join(skip))
@@ -334,12 +353,12 @@ def main():
     live = [x for x in new if x["mode"] == "LIVE"]
 
     if live and not no_orders:
-        if not tok:
-            print("! BUY rows need a valid Dhan token to place AMOs "
+        if not sess:
+            print("! BUY rows need a valid broker token to place AMOs "
                   "(or use --no-orders). LIVE rows not added.")
             live = []
         else:
-            live = place_orders(tok, scrip, live, use_limit, dry)
+            live = place_orders(sess, live, use_limit, dry)
     add = paper + live
     if not add:
         return
@@ -353,7 +372,7 @@ def main():
     write_split(pd.concat([sp, show[COLUMNS]], ignore_index=True))
     print("\nSaved %d row(s) (previous copy: split_backup.csv)." % len(add))
     if any("free source" in x["note"] for x in add):
-        print("! Some prices came from the free source, not Dhan.")
+        print("! Some prices came from the free source, not the broker.")
     if live:
         print("After tomorrow's open run:  rbtrack --sync   (real fill prices)")
     account.banner(acc)
