@@ -34,6 +34,11 @@
                         #   trend/stage, RSI, 52w, ATR, rets, W+TT today, swing/investing/momentum rule, fundamentals,
                         #   news, RECOMMENDATION + why), Watchlist (WATCH picks by mom rank), Rebalance (momentum),
                         #   Actions (dropdown -> rbtrack)
+  gdrive_sync.py        # OPTIONAL native Google Sheets: push() after rbscan/rbport (same folders under My Drive/
+                        #   RB_Screener), pull() before rbport/rbtrack (Action picks made in Sheets). On only if
+                        #   google_client_secret.json exists; scope drive.file; token google_token.json (gitignored).
+                        #   Tested with a mocked Drive only (26 Sep). Broker APIs have NO watchlist endpoint ->
+                        #   rbport writes reports/Watchlist_<TAG>.txt for TradingView 'Import list'.
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py

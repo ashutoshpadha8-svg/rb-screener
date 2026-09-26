@@ -381,6 +381,8 @@ def main():
     if today not in os.path.basename(path):
         print("! Using %s -- NOT today's report (%s)." % (os.path.basename(path),
                                                          today))
+    import gdrive_sync
+    gdrive_sync.pull(path)          # Action picks made in Google Sheets
     rows = action_rows(path)
     watch = rows[rows["act"] == "WATCH"]
     rows = rows[rows["act"] != "WATCH"]
