@@ -27,7 +27,8 @@ auto_tracker_update, position_tracker) calls activate() first.
 3. Files of that account live in
        ~/Desktop/RB_Screener/accounts/<BROKER>_<CLIENT_ID>/
            data/     split.csv, split_backup.csv, orders_log.csv
-           reports/  RB_Screener_<BROKER>_<Name>_YYYY-MM-DD.xlsx, RB_Fundamentals_*, tracker_*
+           reports/  Portfolio_<BROKER>_<Name>_YYYY-MM-DD.xlsx (rbport)
+   The MASTER market scan (rbscan) is shared: ~/Desktop/RB_Screener/reports/
            credentials.json   (Angel / Zerodha keys, see broker_api.py)
            account_name.txt   (display name)
    The Name is never part of the path (a typo must not create a new, empty
@@ -55,6 +56,7 @@ import broker_api as ba
 
 ROOT = ds.HERE                                   # ~/Desktop/RB_Screener
 ACCOUNTS = os.path.join(ROOT, "accounts")
+MASTER_REPORTS = os.path.join(ROOT, "reports")   # one market scan per day
 MARKER = os.path.join(ACCOUNTS, ".migrated")
 LAST = os.path.join(ACCOUNTS, ".last_session.json")
 TOKEN_FILE = ds.TOKEN_FILE
@@ -324,10 +326,10 @@ def file_tag(acc):
 
 def _route(acc):
     """Point every loaded module's ACCOUNT paths at this account's folder."""
-    tag = file_tag(acc)                      # RB_Screener_DHAN_Ashutosh_<date>
-    for m in _mods("daily_screener"):
-        m.REPORTS = acc.reports
-        m.TAG = tag
+    tag = file_tag(acc)                      # Portfolio_DHAN_Ashutosh_<date>
+    for m in _mods("daily_screener"):        # MASTER scan: shared, one a day
+        m.REPORTS = MASTER_REPORTS
+        m.TAG = ""
     for m in _mods("momentum_screener"):
         m.SPLIT_FILE = acc.split
     for m in _mods("auto_tracker_update"):
@@ -337,6 +339,9 @@ def _route(acc):
     for m in _mods("broker_api"):
         m.ORDER_LOG = acc.orders_log
     for m in _mods("fundamentals"):
+        m.REPORTS = MASTER_REPORTS
+        m.TAG = ""
+    for m in _mods("portfolio"):             # per account
         m.REPORTS = acc.reports
         m.TAG = tag
 

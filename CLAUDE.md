@@ -26,19 +26,23 @@
   broker_api.py         # ONLY place that talks to a broker: Dhan / Angel One (SmartAPI) / Zerodha (Kite)
                         #   prices, history fill, holdings, funds, AMO BUY (CNC/MTF), order status. No selling.
   news_feed.py          # Google News RSS headlines (no key, no extra package)
-  holdings_review.py    # rbreview: REAL demat holdings -> KEEP / WEAK / SELL + why, and ADD (momentum top 20 not held)
-                        #   rules: rank<=40, 40w MA, Stage 4, sector cap; sheet Holdings_Review; --paper; --no-excel
+  rb_scan.py            # rbscan: MASTER scan = daily_screener -> momentum_screener -> fundamentals, ONCE a day,
+                        #   shared by all accounts (skips if done; re-runs once if the last scan was intraday; --force)
+  portfolio.py          # rbport: per account -> Portfolio_<BROKER>_<Name>_<date>.xlsx: Holdings (demat + PAPER:
+                        #   trend/stage, RSI, 52w, ATR, rets, W+TT today, swing/investing/momentum rule, fundamentals,
+                        #   news, RECOMMENDATION + why), Rebalance (momentum), Actions (dropdown -> rbtrack)
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
   account.py            # token.txt -> broker + client + token -> accounts/<BROKER>_<ID>/ (see below)
   token.txt             # (was dhan_token.txt, auto-renamed once) Broker: / Client ID: / Name: / Token: lines. NEVER print or copy the token anywhere
+  reports/              # MASTER scan RB_Screener_YYYY-MM-DD.xlsx (Swing, Investing, Momentum_Top20,
+                        #   Strategy_Comparison, Fundamentals) -- one per day, same for every account
   data/                 # SHARED market data: price history, NSE files, scrip master, Screener pages,
                         #   momentum_ranks_latest.csv, _nse_industry.csv (same for every account)
   accounts/<BROKER>_<CLIENT_ID>/  # PER ACCOUNT, e.g. DHAN_1100120973 (name never in the path)
     data/               #   split.csv, split_backup.csv, orders_log.csv
-    reports/            #   RB_Screener_<BROKER>_<Name>_YYYY-MM-DD.xlsx (Swing, Investing, Momentum_Top20, Strategy_Comparison,
-                        #   Rebalance_Dashboard, Fundamentals), RB_Fundamentals_<BROKER>_*, tracker_*_<BROKER>_*.csv (broker tag since 26 Sep)
+    reports/            #   Portfolio_<BROKER>_<Name>_YYYY-MM-DD.xlsx (Holdings, Rebalance, Actions) -- rbport
     credentials.json    #   Angel/Zerodha api_key etc. (template auto-created; never printed)
     account_name.txt    #   display name
   accounts/.migrated    # marker: the one-time move of the old global files is done
@@ -71,15 +75,17 @@ account.activate() first; NO script calls a broker directly any more (only broke
   (_dhan_scrip_master.csv, _angel_scrip_master.json, _kite_instruments_nse.csv, weekly refresh).
 - `python3 account.py` shows the active + other accounts; `--name "X"` sets the display name.
 - Routing also covers the `__main__` copy (python3 daily_screener.py runs as __main__, not daily_screener).
-Shortcut: `rbscan` (zsh alias, since 26 Sep 2026) = daily_screener -> momentum_screener -> fundamentals
-(each step only runs if the previous one succeeded). `rbtrack` = auto_tracker_update.py.
-Daily routine: paste fresh Dhan token into token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
-review Rebalance_Dashboard + Strategy_Comparison, pick BUY / BUY MTF (real AMO), PAPER / PAPER MTF (mock) or WATCH
-(no order) from the Action DROPDOWN (data validation on the stock rows only), save, close
-Excel, then `rbtrack` after 15:30 (it refuses AMOs during market hours). Next morning after the open:
-`rbtrack --sync` (real fill prices). position_tracker.py shows LIVE legs, a PAPER PORTFOLIO section, totals and news
-(`--no-news` to skip). Momentum trades only on the 1st trading day of the month; keep while rank <= 40.
-Sells are NOT automated (place them in Dhan yourself).
+Commands (v2, 26 Sep 2026 -- RB: "one master scan a day, the rest on the portfolio"):
+  rbtoken (open token.txt) | rbcheck (identity+funds+LTP) | rbscan (rb_scan.py, master, 1x/day) |
+  rbport (portfolio.py) | rbtrack (Actions sheet of the Portfolio file -> AMO/PAPER) | rbsync (fills).
+  rbpos / rbreview retired (position_tracker.py stays as a library + optional script; holdings_review merged
+  into portfolio.py). Aliases: see RB_COMMANDS.md section 1.
+Daily routine: rbtoken (fresh Dhan token) -> rbscan (best after 15:30) -> rbport -> pick Actions (BUY / BUY MTF /
+PAPER / PAPER MTF / WATCH dropdown) in the Portfolio file, save, close -> rbtrack after 15:30 -> next morning rbsync.
+Recommendation logic in portfolio.py: split.csv-tagged legs -> that strategy's backtested exit rule (worst leg
+wins: EXIT > SELL@REBAL > WATCH > HOLD); untagged holdings -> combined check SELL (Stage 4, or < 40w MA AND rank
+> 40) / WEAK / KEEP -- NOT backtested as a whole. Fundamentals + news never change the verdict.
+Momentum trades only on the 1st trading day of the month; keep while rank <= 40. Sells are NOT automated.
 
 ## How fundamentals.py works
 - Input: latest reports/RB_Screener_*.xlsx (or `--file PATH`). `--symbols A,B` writes a separate RB_Fundamentals file.

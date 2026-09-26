@@ -3,8 +3,9 @@
 AUTO TRACKER UPDATE + BROKER AMO BRIDGE  (rbtrack)
 ==================================================
 
-Reads the "Action" column of Strategy_Comparison in today's
-reports/RB_Screener_YYYY-MM-DD.xlsx (save + close Excel first):
+Reads the "Action" column of the Actions sheet in today's
+accounts/<BROKER>_<ID>/reports/Portfolio_<...>_YYYY-MM-DD.xlsx (made by
+rbport; save + close Excel first):
 
   PAPER     -> added to split.csv with mode=PAPER (mock portfolio, no order,
                no effect on live money). Entry price = today's broker LTP/close.
@@ -60,6 +61,7 @@ sys.path.insert(0, HERE)
 import daily_screener as ds
 import momentum_screener as ms
 import broker_api as ba
+import portfolio as pf
 
 SPLIT_FILE = ms.SPLIT_FILE
 BACKUP = os.path.join(ds.HERE, "split_backup.csv")
@@ -106,14 +108,14 @@ def held(sp, mode):
 # ================================================================== excel
 def action_rows(path):
     try:
-        d = pd.read_excel(path, sheet_name="Strategy_Comparison")
+        d = pd.read_excel(path, sheet_name="Actions")
     except Exception as e:
-        print("! Could not read Strategy_Comparison from %s (%s)."
+        print("! Could not read the Actions sheet from %s (%s)."
               % (os.path.basename(path), e))
-        print("  Run rbscan first (momentum_screener.py creates that sheet).")
+        print("  Run rbport first (it makes Portfolio_..xlsx with Actions).")
         sys.exit(1)
     if "Ticker" not in d or "Action" not in d:
-        print("! Strategy_Comparison has no Ticker/Action column.")
+        print("! Actions sheet has no Ticker/Action column.")
         sys.exit(1)
     # "buy  mtf" / "Buy MTF" -> "BUY MTF"; anything else is ignored
     d["act"] = d["Action"].astype(str).str.upper().str.split().str.join(" ")
@@ -327,9 +329,9 @@ def main():
         sync(sess)
         account.banner(acc)
         return
-    path = a[a.index("--file") + 1] if "--file" in a else ms.todays_report()
+    path = a[a.index("--file") + 1] if "--file" in a else pf.latest()
     if not path or not os.path.exists(path):
-        print("! No RB_Screener report found. Run rbscan first.")
+        print("! No Portfolio file found. Run rbscan, then rbport.")
         sys.exit(1)
     today = ds.now_ist().date().isoformat()
     if today not in os.path.basename(path):
@@ -338,7 +340,7 @@ def main():
     rows = action_rows(path)
     if rows.empty:
         print("No BUY / BUY MTF / PAPER / PAPER MTF in the Action column of "
-              "Strategy_Comparison.")
+              "the Actions sheet (%s)." % os.path.basename(path))
         print("Type one of them, SAVE and CLOSE the file, then run again.")
         return
     sp = read_split()

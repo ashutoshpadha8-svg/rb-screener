@@ -1,56 +1,59 @@
-# RB_Screener — saari commands (26 Sep 2026)
+# RB_Screener — saari commands (26 Sep 2026, v2: master scan + portfolio)
 
 Sab kuch `~/Desktop/RB_Screener` mein. Terminal (zsh) mein chalao.
 
 ---
 
-## 1. Shortcuts (ek baar setup)
+## 1. Sirf 6 commands
 
-Pehle se hain:
-```
-rbscan    = daily_screener -> momentum_screener -> fundamentals  (Excel banti hai)
-rbtrack   = Excel ke Action (BUY / PAPER ...) -> order / split.csv
-rbsync    = agli subah asli fill prices
-rbpos     = positions ka HOLD / EXIT report (split.csv wale)
-rbreview  = demat ki SAARI holdings: KEEP / WEAK / SELL + wajah, aur ADD list
-```
+| Command | Kya karta hai | Kitni baar |
+|---|---|---|
+| `rbtoken` | token.txt kholta hai (naya token paste) | roz (Dhan) |
+| `rbcheck` | account + funds + 1 price check, koi order nahi | jab chaaho |
+| `rbscan` | **MASTER scan** -- sab accounts ke liye ek file | din mein 1 baar (dobara chalao to skip) |
+| `rbport` | **TUMHARA portfolio**: har holding ka trend, technical, fundamental, news, strategy test, HOLD/EXIT + wajah, rebalance, Actions | jab chaaho |
+| `rbtrack` | Actions sheet ke BUY / PAPER -> order / split.csv | 15:30 ke baad |
+| `rbsync` | agli subah asli fill prices | subah 9:15 ke baad |
 
-Naye 2 jodne ke liye (ek baar):
+Shortcuts ek baar set karo (purane rb* hata ke naye 6):
 ```
-echo "alias rbreview='python3 ~/Desktop/RB_Screener/holdings_review.py'" >> ~/.zshrc && echo "alias rbtoken='open -e ~/Desktop/RB_Screener/token.txt'" >> ~/.zshrc && echo "alias rbcheck='python3 ~/Desktop/RB_Screener/broker_api.py check'" >> ~/.zshrc && source ~/.zshrc
+sed -i '' '/^alias rb/d' ~/.zshrc && cat >> ~/.zshrc <<'X'
+alias rbtoken='open -e ~/Desktop/RB_Screener/token.txt'
+alias rbcheck='python3 ~/Desktop/RB_Screener/broker_api.py check'
+alias rbscan='python3 ~/Desktop/RB_Screener/rb_scan.py'
+alias rbport='python3 ~/Desktop/RB_Screener/portfolio.py'
+alias rbtrack='python3 ~/Desktop/RB_Screener/auto_tracker_update.py'
+alias rbsync='python3 ~/Desktop/RB_Screener/auto_tracker_update.py --sync'
+X
+source ~/.zshrc
 ```
-
-Saare shortcuts dekhne ke liye:
-```
-alias | grep rb
-```
+Check: `alias | grep rb` -> 6 lines.
 
 ---
 
 ## 1b. Files kahan banti hain
 
 ```
-accounts/DHAN_1100120973/reports/RB_Screener_DHAN_Ashutosh_2026-09-26.xlsx   <- roz nayi (us din ka scan)
-accounts/DHAN_1100120973/data/split.csv                                    <- hamesha ek (tumhare positions)
+reports/RB_Screener_2026-09-26.xlsx                                  <- MASTER scan, din ki 1 file, sab accounts ki
+accounts/DHAN_1100120973/reports/Portfolio_DHAN_Ashutosh_2026-09-26.xlsx  <- tumhara portfolio (Holdings, Rebalance, Actions)
+accounts/DHAN_1100120973/data/split.csv                               <- tumhari positions, hamesha ek file
 ```
-Same din rbscan dobara chalao to Action picks bache rehte hain.
+Kholne ke liye: `open ~/Desktop/RB_Screener/reports/`  aur  `open ~/Desktop/RB_Screener/accounts/`
+
+---
 
 ## 2. Roz ka routine
 
-| Kab | Command | Kya karna hai |
-|---|---|---|
-| Subah / shaam | `rbtoken` | Dhan web se naya token paste, Cmd+S |
-| | `rbcheck` | Account + funds + 1 price (koi order nahi) |
-| | `rbscan` | Excel banegi |
-| | `open ~/Desktop/RB_Screener/accounts/DHAN_1100120973/reports/` | Excel kholo |
-| | (Excel) | Strategy_Comparison -> Action dropdown: BUY / BUY MTF / PAPER / PAPER MTF / WATCH -> save + close |
-| 15:30 ke baad | `rbtrack --dry-run` | Pehle dekho kya hoga (kuch nahi bhejta) |
-| 15:30 ke baad | `rbtrack` | Asli (BUY pe YES type karna padega) |
-| Agli subah 9:15 ke baad | `rbsync` | Asli fill price split.csv mein |
-| Kabhi bhi | `rbpos` | HOLD / EXIT report + news |
+1. `rbtoken` -> naya Dhan token -> Cmd+S
+2. `rbscan` -> master scan (aaj ho chuka to kuch nahi karega). Best: 15:30 ke baad.
+3. `rbport` -> Portfolio file: **Holdings** sheet (har stock ka HOLD / EXIT / SELL + WHY),
+   **Rebalance** (momentum, sirf mahine ka 1st trading day), **Actions** (dropdown)
+4. Actions sheet mein BUY / PAPER / WATCH chuno -> save + close
+5. 15:30 ke baad: `rbtrack --dry-run`, phir `rbtrack`
+6. Agli subah: `rbsync`
 
-Momentum: sirf mahine ke pehle trading din buy. Rank 40 se neeche jaaye to SELL (khud Dhan app mein).
-Sell kabhi automatic nahi hai.
+Options: `rbscan --force` (dobara scan), `rbport --no-news` (tez), `rbport --no-fund`.
+Sell kabhi automatic nahi -- broker app mein khud.
 
 ---
 
@@ -147,7 +150,7 @@ python3 ~/Desktop/RB_Screener/daily_screener.py
 python3 ~/Desktop/RB_Screener/momentum_screener.py
 python3 ~/Desktop/RB_Screener/fundamentals.py
 python3 ~/Desktop/RB_Screener/fundamentals.py --symbols TCS,INFY   # sirf ye stocks
-python3 ~/Desktop/RB_Screener/position_tracker.py --no-news
+python3 ~/Desktop/RB_Screener/position_tracker.py --no-news    # purana leg-wise tracker (rbport ne jagah le li)
 ```
 
 ---
@@ -162,7 +165,9 @@ python3 ~/Desktop/RB_Screener/position_tracker.py --no-news
 | `Market is open` | rbtrack 15:30 ke baad chalao |
 | `Not enough funds` | Dhan mein paise nahi -> PAPER use karo |
 | `NotOpenSSLWarning` | Ignore, kuch nahi bigadta |
-| Excel `_fund.xlsx` bani | Excel khuli thi -> band karke rbscan phir |
+| Excel `_fund.xlsx` bani | Excel khuli thi -> band karke `rbscan --force` |
+| `No master scan yet` | pehle `rbscan`, phir `rbport` |
+| `Could not read the Actions sheet` | pehle `rbport` |
 
 Error aaye to aakhri 15 lines Claude ko paste karo (token / keys ke bina).
 
