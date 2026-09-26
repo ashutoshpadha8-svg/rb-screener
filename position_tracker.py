@@ -179,6 +179,12 @@ def load_split(holdings):
         sp["momentum_qty"] = 0
     if "strategy" not in sp:
         sp["strategy"] = ""
+    # v4 columns: LIVE / PAPER mode and Dhan order id (auto_tracker_update.py)
+    if "mode" not in sp:
+        sp["mode"] = "LIVE"
+    sp["mode"] = sp["mode"].fillna("").astype(str).str.upper().replace("", "LIVE")
+    if "order_id" not in sp:
+        sp["order_id"] = ""
     return sp
 
 
@@ -402,10 +408,14 @@ def main():
         if sw + iv + mo == 0:
             continue
 
+        mode = str(r.get("mode") or "LIVE").upper()
         held = hq.get(sym)
-        if held is None:
-            warnings.append("%s is in split.csv but not in your Dhan holdings"
-                            " (fine if you are paper trading)" % sym)
+        if mode == "PAPER":
+            held = None                  # mock trade: never compared to Dhan
+        elif held is None:
+            warnings.append("%s is in split.csv as LIVE but not in your Dhan "
+                            "holdings (AMO not filled yet? run rbtrack --sync)"
+                            % sym)
         elif abs(held["qty"] - (sw + iv + mo)) > 0.5:
             warnings.append("%s: split.csv totals %g but Dhan shows %g"
                             % (sym, sw + iv + mo, held["qty"]))
@@ -431,6 +441,7 @@ def main():
                 verdict, why = verdict + star, why + " (live price -- only " \
                     "counts if it CLOSES here)"
             swing_rows.append({
+                "mode": mode, "leg": "swing",
                 "symbol": sym, "qty": int(sw), "entry": round(entry, 1),
                 "price": round(px, 1),
                 "pnl_pct": round((px / entry - 1) * 100, 1) if entry else 0,
@@ -442,6 +453,7 @@ def main():
             verdict, why, px, rk, stop = judge_momentum(
                 sym, c, lows[sym], highs[sym], entry, edate, ranks)
             mom_rows.append({
+                "mode": mode, "leg": "momentum",
                 "symbol": sym, "qty": int(mo), "entry": round(entry, 1),
                 "price": round(px, 1),
                 "pnl_pct": round((px / entry - 1) * 100, 1) if entry else 0,
@@ -456,6 +468,7 @@ def main():
                 verdict, why = verdict + star, why + " (live price -- only " \
                     "counts if it CLOSES here)"
             inv_rows.append({
+                "mode": mode, "leg": "investing",
                 "symbol": sym, "qty": int(iv), "entry": round(entry, 1),
                 "price": round(px, 1),
                 "pnl_pct": round((px / entry - 1) * 100, 1) if entry else 0,
@@ -482,11 +495,28 @@ def main():
         d.to_csv(p, index=False)
         print("  saved: %s" % p)
 
+    live = lambda rows: [x for x in rows if x["mode"] != "PAPER"]
+    paper = [x for x in swing_rows + inv_rows + mom_rows if x["mode"] == "PAPER"]
     print("\n" + data_note)
-    show("SWING LEG", swing_rows, "tracker_swing")
-    show("INVESTING LEG", inv_rows, "tracker_investing")
-    show("MOMENTUM LEG (ranking of %s)" % (ranks_date or "n/a"), mom_rows,
-         "tracker_momentum")
+    show("SWING LEG", live(swing_rows), "tracker_swing")
+    show("INVESTING LEG", live(inv_rows), "tracker_investing")
+    show("MOMENTUM LEG (ranking of %s)" % (ranks_date or "n/a"),
+         live(mom_rows), "tracker_momentum")
+    for title, rows in (("LIVE", live(swing_rows + inv_rows + mom_rows)),
+                        ("PAPER", paper)):
+        if rows:
+            inv = sum(x["qty"] * x["entry"] for x in rows)
+            now = sum(x["qty"] * x["price"] for x in rows)
+            print("\n  %s total: invested Rs %s, now Rs %s, P&L Rs %s (%+.1f%%)"
+                  % (title, format(int(inv), ","), format(int(now), ","),
+                     format(int(now - inv), ","),
+                     100 * (now / inv - 1) if inv else 0))
+    show("PAPER PORTFOLIO (mock -- not real money)", paper, "tracker_paper")
+    if "--no-news" not in sys.argv:
+        import news_feed
+        syms = list(dict.fromkeys(x["symbol"] for x in
+                                  swing_rows + inv_rows + mom_rows))
+        news_feed.print_news(syms, " -- information only, not a signal")
 
     if warnings:
         print("\n---- check these ----")

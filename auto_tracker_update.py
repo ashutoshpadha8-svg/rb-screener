@@ -1,28 +1,37 @@
 #!/usr/bin/env python3
 """
-AUTO TRACKER UPDATE  --  Excel "BUY" rows -> split.csv (position_tracker.py)
-=========================================================================
+AUTO TRACKER UPDATE + DHAN AMO BRIDGE  (rbtrack)
+================================================
 
-Run it ONLY after you have typed BUY in the "Action" column of the
-Strategy_Comparison sheet and saved the file.
+Reads the "Action" column of Strategy_Comparison in today's
+reports/RB_Screener_YYYY-MM-DD.xlsx (save + close Excel first):
 
-  1. Reads Strategy_Comparison from today's reports/RB_Screener_YYYY-MM-DD.xlsx
-     (or --file PATH). Rows whose Action is "BUY" (any case) are taken.
-  2. entry_price = today's live/closing price from Dhan (LTP). If Dhan is not
-     available it uses the last close from the free source and says so.
-  3. Shares = floor(slot / price), slot = Rs 2 lakh / 20 (momentum_screener
-     settings). Cash market only -- exact integer shares, no F&O.
-  4. Appends to split.csv:
-       Momentum only / Super-Buy -> momentum_qty, strategy = Momentum
-       W+TT only                 -> swing_qty,    strategy = W+TT
-     with entry_date = today (YYYY-MM-DD) and entry_price.
-  5. Duplicates are refused: a symbol that already has shares in split.csv
-     (any leg) is skipped, so running this twice adds nothing twice.
-     A copy of the previous file is kept as split_backup.csv.
+  PAPER -> added to split.csv with mode=PAPER (mock portfolio, no order,
+           no effect on live money). Entry price = today's Dhan LTP/close.
+  BUY   -> LIVE. By default places a Dhan AMO (After Market Order):
+             CNC delivery, NSE_EQ, BUY, MARKET at the next open (amoTime OPEN)
+             = the backtest's "buy next open". Shares = floor(Rs slot / price).
+           You see every order and must type YES before anything is sent.
+           Only orders Dhan ACCEPTS are written to split.csv (mode=LIVE,
+           order_id kept, entry_price provisional until --sync).
 
-RUN
-    python3 ~/Desktop/RB_Screener/auto_tracker_update.py
-    python3 ~/Desktop/RB_Screener/auto_tracker_update.py --dry-run   (show only)
+OPTIONS
+  --dry-run     show what would happen, send nothing, write nothing
+  --no-orders   BUY rows go to split.csv as LIVE without placing orders
+                (you buy manually in the Dhan app)
+  --limit       LIMIT AMO at last price + LIMIT_BUFFER instead of MARKET
+  --sync        after the market opens: read fills from Dhan and set the real
+                entry_price / quantity for LIVE rows whose order is pending;
+                rejected / cancelled orders are marked and set to 0 shares
+  --file PATH   use another report
+
+SAFETY
+  * AMOs are refused during market hours (09:15-15:30) -- run it at night.
+  * Funds are checked (Dhan fundlimit) before any order; not enough -> nothing.
+  * A symbol already held (same mode) in split.csv, or already ordered today
+    (data/orders_log.csv), is skipped -> running twice never double-buys.
+  * split.csv is backed up to split_backup.csv before every write.
+  * First time: test with ONE row / ONE share.
 """
 
 import warnings
@@ -31,6 +40,7 @@ warnings.filterwarnings("ignore")
 import os
 import sys
 import shutil
+import datetime as dt
 
 import pandas as pd
 
@@ -38,32 +48,47 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import daily_screener as ds
 import momentum_screener as ms
+import dhan_orders as do
 
 SPLIT_FILE = ms.SPLIT_FILE
 BACKUP = os.path.join(ds.HERE, "split_backup.csv")
 COLUMNS = ["symbol", "swing_qty", "investing_qty", "momentum_qty",
-           "entry_price", "entry_date", "strategy", "note"]
+           "entry_price", "entry_date", "strategy", "mode", "order_id", "note"]
+QTY = ("swing_qty", "investing_qty", "momentum_qty")
+LIMIT_BUFFER = 0.02        # --limit: pay at most 2% above the last price
 
 
+# ================================================================== split.csv
 def read_split():
-    """split.csv with the v3 columns (older files are upgraded in place)."""
+    """split.csv with the v4 columns (older files are upgraded)."""
     if not os.path.exists(SPLIT_FILE):
         return pd.DataFrame(columns=COLUMNS)
-    sp = pd.read_csv(SPLIT_FILE)
+    sp = pd.read_csv(SPLIT_FILE, dtype={"order_id": str})
     for c in COLUMNS:
         if c not in sp:
             sp[c] = 0 if c.endswith("_qty") else ""
+    sp["mode"] = sp["mode"].fillna("").replace("", "LIVE").astype(str).str.upper()
     sp["symbol"] = sp["symbol"].astype(str).str.upper().str.strip()
+    for c in QTY:
+        sp[c] = pd.to_numeric(sp[c], errors="coerce").fillna(0)
     return sp[COLUMNS + [c for c in sp.columns if c not in COLUMNS]]
 
 
-def already_held(sp):
-    q = sum(pd.to_numeric(sp[c], errors="coerce").fillna(0)
-            for c in ("swing_qty", "investing_qty", "momentum_qty"))
-    return set(sp.loc[q > 0, "symbol"])
+def write_split(sp):
+    if os.path.exists(SPLIT_FILE):
+        shutil.copyfile(SPLIT_FILE, BACKUP)
+    tmp = SPLIT_FILE + ".tmp"
+    sp.to_csv(tmp, index=False)
+    os.replace(tmp, SPLIT_FILE)
 
 
-def buy_rows(path):
+def held(sp, mode):
+    q = sum(sp[c] for c in QTY)
+    return set(sp.loc[(q > 0) & (sp["mode"] == mode), "symbol"])
+
+
+# ================================================================== excel
+def action_rows(path):
     try:
         d = pd.read_excel(path, sheet_name="Strategy_Comparison")
     except Exception as e:
@@ -74,13 +99,14 @@ def buy_rows(path):
     if "Ticker" not in d or "Action" not in d:
         print("! Strategy_Comparison has no Ticker/Action column.")
         sys.exit(1)
-    act = d["Action"].astype(str).str.strip().str.upper()
-    return d[act == "BUY"].copy()
+    d["act"] = d["Action"].astype(str).str.strip().str.upper()
+    return d[d["act"].isin(["BUY", "PAPER"])].copy()
 
 
+# ================================================================== prices
 def prices(tok, symbols):
     """{symbol: (price, source)} -- Dhan LTP first, free-source close second."""
-    out = {}
+    out, scrip = {}, {}
     if tok:
         try:
             scrip = ds.load_scrip_map()
@@ -98,91 +124,192 @@ def prices(tok, symbols):
                 out[s] = (float(df["Close"].iloc[-1]),
                           "close %s (free source, may be old)"
                           % df.index[-1].date())
-    return out
+    return out, scrip
 
 
+def plan(rows, px, sp):
+    """Turn Excel rows into split.csv rows (not written yet)."""
+    new, skip = [], []
+    today = ds.now_ist().date().isoformat()
+    for _, r in rows.iterrows():
+        s = str(r["Ticker"]).upper().strip()
+        mode = "PAPER" if r["act"] == "PAPER" else "LIVE"
+        if s in held(sp, mode) or any(x["symbol"] == s and x["mode"] == mode
+                                      for x in new):
+            skip.append("%s (%s already in split.csv)" % (s, mode))
+            continue
+        if mode == "LIVE" and do.ordered_today(s):
+            skip.append("%s (order already placed today)" % s)
+            continue
+        if s not in px:
+            skip.append("%s (no price)" % s)
+            continue
+        price, src = px[s]
+        overlap = str(r.get("Strategy Overlap", ""))
+        mom = overlap in ("Momentum only", "Super-Buy")
+        shares = ms.shares_for(ms.CAPITAL / ms.SLOTS, price)
+        if shares < 1:
+            skip.append("%s (price %.0f > slot)" % (s, price))
+            continue
+        new.append({"symbol": s, "swing_qty": 0 if mom else shares,
+                    "investing_qty": 0, "momentum_qty": shares if mom else 0,
+                    "entry_price": round(price, 2), "entry_date": today,
+                    "strategy": "Momentum" if mom else "W+TT", "mode": mode,
+                    "order_id": "", "shares": shares,
+                    "note": "%s | %s" % (overlap, src)})
+    return new, skip
+
+
+# ================================================================== orders
+def place_orders(tok, scrip, live, use_limit, dry):
+    """Returns the rows whose AMO Dhan accepted (order_id filled in)."""
+    if not live:
+        return []
+    if ds.market_open():
+        print("\n! Market is open (09:15-15:30). AMOs are placed after hours "
+              "-- run rbtrack tonight, or use --no-orders.")
+        return []
+    missing = [x["symbol"] for x in live if x["symbol"] not in scrip]
+    if missing:
+        print("! Not in the Dhan scrip master, skipped: " + ", ".join(missing))
+    live = [x for x in live if x["symbol"] in scrip]
+    total = sum(x["shares"] * x["entry_price"] for x in live)
+    otype = "LIMIT" if use_limit else "MARKET"
+    print("\nDHAN AMO ORDERS (CNC delivery, BUY, %s at next open):" % otype)
+    for x in live:
+        lim = round(x["entry_price"] * (1 + LIMIT_BUFFER), 1)
+        print("  %-12s qty %4d  ~Rs %9s%s" % (
+            x["symbol"], x["shares"], format(int(x["shares"] * x["entry_price"]),
+                                             ","),
+            "  limit %.1f" % lim if use_limit else ""))
+    print("  total ~Rs %s (MARKET fills at the open, can differ)"
+          % format(int(total), ","))
+    if dry:
+        print("(--dry-run: no orders sent)")
+        return []
+    funds, err = do.available_funds(tok)
+    if funds is None:
+        print("! Could not read Dhan funds (%s). No orders sent." % err)
+        return []
+    print("  Dhan available balance: Rs %s" % format(int(funds), ","))
+    if funds < total * 1.02:
+        print("! Not enough funds for all orders (need ~Rs %s incl. buffer). "
+              "No orders sent." % format(int(total * 1.02), ","))
+        return []
+    ans = input("\nType YES to send these %d order(s) to Dhan: " % len(live))
+    if ans.strip() != "YES":
+        print("Cancelled -- nothing sent.")
+        return []
+    accepted = []
+    for x in live:
+        lim = round(round(x["entry_price"] * (1 + LIMIT_BUFFER) / 0.05) * 0.05, 2)
+        ok, res, status = do.place_amo_buy(
+            tok, scrip[x["symbol"]], x["shares"], x["symbol"],
+            order_type=otype, price=lim if use_limit else 0.0)
+        do.log_order({"date": dt.date.today().isoformat(),
+                      "time": ds.now_ist().strftime("%H:%M:%S"),
+                      "symbol": x["symbol"], "qty": x["shares"],
+                      "type": otype, "ok": ok, "order_id": res if ok else "",
+                      "status": status, "error": "" if ok else res})
+        if ok:
+            print("  OK   %-12s order %s (%s)" % (x["symbol"], res, status))
+            x["order_id"] = res
+            x["note"] += " | AMO %s pending -> rbtrack --sync" % otype
+            accepted.append(x)
+        else:
+            print("  FAIL %-12s %s" % (x["symbol"], res))
+            if "token" in res or "HTTP 401" in res or "HTTP 403" in res:
+                print("! Stopping: authentication problem.")
+                break
+    return accepted
+
+
+def sync(tok):
+    """Replace provisional entry prices with real fills."""
+    sp = read_split()
+    pend = sp[(sp["mode"] == "LIVE") & (sp["order_id"].astype(str).str.len() > 3)
+              & sp["note"].astype(str).str.contains("pending")]
+    if pend.empty:
+        print("No pending AMO rows in split.csv.")
+        return
+    for i, r in pend.iterrows():
+        oid = str(r["order_id"]).split(".")[0]
+        q, avg = do.fills(tok, oid)
+        st = do.order_status(tok, oid) or "?"
+        leg = "momentum_qty" if r["momentum_qty"] > 0 else "swing_qty"
+        if q > 0:
+            sp.at[i, leg] = q
+            sp.at[i, "entry_price"] = round(avg, 2)
+            sp.at[i, "note"] = str(r["note"]).replace("pending", "filled")
+            print("  %-12s filled %d @ %.2f" % (r["symbol"], q, avg))
+        elif st in ("REJECTED", "CANCELLED", "EXPIRED"):
+            sp.at[i, leg] = 0
+            sp.at[i, "note"] = str(r["note"]).replace("pending", st.lower())
+            print("  %-12s %s -- set to 0 shares" % (r["symbol"], st))
+        else:
+            print("  %-12s still %s" % (r["symbol"], st))
+    write_split(sp)
+
+
+# ================================================================== main
 def main():
     a = sys.argv[1:]
-    dry = "--dry-run" in a
+    dry, no_orders, use_limit = ("--dry-run" in a, "--no-orders" in a,
+                                 "--limit" in a)
+    tok = ms.get_token()
+    if "--sync" in a:
+        if not tok:
+            print("! --sync needs a valid Dhan token.")
+            sys.exit(1)
+        sync(tok)
+        return
     path = a[a.index("--file") + 1] if "--file" in a else ms.todays_report()
     if not path or not os.path.exists(path):
         print("! No RB_Screener report found. Run rbscan first.")
         sys.exit(1)
     today = ds.now_ist().date().isoformat()
     if today not in os.path.basename(path):
-        print("! Using %s -- it is NOT today's report (%s)."
-              % (os.path.basename(path), today))
-
-    rows = buy_rows(path)
+        print("! Using %s -- NOT today's report (%s)." % (os.path.basename(path),
+                                                         today))
+    rows = action_rows(path)
     if rows.empty:
-        print("No rows with Action = BUY in Strategy_Comparison of %s."
-              % os.path.basename(path))
-        print("Type BUY in the Action column, SAVE the file, then run again.")
+        print("No BUY / PAPER in the Action column of Strategy_Comparison.")
+        print("Type BUY or PAPER, SAVE and CLOSE the file, then run again.")
         return
     sp = read_split()
-    held = already_held(sp)
-    todo, skipped = [], []
-    for _, r in rows.iterrows():
-        s = str(r["Ticker"]).upper().strip()
-        if s in held or s in [t["symbol"] for t in todo]:
-            skipped.append(s)
-            continue
-        todo.append({"symbol": s, "overlap": str(r.get("Strategy Overlap", ""))})
-    if skipped:
-        print("Already in split.csv (skipped, no duplicates): " +
-              ", ".join(skipped))
-    if not todo:
+    px, scrip = prices(tok, [str(t).upper().strip() for t in rows["Ticker"]])
+    new, skip = plan(rows, px, sp)
+    if skip:
+        print("Skipped: " + "; ".join(skip))
+    if not new:
         print("Nothing new to add.")
         return
+    paper = [x for x in new if x["mode"] == "PAPER"]
+    live = [x for x in new if x["mode"] == "LIVE"]
 
-    tok = ms.get_token()
-    px = prices(tok, [t["symbol"] for t in todo])
-    new = []
-    for t in todo:
-        s = t["symbol"]
-        if s not in px:
-            print("! %s: no price available -- not added." % s)
-            continue
-        price, src = px[s]
-        mom = t["overlap"] in ("Momentum only", "Super-Buy")
-        shares = ms.shares_for(ms.CAPITAL / ms.SLOTS, price)
-        if shares < 1:
-            print("! %s: price %.1f > slot Rs %d -- 0 shares, not added."
-                  % (s, price, ms.CAPITAL / ms.SLOTS))
-            continue
-        new.append({"symbol": s,
-                    "swing_qty": 0 if mom else shares,
-                    "investing_qty": 0,
-                    "momentum_qty": shares if mom else 0,
-                    "entry_price": round(price, 2), "entry_date": today,
-                    "strategy": "Momentum" if mom else "W+TT",
-                    "note": "%s | %s | %s" % (t["overlap"], src,
-                                              os.path.basename(path))})
-    if not new:
+    if live and not no_orders:
+        if not tok:
+            print("! BUY rows need a valid Dhan token to place AMOs "
+                  "(or use --no-orders). LIVE rows not added.")
+            live = []
+        else:
+            live = place_orders(tok, scrip, live, use_limit, dry)
+    add = paper + live
+    if not add:
         return
-    show = pd.DataFrame(new)
-    print("\nTo add to %s:" % SPLIT_FILE)
-    print(show[["symbol", "strategy", "momentum_qty", "swing_qty",
-                "entry_price", "entry_date"]].to_string(index=False))
-    print("  total: Rs %s" % format(int(sum(
-        (n["momentum_qty"] + n["swing_qty"]) * n["entry_price"] for n in new)),
-        ","))
+    show = pd.DataFrame(add)
+    print("\nTo add to split.csv:")
+    print(show[["symbol", "mode", "strategy", "momentum_qty", "swing_qty",
+                "entry_price", "order_id"]].to_string(index=False))
     if dry:
         print("\n(--dry-run: nothing written)")
         return
-    if os.path.exists(SPLIT_FILE):
-        shutil.copyfile(SPLIT_FILE, BACKUP)
-    out = pd.concat([sp, show[COLUMNS]], ignore_index=True)
-    tmp = SPLIT_FILE + ".tmp"
-    out.to_csv(tmp, index=False)
-    os.replace(tmp, SPLIT_FILE)
-    print("\nSaved %d new position(s) to split.csv (previous copy: "
-          "split_backup.csv)." % len(new))
-    print("Check them any day with: python3 ~/Desktop/RB_Screener/"
-          "position_tracker.py")
-    if any("free source" in n["note"] for n in new):
-        print("! Some entry prices came from the free source, not Dhan -- "
-              "edit entry_price in split.csv to your real fill price.")
+    write_split(pd.concat([sp, show[COLUMNS]], ignore_index=True))
+    print("\nSaved %d row(s) (previous copy: split_backup.csv)." % len(add))
+    if any("free source" in x["note"] for x in add):
+        print("! Some prices came from the free source, not Dhan.")
+    if live:
+        print("After tomorrow's open run:  rbtrack --sync   (real fill prices)")
 
 
 if __name__ == "__main__":

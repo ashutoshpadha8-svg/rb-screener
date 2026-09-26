@@ -20,8 +20,12 @@
   fno_data.py           # downloads NSE F&O bhavcopy history (2013+) into data/fno/
   strategy_lab.py       # 16 pre-registered strategies (momentum, low-vol, mean reversion, timing) vs baselines
   momentum_screener.py  # LIVE momentum (RAMOM top 20, sector cap 4) -> Momentum_Top20 + Strategy_Comparison sheets
-  auto_tracker_update.py# rbtrack: rows with Action=BUY in Strategy_Comparison -> split.csv (no duplicates)
-  split.csv             # tracker positions: symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,note
+  auto_tracker_update.py# rbtrack: Action BUY -> Dhan AMO (CNC, MARKET @ open, type YES) -> split.csv LIVE;
+                        #   Action PAPER -> split.csv PAPER; --sync = real fills; --no-orders; --dry-run
+  dhan_orders.py        # Dhan v2 order/fund/trade helpers (BUY CNC only, no selling from code)
+  news_feed.py          # Google News RSS headlines (no key, no extra package)
+  split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,order_id,note
+  data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
   dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
   data/                 # cached price history, NSE market-cap file, Dhan scrip master
@@ -31,8 +35,11 @@
 Shortcut: `rbscan` (zsh alias, since 26 Sep 2026) = daily_screener -> momentum_screener -> fundamentals
 (each step only runs if the previous one succeeded). `rbtrack` = auto_tracker_update.py.
 Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`,
-review Strategy_Comparison, type BUY in Action for what you bought, save, close Excel, then `rbtrack`.
-Momentum trades only on the 1st trading day of the month; keep while rank <= 40 (position_tracker shows it).
+review Rebalance_Dashboard + Strategy_Comparison, type BUY (real, AMO) or PAPER (mock) in Action, save, close
+Excel, then `rbtrack` after 15:30 (it refuses AMOs during market hours). Next morning after the open:
+`rbtrack --sync` (real fill prices). position_tracker.py shows LIVE legs, a PAPER PORTFOLIO section, totals and news
+(`--no-news` to skip). Momentum trades only on the 1st trading day of the month; keep while rank <= 40.
+Sells are NOT automated (place them in Dhan yourself).
 
 ## How fundamentals.py works
 - Input: latest reports/RB_Screener_*.xlsx (or `--file PATH`). `--symbols A,B` writes a separate RB_Fundamentals file.
@@ -229,3 +236,5 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 9. Tax (STCG/LTCG) in the portfolio sim. Optional: strategies on Gold ETF / BTC-ETH with fees.
 10. Optional: VCP rule test (Minervini) - old chat: "Minervini alone" 6.75% CAGR, "O'Neil L+M" 6.81% (173 stocks).
 11. DONE: live momentum chain (momentum_screener.py, auto_tracker_update.py, tracker momentum leg). Next: paper trade it.
+12. DONE: PAPER mode + news, Dhan AMO buy bridge (untested against the real Dhan API from the cloud -- first live use:
+    ONE row, ONE share, then check the Dhan order book), Rebalance_Dashboard sheet (SELL/BUY/HOLD per LIVE/PAPER).

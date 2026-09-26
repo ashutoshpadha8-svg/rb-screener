@@ -111,16 +111,77 @@ def shares_for(amount, price):
     return int(math.floor(amount / price)) if price and price > 0 else 0
 
 
-def momentum_holdings():
-    """Symbols held under the Momentum strategy in split.csv."""
+def momentum_positions():
+    """Momentum rows of split.csv: symbol, mode (LIVE/PAPER), qty, entry."""
+    cols = ["symbol", "mode", "qty", "entry"]
     if not os.path.exists(SPLIT_FILE):
-        return set()
+        return pd.DataFrame(columns=cols)
     sp = pd.read_csv(SPLIT_FILE)
     if "strategy" not in sp or "momentum_qty" not in sp:
-        return set()
-    sp = sp[(sp["strategy"].astype(str).str.lower() == "momentum") &
-            (pd.to_numeric(sp["momentum_qty"], errors="coerce").fillna(0) > 0)]
-    return set(sp["symbol"].astype(str).str.upper())
+        return pd.DataFrame(columns=cols)
+    q = pd.to_numeric(sp["momentum_qty"], errors="coerce").fillna(0)
+    sp = sp[(sp["strategy"].astype(str).str.lower() == "momentum") & (q > 0)]
+    mode = sp["mode"] if "mode" in sp else pd.Series("LIVE", index=sp.index)
+    return pd.DataFrame({
+        "symbol": sp["symbol"].astype(str).str.upper().values,
+        "mode": mode.fillna("").astype(str).str.upper().replace("", "LIVE").values,
+        "qty": q[sp.index].values,
+        "entry": pd.to_numeric(sp["entry_price"], errors="coerce").values})
+
+
+def momentum_holdings(mode="LIVE"):
+    """Symbols held under the Momentum strategy (one mode) in split.csv."""
+    p = momentum_positions()
+    return set(p.loc[p["mode"] == mode, "symbol"])
+
+
+def rebalance_plan(top, full):
+    """SELL / BUY / HOLD per mode, exactly the backtest's monthly rule:
+    sell holdings ranked > BUFFER x SLOTS, keep the rest, then fill the free
+    slots with the best-ranked top-N names not held."""
+    pos = momentum_positions()
+    by = full.set_index("symbol")
+    rows = []
+    modes = ["LIVE"] + (["PAPER"] if (pos["mode"] == "PAPER").any() else [])
+    for mode in modes:
+        mine = pos[pos["mode"] == mode]
+        keep = 0
+        for _, h in mine.iterrows():
+            a = by.loc[h["symbol"]] if h["symbol"] in by.index else None
+            rk = a["rank"] if a is not None else np.nan
+            px = a["price"] if a is not None else np.nan
+            sell = not (rk == rk) or rk > BUFFER * SLOTS
+            keep += 0 if sell else 1
+            rows.append({"Section": "SELL" if sell else "HOLD", "Mode": mode,
+                         "Symbol": h["symbol"], "Mom Rank": rk,
+                         "Momentum Score": a["score"] if a is not None else np.nan,
+                         "Sector": a["sector"] if a is not None else "?",
+                         "Qty Held": h["qty"], "Entry": h["entry"], "LTP": px,
+                         "P&L %": (px / h["entry"] - 1) * 100
+                         if h["entry"] and px == px else np.nan,
+                         "Shares to Buy": np.nan, "Amount (Rs)": np.nan,
+                         "Note": ("rank > %d or not ranked -> sell at the "
+                                  "rebalance open" % (BUFFER * SLOTS)) if sell
+                         else "rank <= %d -> keep" % (BUFFER * SLOTS)})
+        free = SLOTS - keep
+        heldset = set(mine["symbol"])
+        n = 0
+        for _, x in top.iterrows():
+            if x["symbol"] in heldset:
+                continue
+            n += 1
+            rows.append({"Section": "BUY", "Mode": mode, "Symbol": x["symbol"],
+                         "Mom Rank": x["rank"], "Momentum Score": x["score"],
+                         "Sector": x["sector"], "Qty Held": 0, "Entry": np.nan,
+                         "LTP": x["price"], "P&L %": np.nan,
+                         "Shares to Buy": x["shares"], "Amount (Rs)": x["amount"],
+                         "Note": "fills slot %d of %d free" % (n, free)
+                         if n <= free else "no free slot (all %d slots kept)"
+                         % SLOTS})
+    order = {"SELL": 0, "BUY": 1, "HOLD": 2}
+    return sorted(rows, key=lambda r: (r["Mode"] != "LIVE", order[r["Section"]],
+                                       r["Mom Rank"] if r["Mom Rank"] ==
+                                       r["Mom Rank"] else 9999))
 
 
 def todays_report():
@@ -263,7 +324,7 @@ def _read_sheet(path, name):
 
 
 def write_sheets(path, top, allrank, swing, fund_status, regime_red,
-                 old_action, banner, sells):
+                 old_action, banner, sells, rebal=None):
     from openpyxl import load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
@@ -275,7 +336,7 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red,
     act_fill = PatternFill("solid", fgColor="FFF2CC")
 
     wb = load_workbook(path)
-    for name in ("Momentum_Top20", "Strategy_Comparison"):
+    for name in ("Momentum_Top20", "Strategy_Comparison", "Rebalance_Dashboard"):
         if name in wb.sheetnames:
             del wb[name]
 
@@ -420,7 +481,44 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red,
         "monthly rebalance). W+TT only -> swing leg (20%% stop / 40w MA)."
         % (BUFFER * SLOTS),
         "Fundamental Status is filled by fundamentals.py (information only -- "
-        "the fundamental gate did not help in the 2018-26 backtest)."])
+        "the fundamental gate did not help in the 2018-26 backtest).",
+        "Action: BUY = real (rbtrack places a Dhan AMO after hours), PAPER = "
+        "mock portfolio only (no order, no money)."])
+
+    # ---------------------------------------------------- Rebalance_Dashboard
+    wr = wb.create_sheet("Rebalance_Dashboard")
+    rcols = [("Section", 8), ("Mode", 7), ("Symbol", 13), ("Mom Rank", 7),
+             ("Momentum Score", 9), ("Sector", 22), ("Qty Held", 7),
+             ("Entry", 10), ("LTP", 10), ("P&L %", 8), ("Shares to Buy", 8),
+             ("Amount (Rs)", 10), ("Note", 40)]
+    header(wr, rcols)
+    sec_fill = {"SELL": PatternFill("solid", fgColor="FFC7CE"),
+                "BUY": PatternFill("solid", fgColor="C6EFCE"),
+                "HOLD": PatternFill("solid", fgColor="DDEBF7")}
+    rfmt = [None, None, None, "0", "0.00", None, "0", "#,##0.0", "#,##0.0",
+            "0.0", "0", "#,##0", None]
+    for n, x in enumerate(rebal or [], start=2):
+        for i, ((h, _), f) in enumerate(zip(rcols, rfmt), 1):
+            c = put(wr, n, i, x[h], f)
+            if h == "Section":
+                c.fill = sec_fill[x[h]]
+    last = wr.max_row
+    wr.auto_filter.ref = "A1:%s%d" % (get_column_letter(len(rcols)),
+                                      max(last, 2))
+    cnt = lambda sec, m: sum(1 for x in (rebal or []) if x["Section"] == sec
+                             and x["Mode"] == m)
+    notes(wr, last + 2, [
+        banner,
+        "LIVE: SELL %d | BUY %d | HOLD %d.   Holdings come from split.csv "
+        "(strategy = Momentum)." % (cnt("SELL", "LIVE"), cnt("BUY", "LIVE"),
+                                     cnt("HOLD", "LIVE")),
+        "Do it ONLY on the 1st trading day of the month: sell SELL rows at the "
+        "open, then buy BUY rows that fill a free slot.",
+        "Rule = backtest: keep while rank <= %d, fill free slots with the best "
+        "top-%d names (max %s per sector). No stop-loss." % (
+            BUFFER * SLOTS, SLOTS, SECTOR_CAP),
+        "Sells are NOT automated -- place them yourself in Dhan. Buys: type "
+        "BUY in Strategy_Comparison, then rbtrack."])
     try:
         wb.save(path)
     except PermissionError:
@@ -443,7 +541,7 @@ def main():
         print("No eligible stocks -- check data.")
         sys.exit(1)
 
-    held = momentum_holdings()
+    held = momentum_holdings("LIVE")
     price = {s.upper(): v for s, v in live.items()}
     full = tab.merge(allrank[["symbol", "rank"]], on="symbol", how="left")
     full["sector"] = full["symbol"].map(lambda s: sectors.get(s, "?"))
@@ -457,6 +555,7 @@ def main():
     top["held"] = top["symbol"].isin(held)
     ranks = dict(zip(allrank["symbol"], allrank["rank"]))
     sells = sorted(s for s in held if ranks.get(s, 10 ** 9) > BUFFER * SLOTS)
+    rebal = rebalance_plan(top, full)
 
     regime_red = nifty < nifty200
     allrank[["symbol", "rank", "score", "sector"]].assign(
@@ -517,8 +616,18 @@ def main():
     banner = ("Momentum %s | data to %s | %s" %
               (today, data_day, RED if regime_red else "Market regime OK"))
     write_sheets(path, top, full, swing, fund_status, regime_red,
-                 old_action, banner, sells)
-    print("\nExcel: %s (sheets Momentum_Top20, Strategy_Comparison)" % path)
+                 old_action, banner, sells, rebal)
+    for m in ("LIVE", "PAPER"):
+        rr = [x for x in rebal if x["Mode"] == m]
+        if rr:
+            print("\n  REBALANCE %s: SELL %s | BUY %s | HOLD %d" % (
+                m, ", ".join(x["Symbol"] for x in rr if x["Section"] == "SELL")
+                or "-",
+                ", ".join(x["Symbol"] for x in rr if x["Section"] == "BUY"
+                          and "fills" in x["Note"]) or "-",
+                sum(1 for x in rr if x["Section"] == "HOLD")))
+    print("\nExcel: %s (sheets Momentum_Top20, Strategy_Comparison, "
+          "Rebalance_Dashboard)" % path)
     if old_action:
         print("  kept your existing Action entries: %s"
               % ", ".join("%s=%s" % kv for kv in old_action.items()))
