@@ -32,7 +32,8 @@
                         #   shared by all accounts (skips if done; re-runs once if the last scan was intraday; --force)
   portfolio.py          # rbport: per account -> Portfolio_<BROKER>_<Name>_<date>.xlsx: Holdings (demat + PAPER:
                         #   trend/stage, RSI, 52w, ATR, rets, W+TT today, swing/investing/momentum rule, fundamentals,
-                        #   news, RECOMMENDATION + why), Rebalance (momentum), Actions (dropdown -> rbtrack)
+                        #   news, RECOMMENDATION + why), Watchlist (WATCH picks by mom rank), Rebalance (momentum),
+                        #   Actions (dropdown -> rbtrack)
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py

@@ -388,7 +388,11 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner):
 
     ws = wb.active
     ws.title = "Holdings"
-    last = table(ws, HCOLS, hold, ("Recommendation", REC_FILL), WIDTH)
+    own = [h for h in hold if h["Mode"] != "WATCH"]
+    watch = sorted([h for h in hold if h["Mode"] == "WATCH"],
+                   key=lambda h: h.get("Mom Rank") if h.get("Mom Rank")
+                   is not None else 10 ** 6)
+    last = table(ws, HCOLS, own, ("Recommendation", REC_FILL), WIDTH)
     for i, t in enumerate([banner,
                            "Tagged (split.csv) -> its strategy's backtested "
                            "exit rule; untagged -> combined check (SELL/WEAK/"
@@ -399,6 +403,19 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner):
                            "broker app."], last + 2):
         ws.cell(row=i, column=1, value=t).font = Font(italic=True, bold=(
             i == last + 2))
+
+    ww = wb.create_sheet("Watchlist")
+    wcols = ["Mom Rank"] + [c for c in HCOLS if c not in ("Mom Rank", "Mode",
+                                                        "Qty", "Value (Rs)",
+                                                        "Basis")]
+    wcols = [c if c != "Entry" else "Entry" for c in wcols]
+    last = table(ww, wcols, watch, ("Recommendation", REC_FILL),
+                 dict(WIDTH, **{"Mom Rank": 8}))
+    ww.cell(row=last + 2, column=1, value=(
+        "Your WATCH picks, best momentum rank first. Entry = price when added, "
+        "P&L % = move since then. STRONG = above 40w MA and rank <= 40; WEAK = "
+        "one warning; AVOID = Stage 4 or below 40w MA with rank > 40. Remove: "
+        "rbtrack --unwatch SYMBOL")).font = Font(italic=True)
 
     wr = wb.create_sheet("Rebalance")
     rcols = ["Section", "Mode", "Symbol", "Mom Rank", "Momentum Score",
@@ -577,7 +594,10 @@ def main():
               % (format(int(val), ","), format(int(cost), ","),
                  (val / cost - 1) * 100 if cost else 0))
     print("=" * 78)
-    for h in hold:
+    watch_rows = sorted([h for h in hold if h["Mode"] == "WATCH"],
+                        key=lambda h: h.get("Mom Rank") if h.get("Mom Rank")
+                        is not None else 10 ** 6)
+    for h in [h for h in hold if h["Mode"] != "WATCH"]:
         print("\n %-10s %-5s %-12s qty %-6g P&L %s  %s | RSI %s | rank %s | "
               "W+TT %s" % (h["Recommendation"], h["Mode"], h["Symbol"],
                            h["Qty"], "%+.1f%%" % h["P&L %"]
@@ -599,8 +619,22 @@ def main():
                                            else "", h["NSE filings (30d)"][:260]))
         if h.get("News (7 days)"):
             print("    news: %s" % h["News (7 days)"][:220])
-    if not hold:
+    if not [h for h in hold if h["Mode"] != "WATCH"]:
         print("\n (no holdings -- demat empty and no PAPER rows)")
+    if watch_rows:
+        print("\n---- WATCHLIST (%d), best momentum rank first -- details in the "
+              "Watchlist sheet ----" % len(watch_rows))
+        print("  %-7s %-12s %5s  %-19s %4s  %-5s %7s  %s" % (
+            "", "symbol", "rank", "stage", "RSI", "W+TT", "since", "flag"))
+        for h in watch_rows:
+            print("  %-7s %-12s %5s  %-19s %4s  %-5s %7s  %s" % (
+                h["Recommendation"], h["Symbol"],
+                h.get("Mom Rank") if h.get("Mom Rank") is not None else "-",
+                h.get("Stage", "")[:19], "%.0f" % h["RSI 14"]
+                if h.get("RSI 14") is not None else "-",
+                h.get("W+TT today", "-"), "%+.1f%%" % h["P&L %"]
+                if h.get("P&L %") is not None else "",
+                "!! RED FLAG" if h.get("Red flag") else ""))
     for m in ("LIVE", "PAPER"):
         rr = [x for x in rebal if x["Mode"] == m]
         if rr:
@@ -618,7 +652,8 @@ def main():
     path = write_book(path_for(), hold, rebal, comp, held_modes, old_actions,
                       "Portfolio %s | %s | master %s | prices: %s"
                       % (acc.label, today, os.path.basename(master), note))
-    print("\nExcel: %s  (sheets Holdings, Rebalance, Actions)" % path)
+    print("\nExcel: %s  (sheets Holdings, Watchlist, Rebalance, Actions)"
+          % path)
     if old_actions:
         print("  kept your Action picks: %s" % ", ".join(
             "%s=%s" % kv for kv in old_actions.items()))
