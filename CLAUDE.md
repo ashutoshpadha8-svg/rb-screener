@@ -44,7 +44,7 @@ accounts/<ID>/, prints a bold "=== ACTIVE ACCOUNT: <ID> ===" (start and end). Fi
 gets the old global split.csv / split_backup.csv / data/orders_log.csv / reports/RB_Screener_* etc. MOVED in;
 then the marker blocks any further migration (a 2nd account starts empty; a stray old split.csv is ignored
 with a warning). Switch account = paste that account's token. An expired token still names the account.
-Name: `python3 account.py --name "RB Main"` saves accounts/<ID>/account_name.txt -> banner "<ID> (RB Main)";
+Name: 2nd line of dhan_token.txt (or `python3 account.py --name "RB Main"`) saves accounts/<ID>/account_name.txt -> banner "<ID> (RB Main)";
 `python3 account.py` shows the active + other accounts. Folder stays the ID (name is display only).
 Routing also covers the `__main__` copy (python3 daily_screener.py runs as __main__, not daily_screener).
 Shortcut: `rbscan` (zsh alias, since 26 Sep 2026) = daily_screener -> momentum_screener -> fundamentals

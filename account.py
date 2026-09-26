@@ -9,6 +9,9 @@ auto_tracker_update, position_tracker) calls activate() first:
   1. Reads ~/Desktop/RB_Screener/dhan_token.txt and takes the Dhan client ID
      from the token's payload (the same JWT decode the screener already uses).
      No token / unreadable / not a plain number -> the script STOPS.
+     Optional 2nd line of dhan_token.txt = a name for the account; it is
+     saved in accounts/<ID>/account_name.txt, so it stays after you paste
+     a new token over the whole file.
      (Digits only, so a strange token can never point the path elsewhere.)
   2. Routes all ACCOUNT files to
         ~/Desktop/RB_Screener/accounts/<CLIENT_ID>/
@@ -75,7 +78,7 @@ def client_id_from_token():
     """(client_id, error). Never returns or prints the token itself."""
     if not os.path.exists(ds.TOKEN_FILE):
         return None, "dhan_token.txt not found in %s" % ROOT
-    tok = open(ds.TOKEN_FILE).read().strip()
+    tok = ds.read_token()
     if not tok:
         return None, "dhan_token.txt is empty"
     cid, exp = ds.token_info(tok)
@@ -172,6 +175,9 @@ def activate(quiet=False):
     new = not os.path.isdir(acc.dir)
     for d in (ACCOUNTS, acc.dir, acc.data, acc.reports):
         os.makedirs(d, exist_ok=True)
+    name = ds.read_token_file()[1]          # optional 2nd line of the file
+    if name and name != acc.name:
+        set_name(acc, name)                 # remembered even if the line goes
     moves = _migrate(acc)
     _route(acc)
     _active = acc
@@ -191,13 +197,18 @@ def activate(quiet=False):
     return acc
 
 
+def set_name(acc, name):
+    with open(acc.name_file, "w") as f:
+        f.write(name.strip() + "\n")
+
+
 def banner(acc=None):
     acc = acc or _active
     if acc:
         print("\n\033[1m=== ACTIVE ACCOUNT: %s ===\033[0m" % acc.label)
         print("    files: accounts/%s/  (data/, reports/)" % acc.cid)
         if not acc.name:
-            print('    (add a name once: python3 account.py --name "Your Name")')
+            print("    (to add a name: write it on the 2nd line of dhan_token.txt)")
 
 
 if __name__ == "__main__":
@@ -206,8 +217,7 @@ if __name__ == "__main__":
     a = sys.argv[1:]
     acc = activate(quiet=True)
     if "--name" in a and a.index("--name") + 1 < len(a):
-        with open(acc.name_file, "w") as f:
-            f.write(a[a.index("--name") + 1].strip() + "\n")
+        set_name(acc, a[a.index("--name") + 1])
         print("Name saved for %s." % acc.cid)
     banner(acc)
     others = sorted(d for d in os.listdir(ACCOUNTS)

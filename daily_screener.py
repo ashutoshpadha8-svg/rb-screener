@@ -46,7 +46,8 @@ TODAY'S FIT CHECK (per stock)
 SETUP (put this file, position_tracker.py and dhan_token.txt in
        ~/Desktop/RB_Screener)
     pip3 install pandas numpy requests openpyxl
-    dhan_token.txt : today's Dhan access token, one line (24h validity)
+    dhan_token.txt : today's Dhan access token on line 1 (24h validity);
+                     optional line 2 = a name for the account
   Without a token the screener still runs, but on possibly stale data,
   and it will say so loudly.
 
@@ -153,11 +154,20 @@ def market_open():
     return n.weekday() < 5 and (9, 15) <= (n.hour, n.minute) < (15, 30)
 
 
-def read_token():
+def read_token_file():
+    """dhan_token.txt -> (token, name). Line 1 = token; an optional 2nd line
+    = your name for this account (shown in the ACTIVE ACCOUNT banner)."""
     if not os.path.exists(TOKEN_FILE):
-        return None
-    t = open(TOKEN_FILE).read().strip()
-    return t or None
+        return None, ""
+    lines = [x.strip() for x in open(TOKEN_FILE).read().splitlines()
+             if x.strip()]
+    if not lines:
+        return None, ""
+    return lines[0], (lines[1] if len(lines) > 1 else "")
+
+
+def read_token():
+    return read_token_file()[0]
 
 
 def token_info(tok):

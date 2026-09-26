@@ -90,7 +90,7 @@ def read_token():
         print("Created %s -- paste today's Dhan access token into it, "
               "then run again." % TOKEN_FILE)
         sys.exit(1)
-    tok = open(TOKEN_FILE).read().strip()
+    tok = ds.read_token()
     if not tok:
         print("dhan_token.txt is empty. Paste today's token and run again.")
         sys.exit(1)
