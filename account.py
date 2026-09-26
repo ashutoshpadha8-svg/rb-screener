@@ -9,7 +9,8 @@ auto_tracker_update, position_tracker) calls activate() first:
   1. Reads ~/Desktop/RB_Screener/dhan_token.txt and takes the Dhan client ID
      from the token's payload (the same JWT decode the screener already uses).
      No token / unreadable / not a plain number -> the script STOPS.
-     Optional 2nd line of dhan_token.txt = a name for the account; it is
+     dhan_token.txt may also hold "Client ID: ..." (must match the token,
+     else STOP) and "Name: ..." lines (or a plain 2nd line = name); the name is
      saved in accounts/<ID>/account_name.txt, so it stays after you paste
      a new token over the whole file.
      (Digits only, so a strange token can never point the path elsewhere.)
@@ -80,12 +81,16 @@ def client_id_from_token():
         return None, "dhan_token.txt not found in %s" % ROOT
     tok = ds.read_token()
     if not tok:
-        return None, "dhan_token.txt is empty"
+        return None, "no token found in dhan_token.txt"
     cid, exp = ds.token_info(tok)
     if not cid:
         return None, "could not read a client ID from the token (paste the full token)"
     if not _ID_OK.match(cid):
         return None, "client ID in the token is not a plain number -- refusing"
+    written = ds.read_token_file()[2]
+    if written and written != cid:
+        return None, ("'Client ID: %s' in dhan_token.txt does not match the "
+                      "token (%s) -- wrong account's token" % (written, cid))
     return cid, ""
 
 
@@ -208,7 +213,7 @@ def banner(acc=None):
         print("\n\033[1m=== ACTIVE ACCOUNT: %s ===\033[0m" % acc.label)
         print("    files: accounts/%s/  (data/, reports/)" % acc.cid)
         if not acc.name:
-            print("    (to add a name: write it on the 2nd line of dhan_token.txt)")
+            print("    (to add a name: a 'Name: ...' line in dhan_token.txt)")
 
 
 if __name__ == "__main__":

@@ -62,6 +62,7 @@ import os
 import io
 import sys
 import json
+import re
 import time
 import base64
 import zipfile
@@ -155,15 +156,38 @@ def market_open():
 
 
 def read_token_file():
-    """dhan_token.txt -> (token, name). Line 1 = token; an optional 2nd line
-    = your name for this account (shown in the ACTIVE ACCOUNT banner)."""
+    """dhan_token.txt -> (token, name, client_id_written).
+
+    Either the plain token (one line, as before), or labelled lines:
+        Client ID: 1100123456
+        Name: Ashutosh Main
+        Token: eyJ0eXAi...
+    The token is recognised by its shape (a long x.y.z string) with or
+    without the label; a plain 2nd line is taken as the name."""
+    tok, name, cid, plain = None, "", "", []
     if not os.path.exists(TOKEN_FILE):
-        return None, ""
-    lines = [x.strip() for x in open(TOKEN_FILE).read().splitlines()
-             if x.strip()]
-    if not lines:
-        return None, ""
-    return lines[0], (lines[1] if len(lines) > 1 else "")
+        return None, "", ""
+    for line in open(TOKEN_FILE).read().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = re.match(r"(?i)^(client\s*id|name|token)\s*[:=\-]\s*(.*)$", line)
+        key, val = (m.group(1).lower(), m.group(2).strip()) if m else ("", line)
+        if val in ("", "-"):
+            continue
+        if key.startswith("client"):
+            cid = val
+        elif key == "name":
+            name = val
+        elif tok is None and (key == "token" or
+                              (val.count(".") == 2 and len(val) > 40
+                               and " " not in val)):
+            tok = val
+        elif not key:
+            plain.append(val)
+    if not name and plain:
+        name = plain[0]
+    return tok, name[:40], cid
 
 
 def read_token():
