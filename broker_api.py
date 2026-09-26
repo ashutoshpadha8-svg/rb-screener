@@ -364,11 +364,14 @@ def symbol_map(sess):
         if _stale(ANGEL_SCRIP_FILE):
             _download(ANGEL_SCRIP_URL, ANGEL_SCRIP_FILE, "Angel scrip master")
         if os.path.exists(ANGEL_SCRIP_FILE):
+            # EQ first; BE (trade-for-trade) only when no EQ line exists
             for x in json.load(open(ANGEL_SCRIP_FILE)):
                 s = str(x.get("symbol", ""))
-                if x.get("exch_seg") == "NSE" and s.endswith("-EQ"):
-                    out[s[:-3].upper()] = {"id": str(x.get("token")),
-                                           "tsym": s}
+                if x.get("exch_seg") != "NSE" or not s.endswith(("-EQ", "-BE")):
+                    continue
+                key = s[:-3].upper()
+                if s.endswith("-EQ") or key not in out:
+                    out[key] = {"id": str(x.get("token")), "tsym": s}
         out[INDEX] = {"id": "99926000", "tsym": "Nifty 50"}
     else:
         if _stale(KITE_SCRIP_FILE):

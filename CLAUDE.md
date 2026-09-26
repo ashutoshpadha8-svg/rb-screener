@@ -60,6 +60,8 @@ account.activate() first; NO script calls a broker directly any more (only broke
   log in, then `python3 broker_api.py zerodha-login REQUEST_TOKEN` (checks user_id, writes the Token line).
   Kite historical candles are a paid add-on -> without it the gap-fill is skipped (free source + LTP).
 - `python3 broker_api.py check` = identity + funds + one LTP, no orders.
+- 26 Sep: Angel LIVE-tested for login (TOTP AUTO) + history fill + LTP via rbscan (works). Angel symbols: -EQ, else
+  -BE (STLTECH/HFCL/E2E etc. are BE on Angel). Angel orders still untested.
 - TESTED: Dhan price/history/holdings in daily use; every broker's payloads/parsing only against mocked
   HTTP (26 Sep). Angel + Zerodha NEVER hit the real API; Dhan AMO never used on a real order -> 1 share first.
 - Migrations: accounts/<digits>/ -> accounts/DHAN_<digits>/ (automatic); first-ever account still gets the
