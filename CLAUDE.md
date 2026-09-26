@@ -6,6 +6,8 @@
 - Teach one step at a time, not big info dumps.
 - I run Python scripts but don't write code from scratch. Give exact terminal commands.
 - Mac Mini, zsh, Python 3.9 (pip3). Everything lives in `~/Desktop/RB_Screener`.
+- Trading capital ~Rs 2 lakh. Full history of the earlier claude.ai chat (Fusion strategy, EMA 9/33, crypto,
+  gold, money maths) is in CHAT_HANDOFF.md.
 
 ## Folder layout
 ```
@@ -149,3 +151,9 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 4. DONE: RS >= 85 worse in both halves -> keep RS >= 70.
 5. DONE: 20 slots beat 10 slots in both halves -> keep 20 x 5%.
 6. Paper-trade 2-3 months before real money on the new universe.
+7. (from CHAT_HANDOFF) Rs 2 lakh = Rs 10k per slot at 20 slots. Backtest a concentrated 5-8 position version
+   with real Indian delivery costs (STT, stamp, exchange, GST, DP charge per sell) + slippage.
+8. (from CHAT_HANDOFF) Fusion strategy (EMA20>50, MACD, MFI>60, ADX>20, upper BB) on the pit10k universe vs
+   Weinstein+TT; also test combining them.
+9. Tax (STCG/LTCG) in the portfolio sim. Optional: strategies on Gold ETF / BTC-ETH with fees.
+10. Optional: VCP rule test (Minervini) - old chat: "Minervini alone" 6.75% CAGR, "O'Neil L+M" 6.81% (173 stocks).
