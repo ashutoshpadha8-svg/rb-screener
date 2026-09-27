@@ -298,6 +298,22 @@ Rank strategies = monthly top-N equal weight, keep while rank < 2N. Post-tax CAG
 - 4x returns LESS than 1x. BUY MTF exists because RB asked; tracker shows interest and P&L on own money.
   Not every stock gets 4x on Dhan (lower limit -> reject / more margin).
 
+## SIP backtest (sip_backtest.py, 27 Sep 2026) - RB's SIP idea, tested before coding
+Rs 10,000/month, waiting cash 6%/yr, Dhan buy costs + 0.1% slippage, fractional units, XIRR on money put in.
+NIFTY 50 index (price only) + 145 b173 SURVIVOR stocks (bias favours buying dips). Nifty XIRR % / stocks median XIRR %:
+| Rule | FULL 2013-26 | 2013-19 | 2020-26 | idle cash |
+|---|---|---|---|---|
+| SIP monthly | 10.0 / 14.6 | 10.5 / 13.1 | 8.2 / 13.1 | 0% |
+| SIP weekly / daily | 10.0 / 14.5, 9.9 / 14.4 | ~same | ~same | 0-2% |
+| DIP 5% / 10% below last buy | 6.8 / 8.3, 6.8 / 7.7 | 7.5 / 7.9 | 6.9 / 7.9 | ~50-60% (price runs away, cash waits) |
+| DIP 10% below 52w high | 10.1 / 14.4 | 10.9 / 13.5 | 7.4 / 13.3 | 1-9% |
+| DIP 20% below 52w high | 11.1 / 13.7 | 10.9 / 12.0 | 7.6 / 12.8 | 4-49% |
+| UP 5% / 10% above last buy | 9.5 / 12.2, 9.3 / 11.9 | 9.3 / 9.5 | 7.2 / 9.9 | 5-12% |
+- Plain monthly SIP is as good as anything; weekly/daily add nothing. Buying only on dips / only on rises: worse,
+  or mixed across halves (DIP52-20 on Nifty +0.4 in 2013-19, -0.6 in 2020-26) -> no proven edge.
+- Single stocks: median 14.6% but worst 10% of stocks 4.2% (FULL) and about -4% in each half; survivors only.
+- VERDICT: if SIP, plain monthly on a Nifty ETF; the broker's own SIP runs even with the Mac off. Dip/up rules rejected.
+
 ## Fundamental layer (research done)
 Order of checks: 1) red flags (promoter pledge > 20% = out, auditor resignation/qualification, SEBI/forensic action)
 2) quality (ROE/ROCE >= 15% investing, >= 10-12% swing; D/E <= 1 non-financials; CFO/PAT >= 0.7-0.8 over 3-5 yrs; no loss year in 5-6 yrs)
