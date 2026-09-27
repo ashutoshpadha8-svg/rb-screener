@@ -46,6 +46,7 @@ warnings.filterwarnings("ignore")
 import os
 import sys
 import glob
+import math
 
 import numpy as np
 import pandas as pd
@@ -466,7 +467,7 @@ def nfmt(h):
 def dashboard(ws, d, have):
     """First sheet: short, sorted summary + clickable sheet list."""
     from openpyxl.styles import Font, PatternFill, Alignment
-    ws.column_dimensions["A"].width = 26
+    ws.column_dimensions["A"].width = 34
     ws.column_dimensions["B"].width = 110
     ws.sheet_view.showGridLines = False
     r = [1]
@@ -521,6 +522,32 @@ def dashboard(ws, d, have):
     for w in d["warns"]:
         line("! warning", w, color="C00000")
     ws.freeze_panes = "A2"
+
+
+def cut(t, n):
+    t = " ".join(str(t).split())
+    return t if len(t) <= n else t[:n - 1].rstrip() + "…"
+
+
+def short_why(t):
+    """The exit-rule text, short enough for a card."""
+    t = str(t)
+    for a, b in ((" -- rule already fired, you should be out",
+                  " (rule fired, bahar niklo)"),
+                 ("10 straight closes under a falling 30-week MA -- Stage 4 "
+                  "breakdown", "Stage 4: 10 closes falling 30w MA ke neeche"),
+                 ("Stage 4 breakdown on", "Stage 4 on"),
+                 ("under a falling 30-week MA for", "falling 30w MA ke neeche"),
+                 ("under the 30-week MA but the MA is still rising",
+                  "30w MA ke neeche (MA abhi bhi upar ja raha)"),
+                 ("low touched the 20% stop", "20% stop hit"),
+                 ("closed below the 40-week MA", "40w MA ke neeche close"),
+                 ("clear of the nearer exit", "exit se door"),
+                 ("above the nearer exit level", "exit se upar"),
+                 ("30-week MA", "30w MA"), ("40-week MA", "40w MA"),
+                 ("keep while <=", "rakho jab tak <="), ("session(s)", "din")):
+        t = t.replace(a, b)
+    return cut(t, 110)
 
 
 def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
@@ -603,24 +630,37 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     def band(ws, row, text, ncol, color=NAVY, size=12):
         for i in range(1, ncol + 1):
             ws.cell(row=row, column=i).fill = fill(color)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row,
+                       end_column=ncol)
         c = ws.cell(row=row, column=1, value=text)
         c.font = Font(bold=True, color="FFFFFF", size=size)
         ws.row_dimensions[row].height = 22
 
     def boxes(ws, row, items, width=3):
-        """Summary boxes: [(label, value, color)] each `width` columns."""
-        for n, (lab, val, col) in enumerate(items):
+        """Summary boxes: [(label, value, color[, small text under it])],
+        each `width` columns; everything wraps inside its own box."""
+        subs = any(len(x) > 3 and x[3] for x in items)
+        for n, x in enumerate(items):
+            lab, val, col = x[:3]
+            sub = x[3] if len(x) > 3 else ""
             c0 = 1 + n * width
-            a = ws.cell(row=row, column=c0, value=lab)
-            a.font = Font(size=9, color=GREY_TXT, bold=True)
-            b = ws.cell(row=row + 1, column=c0, value=val)
-            b.font = Font(size=15, bold=True, color=col or "1F1F1F")
-            for rr in (row, row + 1):
+            cells = [(row, lab, Font(size=9, color=GREY_TXT, bold=True)),
+                     (row + 1, val, Font(size=15, bold=True,
+                                         color=col or "1F1F1F"))]
+            if subs:
+                cells.append((row + 2, sub, Font(size=9, color="404040")))
+            for rr, v, f in cells:
+                c = ws.cell(row=rr, column=c0, value=v)
+                c.font = f
+                c.alignment = Alignment(wrap_text=True, vertical="center")
                 ws.merge_cells(start_row=rr, start_column=c0, end_row=rr,
                                end_column=c0 + width - 2)
                 for cc in range(c0, c0 + width - 1):
                     ws.cell(row=rr, column=cc).fill = fill("F3F6FA")
-        ws.row_dimensions[row + 1].height = 24
+        ws.row_dimensions[row].height = 26
+        ws.row_dimensions[row + 1].height = 26
+        if subs:
+            ws.row_dimensions[row + 2].height = 32
 
     own = [h for h in hold if h["Mode"] != "WATCH"]
     watch = sorted([h for h in hold if h["Mode"] == "WATCH"],
@@ -631,9 +671,10 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     ws = wb.create_sheet("Holdings")
     ws.sheet_view.showGridLines = False
     PER, W = 4, 3                                  # cards per row, cols/card
+    CW = 32                                        # value column width
     for k in range(PER):
-        ws.column_dimensions[L(k * W + 1)].width = 15
-        ws.column_dimensions[L(k * W + 2)].width = 27
+        ws.column_dimensions[L(k * W + 1)].width = 18   # fits HINDCOPPER
+        ws.column_dimensions[L(k * W + 2)].width = CW
         ws.column_dimensions[L(k * W + 3)].width = 2
     ncol = PER * W
     who = banner.split(" | master")[0].replace("Portfolio ", "")
@@ -654,17 +695,18 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     lp, pp = pnl("LIVE"), pnl("PAPER")
     txt = lambda p: "-" if p is None else "%s%s (%+.1f%%)" % (      # noqa
         "+" if p[0] >= 0 else "-", format(int(abs(p[0])), ","), p[1])
+    names = lambda xs: ", ".join(xs[:8]) + (" +%d" % (len(xs) - 8)   # noqa
+                                            if len(xs) > 8 else "")
     boxes(ws, 3, [
-        ("AAJ BECHNA", ("%d  %s" % (len(sell), ", ".join(sell[:3]))).strip(),
-         "C00000" if sell else "1E7B34"),
-        ("EXIT KE PAAS (<5%)", ("%d  %s" % (len(near),
-                                             ", ".join(near[:3]))).strip(),
-         "9C6500" if near else "1E7B34"),
-        ("RED FLAG", ("%d  %s" % (len(flags), ", ".join(flags[:3]))).strip(),
-         "C00000" if flags else "1E7B34"),
-        ("P&L (LIVE)", txt(lp) if not pp else "%s | paper %s" % (txt(lp),
-                                                                 txt(pp)),
-         "1F1F1F")], width=W)
+        ("AAJ BECHNA", len(sell), "C00000" if sell else "1E7B34",
+         names(sell)),
+        ("EXIT KE PAAS (<5%)", len(near), "9C6500" if near else "1E7B34",
+         names(near)),
+        ("RED FLAG (NSE filing)", len(flags), "C00000" if flags else "1E7B34",
+         names(flags)),
+        ("P&L (LIVE)", txt(lp), "1E7B34" if lp and lp[0] > 0 else
+         "C00000" if lp and lp[0] < 0 else "1F1F1F",
+         "paper %s" % txt(pp) if pp else "")], width=W)
 
     def card(r0, c0, h):
         rec = h.get("Recommendation", "")
@@ -686,7 +728,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         b.font = Font(color=GREY_TXT)
         b.alignment = Alignment(horizontal="right", vertical="center")
         lines = [
-            ("Kyun", h.get("Kyun") or h.get("Why", "")),
+            ("Kyun", short_why(h.get("Kyun") or h.get("Why", ""))),
             ("Exit se door", h.get("Exit se door", "-")),
             ("Exit level", h.get("Exit level", "-")),
             ("Qty @ Entry", "%g @ %s" % (h.get("Qty") or 0, "%.2f" %
@@ -696,13 +738,15 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                                              "RSI 14") is not None else "-")),
             ("Rank / W+TT", "%s / %s" % (h.get("Mom Rank") if h.get(
                 "Mom Rank") is not None else "-", h.get("W+TT today", "-"))),
-            ("News / filing", h.get("Headline") or "-")]
+            ("News / filing", cut(h.get("Headline") or "-", 115))]
         for n, (lab, val) in enumerate(lines, 2):
             a = ws.cell(row=r0 + n, column=c0, value=lab)
             b = ws.cell(row=r0 + n, column=c0 + 1, value=val)
             a.font = Font(size=9, color=GREY_TXT)
-            b.alignment = Alignment(horizontal="right", vertical="top",
-                                    wrap_text=lab in ("Kyun", "News / filing"))
+            wrap = lab in ("Kyun", "News / filing")
+            a.alignment = Alignment(vertical="top")
+            b.alignment = Alignment(horizontal="left" if wrap else "right",
+                                    vertical="top", wrap_text=wrap)
             if lab == "Exit se door" and h.get("_door") is not None and \
                     h["_door"] < 5:
                 b.fill, b.font = fill("FFE0E0"), Font(bold=True,
@@ -714,7 +758,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                 ws.cell(row=rr, column=cc).border = box
         return 9
 
-    row = 6
+    row = 7
     for mode, label in (("LIVE", "LIVE (demat, asli paisa)"),
                         ("PAPER", "PAPER (practice)")):
         rows = sorted([h for h in own if h["Mode"] == mode],
@@ -731,8 +775,13 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         for n in range(0, len(rows), PER):
             for k, h in enumerate(rows[n:n + PER]):
                 card(row, 1 + k * W, h)
-            for rr in (row + 2, row + 8):              # Kyun, News wrap
-                ws.row_dimensions[rr].height = 30
+            chunk = rows[n:n + PER]                   # Kyun / News: fit text
+            for rr, key in ((row + 2, "Kyun"), (row + 8, "News / filing")):
+                txts = [short_why(h.get("Kyun") or h.get("Why", ""))
+                        if key == "Kyun" else cut(h.get("Headline") or "-",
+                                                  115) for h in chunk]
+                nl = max(math.ceil(len(t) / (CW + 2)) for t in txts)
+                ws.row_dimensions[rr].height = max(18, 15 * min(nl, 4) + 4)
             row += 10
     if not own:
         ws.cell(row=6, column=1, value="Koi holding nahi (demat khaali, koi "
@@ -747,7 +796,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     # ------------------------------------------------------------ Journal
     wj = wb.create_sheet("Journal")
     wj.sheet_view.showGridLines = False
-    widths = [13, 12, 20, 12, 12, 7, 7, 10, 10, 11, 10, 9, 13, 9, 11, 16]
+    widths = [13, 12, 22, 12, 12, 8, 8, 10, 10, 11, 10, 10, 13, 9, 11, 22]
     for i, w in enumerate(widths, 1):
         wj.column_dimensions[L(i)].width = w
     band(wj, 1, "TRADE JOURNAL  |  " + banner.split(" | master")[0].replace(
@@ -776,9 +825,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                 col = "1E7B34" if str(val).startswith("+") else \
                     "C00000" if str(val).startswith("-") else None
             items.append((lab.upper(), val, col))
-        boxes(wj, row + 1, items, width=3)
-        for n, (_, _, sub) in enumerate(r["cards"]):
-            note(wj, row + 3, sub, col=1 + n * 3)
+        boxes(wj, row + 1, [it + (c[2],) for it, c in zip(items, r["cards"])],
+              width=3)
         row += 5
         wj.cell(row=row, column=1, value="MAHINE-WISE").font = Font(
             bold=True, color=NAVY)
@@ -891,7 +939,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                   "Amount per buy (Rs)": 12, "Total capital (Rs)": 12,
                   "Product": 10, "Active": 8, "Start date": 11,
                   "Invested (Rs)": 11, "Buys": 6, "Last buy": 11,
-                  "Next due": 16, "Capital left (Rs)": 12, "id": 11},
+                  "Next due": 16, "Capital left (Rs)": 12, "id": 15},
                  freeze="B2", filt=False)
     ned = len(sipm.SHEET)
     for r in range(2, last + 1):
