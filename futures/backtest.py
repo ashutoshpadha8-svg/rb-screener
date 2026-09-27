@@ -33,7 +33,7 @@ MAX_MICROS = 50              # Topstep 50K = 5 minis = 50 micros
 START_BAL = 50000.0
 TARGET = 3000.0
 MLL = 2000.0                 # end-of-day trailing max loss limit, locks at start balance
-CONSISTENCY = 0.50           # best day must be < 50% of total profit to pass
+CONSISTENCY = 0.55           # best day must be <= 55% of total profit (Topstep, Sep 2026; runs 1-2 used 0.50)
 IS_END = "2021-12-31"        # in-sample 2016-2021, out-of-sample 2022-2026
 
 

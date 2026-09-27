@@ -61,3 +61,10 @@ Best IS config = the paper default: 30-min checks, no hard stop, unlimited trade
 Hard stops, trade caps, daily loss stop and profit cap did NOT improve pass rate (loss stop made it worse -
 momentum needs room). Ceiling with this strategy is ~25-33% per Combine.
 Economics: ~1 pass per 3-4 attempts, ~1-2 months each => roughly $250-450 fees + activation per funded account.
+
+## Rule Guard (manual trading) - futures/rule_guard.py
+Read-only watcher on TopstepX API: never places orders. Alerts (terminal + Mac notification + voice) before:
+MLL breach incl. unrealized, personal daily loss limit, size > 50 micro-equiv (incl. pending orders),
+position without stop, stop placed below MLL floor, 3:10 PM CT flat time, 55% consistency target raise.
+`check` command = pre-trade GO / NO-GO. Topstep consistency is now 55% of total profit (runs 1-2 used 50%,
+so those pass rates are slightly conservative).
