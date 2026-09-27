@@ -68,3 +68,15 @@ MLL breach incl. unrealized, personal daily loss limit, size > 50 micro-equiv (i
 position without stop, stop placed below MLL floor, 3:10 PM CT flat time, 55% consistency target raise.
 `check` command = pre-trade GO / NO-GO. Topstep consistency is now 55% of total profit (runs 1-2 used 50%,
 so those pass rates are slightly conservative).
+
+## STATUS (27 Sep 2026) - start here next session
+Done:
+- Firm research: Topstep #1 (official bot API, EOD MLL, India payout = SWIFT wire $30). MFFU backup. Apex out (bans bots).
+- Backtest + tuning: NOISE on MNQ = only candidate. Combine pass ~25-33% (luck ~20%).
+- rule_guard.py on RB's Mac at ~/RB_Screener/futures (demo works). Supports 50k/100k/150k Combine via --size,
+  multiple accounts via --account (one Terminal window per account), `list` shows account names.
+- Screener actually lives at ~/RB_Screener (home), not Desktop. rbscan alias not set up on this Mac.
+Next step (waiting on RB): make free Topstep account, check (a) free Practice account without buying Combine,
+(b) can API subscription ($14.50/mo) be bought without a Combine.
+After that: install requests, create topstep_login.txt, run guard live on Practice; then NOISE signal mode.
+Not done yet: Express Funded rules in guard (40% payout consistency, scaling plan) - verify then add.

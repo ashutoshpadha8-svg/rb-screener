@@ -10,16 +10,19 @@ Setup (once):
 
 Commands:
   python3 rule_guard.py demo                         # see sample alerts, no API needed
+  python3 rule_guard.py list                         # your account names
   python3 rule_guard.py watch --since 2026-10-01     # live watch (since = day the account started)
+  python3 rule_guard.py watch --account NAME --size 100k --since 2026-10-01
+                                                     # one Terminal window per account
   python3 rule_guard.py check MNQ 10 20 --since 2026-10-01
                                                      # pre-trade: 10 MNQ with 20-point stop -> GO / NO-GO
 
-Rules checked (Topstep 50K Trading Combine, verified Sep 2026 - re-check help.topstep.com if Topstep changes them):
-  - Max Loss Limit $2,000, trails end-of-day balance, locks at $50,000. Hit even on unrealized P&L = account fails.
-  - Max position 5 minis / 50 micros.
+Rules checked (Topstep Trading Combine 50K/100K/150K via --size, verified Sep 2026 - re-check help.topstep.com if Topstep changes them):
+  - Max Loss Limit ($2,000 / $3,000 / $4,500), trails end-of-day balance, locks at start balance. Hit even on unrealized P&L = account fails.
+  - Max position 5 / 10 / 15 minis (x10 micros).
   - Flat by 3:10 PM CT (Topstep trading day = 5:00 PM CT to 3:10 PM CT).
   - Consistency: best day <= 55% of total profit, else profit target goes up.
-  - Profit target $3,000.
+  - Profit target $3,000 / $6,000 / $9,000.
 Your own rules (edit PERSONAL below): daily loss limit, max risk per trade, stop must exist.
 """
 import argparse
@@ -38,16 +41,26 @@ except ImportError:  # pragma: no cover
 CT = ZoneInfo("America/Chicago")
 IST = ZoneInfo("Asia/Kolkata")
 
-RULES = {
-    "name": "Topstep 50K Trading Combine",
-    "start_balance": 50000.0,
-    "mll": 2000.0,
-    "target": 3000.0,
-    "max_micros": 50,          # 1 mini = 10 micros
-    "consistency": 0.55,
-    "flat_by": dt.time(15, 10),   # CT
-    "day_starts": dt.time(17, 0),  # CT
+def combine(size_k, mll, target, max_minis):
+    return {
+        "name": "Topstep %dK Trading Combine" % size_k,
+        "start_balance": size_k * 1000.0,
+        "mll": mll,
+        "target": target,
+        "max_micros": max_minis * 10,   # 1 mini = 10 micros
+        "consistency": 0.55,
+        "flat_by": dt.time(15, 10),     # CT
+        "day_starts": dt.time(17, 0),   # CT
+    }
+
+
+# Account types: --size 50k / 100k / 150k. Verify on help.topstep.com before buying - Topstep changes these.
+PROFILES = {
+    "50k": combine(50, 2000.0, 3000.0, 5),
+    "100k": combine(100, 3000.0, 6000.0, 10),
+    "150k": combine(150, 4500.0, 9000.0, 15),
 }
+RULES = PROFILES["50k"]
 
 PERSONAL = {
     "daily_loss_limit": 800.0,     # your own stop for the day (Topstep doesn't force one). None to switch off
@@ -71,7 +84,7 @@ BID, ASK = 0, 1                    # OrderSide
 def trading_day(ts_ct):
     """Topstep trading day: anything after 5 PM CT counts for the next calendar day."""
     d = ts_ct.date()
-    if ts_ct.time() >= RULES["day_starts"]:
+    if ts_ct.time() >= dt.time(17, 0):   # same for all account sizes
         d += dt.timedelta(days=1)
     return d
 
@@ -366,19 +379,20 @@ class TopstepX:
 def cmd_watch(args):
     api, alerter = TopstepX(), Alerter()
     since = dt.datetime.combine(args.since, dt.time(0), tzinfo=CT) - dt.timedelta(hours=7)
-    print("Rule Guard ON - %s. Read-only, har %ds check. Ctrl+C se band." % (RULES["name"], args.every))
+    rules = PROFILES[args.size]
+    print("Rule Guard ON - %s. Read-only, har %ds check. Ctrl+C se band." % (rules["name"], args.every))
     while True:
         try:
             snap = api.snapshot(args.account, since)
             now = dt.datetime.now(CT)
-            alerts = evaluate(snap, now)
+            alerts = evaluate(snap, now, rules)
             for a in alerts:
                 alerter.send(*a)
             if args.verbose or not alerts:
                 today = trading_day(now)
-                floor = mll_floor(snap["daily"], today, RULES["start_balance"], RULES["mll"])
-                print("%s ok | bal $%.0f | floor $%.0f | positions %d" %
-                      (dt.datetime.now(IST).strftime("%H:%M:%S"), snap["balance"], floor, len(snap["positions"])), end="\r")
+                floor = mll_floor(snap["daily"], today, rules["start_balance"], rules["mll"])
+                print("%s %s ok | bal $%.0f | floor $%.0f | positions %d" %
+                      (dt.datetime.now(IST).strftime("%H:%M:%S"), snap["account"], snap["balance"], floor, len(snap["positions"])), end="\r")
         except KeyboardInterrupt:
             raise
         except Exception as e:   # network blips must not kill the guard
@@ -391,11 +405,18 @@ def cmd_check(args):
     since = dt.datetime.combine(args.since, dt.time(0), tzinfo=CT) - dt.timedelta(hours=7)
     snap = api.snapshot(args.account, since)
     c = api.find_contract(args.symbol)
-    ok, reasons, info = pretrade(snap, dt.datetime.now(CT), c["id"], args.qty, args.stop_points, c["tickSize"], c["tickValue"])
+    ok, reasons, info = pretrade(snap, dt.datetime.now(CT), c["id"], args.qty, args.stop_points, c["tickSize"], c["tickValue"],
+                                 PROFILES[args.size])
     print(info)
     print("\033[32mGO\033[0m" if ok else "\033[31mNO-GO\033[0m")
     for r in reasons:
         print("  - " + r)
+
+
+def cmd_list(args):
+    api = TopstepX()
+    for a in api.post("/api/Account/search", {"onlyActiveAccounts": True})["accounts"]:
+        print("%-30s balance $%.0f  canTrade=%s" % (a["name"], a["balance"], a.get("canTrade")))
 
 
 def demo_snapshots():
@@ -438,10 +459,12 @@ def main():
     ap = argparse.ArgumentParser(description="Topstep Rule Guard (read-only)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("demo")
+    sub.add_parser("list", help="show your account names")
     since_help = "Account start date YYYY-MM-DD (needed for correct MLL)"
     w = sub.add_parser("watch")
     w.add_argument("--since", type=dt.date.fromisoformat, required=True, help=since_help)
-    w.add_argument("--account", default=None)
+    w.add_argument("--account", default=None, help="account name from 'list'")
+    w.add_argument("--size", choices=sorted(PROFILES), default="50k")
     w.add_argument("--every", type=int, default=5)
     w.add_argument("--verbose", action="store_true")
     c = sub.add_parser("check")
@@ -449,9 +472,10 @@ def main():
     c.add_argument("qty", type=int)
     c.add_argument("stop_points", type=float)
     c.add_argument("--since", type=dt.date.fromisoformat, required=True, help=since_help)
-    c.add_argument("--account", default=None)
+    c.add_argument("--account", default=None, help="account name from 'list'")
+    c.add_argument("--size", choices=sorted(PROFILES), default="50k")
     args = ap.parse_args()
-    {"demo": cmd_demo, "watch": cmd_watch, "check": cmd_check}[args.cmd](args)
+    {"demo": cmd_demo, "list": cmd_list, "watch": cmd_watch, "check": cmd_check}[args.cmd](args)
 
 
 if __name__ == "__main__":
