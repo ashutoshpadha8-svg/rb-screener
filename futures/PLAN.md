@@ -49,3 +49,15 @@ Combine pass rate (50K, $3k target, $2k EOD trailing MLL, 50% consistency), full
 NOISE ~23-27%, ORB5 ~24-37% vs zero-edge baseline 13-28%. Median 60-300 sessions to pass.
 => Edge is real but thin; ~70% of Combines still fail. Next: improve pass rate (trade filters,
 risk per trade), then confirm on real MNQ futures data before any money.
+
+### Run 2 - NOISE tuning for Combine pass rate (MNQ, tuned on 2016-21 only, checked on 2022-26)
+Combine now counts as FAILED if not passed within 60 sessions (~3 months of fees).
+Grid: check every 15/30 min, hard intrabar stop yes/no, max 1/2/unlimited trades per day,
+size = $400-2400 per average daily range; then daily loss stop (400/700) and daily profit cap (1000/1400).
+
+Best IS config = the paper default: 30-min checks, no hard stop, unlimited trades, $1600 per avg daily range (~11 MNQ).
+  IS  pass 26.7% (zero-edge baseline 19.9%), median 25 sessions to pass
+  OOS pass 32.8% (baseline 19.8%), median 31 sessions
+Hard stops, trade caps, daily loss stop and profit cap did NOT improve pass rate (loss stop made it worse -
+momentum needs room). Ceiling with this strategy is ~25-33% per Combine.
+Economics: ~1 pass per 3-4 attempts, ~1-2 months each => roughly $250-450 fees + activation per funded account.

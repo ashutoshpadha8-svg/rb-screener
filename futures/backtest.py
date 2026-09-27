@@ -243,8 +243,8 @@ def stats(t, col):
             "sharpe": daily.mean() / daily.std() * np.sqrt(252) if daily.std() > 0 else 0}
 
 
-def combine_sim(t, all_dates):
-    """Start a Combine on every 5th session; run until pass or blow. Returns pass%, fail%, median days."""
+def combine_sim(t, all_dates, max_days=None):
+    """Start a Combine on every 5th session; run until pass or blow (or max_days = give up, counted as not passed)."""
     daily_pnl = t.groupby("date")["pnl"].sum()
     daily_mae = t.groupby("date")["mae"].max()
     dates = list(all_dates)
@@ -267,6 +267,8 @@ def combine_sim(t, all_dates):
             profit = bal - START_BAL
             if profit >= TARGET and best < CONSISTENCY * profit and days_n >= 2:
                 outcome = "pass"; break
+            if max_days and days_n >= max_days:
+                outcome = "timeout"; break
         res.append((outcome, days_n))
     r = pd.DataFrame(res, columns=["outcome", "days"])
     done = r[r["outcome"] != "open"]
