@@ -362,6 +362,8 @@ SHEET_INFO = [
     ("Holdings", "your stocks (LIVE + PAPER): trend, RSI, rules, fundamentals, "
                  "news, NSE filings, RECOMMENDATION + why"),
     ("Actions", "all buy candidates: pick BUY / PAPER / WATCH + Amount (Rs)"),
+    ("Super-Buy", "common stocks: in BOTH the W+TT swing list and momentum "
+                  "top 20, best momentum rank first"),
     ("Rebalance", "momentum SELL / BUY / HOLD (1st trading day of the month)"),
     ("Watchlist", "your WATCH stocks, best momentum rank first"),
     ("Swing", "master scan: W+TT signals (BUY / FIT / LATE) + fundamentals"),
@@ -369,6 +371,7 @@ SHEET_INFO = [
     ("Momentum_Top20", "master scan: RAMOM top 20 (sector cap 4)"),
     ("Fundamentals", "master scan: Screener.in detail per stock (info only)")]
 TAB = {"Dashboard": "1F4E78", "Holdings": "548235", "Actions": "FFC000",
+       "Super-Buy": "00B050",
        "Rebalance": "548235", "Watchlist": "548235"}
 
 
@@ -530,6 +533,29 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         "trading day of the month: sell SELL rows at the open, buy BUY rows "
         "that fill a free slot. Keep while rank <= %d." % KEEP_RANK)).font = \
         Font(italic=True)
+
+    wsb = wb.create_sheet("Super-Buy")       # common to both strategies
+    sb = [dict(x, **{"Held here": ", ".join(sorted(held_modes.get(
+        str(x.get("Ticker", "")).upper(), [])))})
+          for _, x in comp.iterrows()
+          if x.get("Strategy Overlap") == "Super-Buy"] if len(comp) and \
+        "Strategy Overlap" in comp else []
+    sb.sort(key=lambda x: x.get("Mom Rank") if x.get("Mom Rank") ==
+            x.get("Mom Rank") and x.get("Mom Rank") is not None else 10 ** 6)
+    scols = (["Mom Rank"] + [c for c in comp.columns if c not in
+                             ("Mom Rank", "Strategy Overlap")]
+             if len(comp) else ["Ticker"]) + ["Held here"]
+    last = table(wsb, scols, sb, None, {"Ticker": 13, "Sector / Industry": 22,
+                                        "Regime": 18, "Held here": 10,
+                                        "Mom Rank": 8})
+    for r in range(2, last + 1):
+        wsb.cell(row=r, column=scols.index("Ticker") + 1).font = Font(bold=True)
+    wsb.cell(row=last + 2, column=1, value=(
+        "%d stock(s) in BOTH the W+TT swing list and the momentum top %d. "
+        "To buy: pick the Action in the Actions sheet (same stocks, green rows). "
+        "Buying only the overlap was NOT backtested as its own strategy."
+        % (len(sb), ms.SLOTS) if sb else
+        "No stock is in both lists today.")).font = Font(italic=True)
 
     wa = wb.create_sheet("Actions")
     acols = (list(comp.columns) if len(comp) else ["Ticker"]) + \
@@ -856,7 +882,7 @@ def main():
                       % (acc.label, today, os.path.basename(master), note),
                       old_amount, master, dash)
     print("\nExcel (the ONE file to open): %s" % path)
-    print("  Dashboard | Holdings | Actions | Rebalance | Watchlist | Swing | "
+    print("  Dashboard | Holdings | Actions | Super-Buy | Rebalance | Watchlist | Swing | "
           "Investing | Momentum_Top20 | Fundamentals")
     if gdrive_sync:
         gdrive_sync.push(path)
