@@ -714,10 +714,10 @@ def main():
                     t = str(r["Ticker"]).upper()
                     old_actions[t] = " ".join(v.upper().split())
                     prev_ltp[t] = (r.get("LTP"), r.get("Strategy Overlap", ""))
-                a = pd.to_numeric(str(r.get("Amount (Rs)", "")).replace(",", ""),
+                amt = pd.to_numeric(str(r.get("Amount (Rs)", "")).replace(",", ""),
                                   errors="coerce")
-                if a == a and a > 0:
-                    old_amount[str(r["Ticker"]).upper()] = float(a)
+                if amt == amt and amt > 0:
+                    old_amount[str(r["Ticker"]).upper()] = float(amt)
     added = add_watch([(t,) + prev_ltp[t] for t, v in old_actions.items()
                        if v == "WATCH"])
     if added:
