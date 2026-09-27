@@ -657,35 +657,60 @@ def available_funds(sess):
 
 def mtf_leverage(sess, symbol, price):
     """(leverage, note) the broker gives this stock under MTF, e.g. 4.55.
-    Dhan only (margin calculator; read-only, no order). Others -> (None, why)."""
-    if sess is None or sess.broker != "DHAN":
-        return None, "%s has no MTF leverage API here" % (
-            sess.label if sess else "no broker")
+    Read-only margin calculators, no order is placed:
+      Dhan    POST /v2/margincalculator  productType MTF  -> leverage
+      Angel   POST .../margin/v1/batch   productType MARGIN -> totalMarginRequired
+      Zerodha POST /margins/orders       product MTF -> leverage / total
+    Anything odd -> (None, why) and the caller assumes 4x."""
+    if sess is None:
+        return None, "no broker session"
     x = symbol_map(sess).get(str(symbol).upper())
     if not x or not price or price <= 0:
-        return None, "not in the Dhan symbol list / no price"
+        return None, "not in the %s symbol list / no price" % sess.label
     qty = max(1, int(100000 // price))       # ~Rs 1 lakh -> precise ratio
-    body = {"dhanClientId": sess.client_id, "exchangeSegment": "NSE_EQ",
-            "transactionType": "BUY", "quantity": qty, "productType": "MTF",
-            "securityId": str(x["id"]), "price": float(price),
-            "triggerPrice": 0.0}
+    value = qty * float(price)
+    lev, margin = None, None
     try:
-        d = _call(sess, "POST", "/margincalculator", body=body)
+        if sess.broker == "DHAN":
+            d = _call(sess, "POST", "/margincalculator", body={
+                "dhanClientId": sess.client_id, "exchangeSegment": "NSE_EQ",
+                "transactionType": "BUY", "quantity": qty,
+                "productType": "MTF", "securityId": str(x["id"]),
+                "price": float(price), "triggerPrice": 0.0})
+            nums = re.findall(r"\d+(?:\.\d+)?", str(d.get("leverage", "")))
+            lev = float(nums[-1]) if nums else None   # "4.55" / "1:4.55"
+            margin = d.get("totalMargin")
+        elif sess.broker == "ANGEL":
+            d = _call(sess, "POST",
+                      "/rest/secure/angelbroking/margin/v1/batch", body={
+                          "positions": [{"exchange": "NSE", "qty": qty,
+                                         "price": float(price),
+                                         "productType": "MARGIN",
+                                         "token": str(x["id"]),
+                                         "tradeType": "BUY",
+                                         "orderType": "MARKET"}]})
+            margin = (d or {}).get("totalMarginRequired")
+        else:
+            d = _call(sess, "POST", "/margins/orders", body=[{
+                "exchange": "NSE", "tradingsymbol": x["tsym"],
+                "transaction_type": "BUY", "variety": "regular",
+                "product": "MTF", "order_type": "MARKET", "quantity": qty,
+                "price": 0, "trigger_price": 0}])
+            d = d[0] if isinstance(d, list) and d else {}
+            lev = d.get("leverage")
+            margin = d.get("total")
     except BrokerError as e:
-        return None, "Dhan margin calculator: %s" % e
-    lev = None
-    nums = re.findall(r"\d+(?:\.\d+)?", str(d.get("leverage", "")))
-    if nums:
-        lev = float(nums[-1])            # "4.55" / "4.55X" / "1:4.55"
-    if not lev or not 1 <= lev <= 10:
-        try:
-            m = float(d.get("totalMargin") or 0)
-            lev = qty * price / m if m > 0 else None
-        except (TypeError, ValueError):
-            lev = None
-    if not lev or not 1 <= lev <= 10:
-        return None, "Dhan gave no usable leverage (%s)" % _err(d)
-    return round(lev, 2), "Dhan MTF %.2fx" % lev
+        return None, "%s margin calculator: %s" % (sess.label, e)
+    try:
+        lev = float(lev) if lev else None
+        if not lev or not 1.05 <= lev <= 10:        # MTF is never ~1x
+            m = float(margin or 0)
+            lev = value / m if m > 0 else None
+    except (TypeError, ValueError):
+        lev = None
+    if not lev or not 1.05 <= lev <= 10:
+        return None, "%s gave no usable MTF leverage" % sess.label
+    return round(lev, 2), "%s MTF %.2fx" % (sess.label, lev)
 
 
 # ================================================================== orders
