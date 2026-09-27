@@ -74,8 +74,11 @@ def main():
             print("\n! %s stopped (exit %d) -- scan not complete." % (step, r))
             sys.exit(r)
     print("\nMASTER SCAN DONE: %s" % path)
-    import gdrive_sync
-    gdrive_sync.push(path)
+    try:                            # optional Google Sheets sync
+        import gdrive_sync
+        gdrive_sync.push(path)
+    except ImportError:
+        pass
     print("Next: rbport  (your holdings, rebalance, Action picks)")
 
 

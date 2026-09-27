@@ -40,13 +40,19 @@ accounts/DHAN_1100120973/data/split.csv                               <- tumhari
 ```
 Kholne ke liye: `open ~/Desktop/RB_Screener/reports/`  aur  `open ~/Desktop/RB_Screener/accounts/`
 
+**Roz sirf ek file kholo: Portfolio_...xlsx.** Usmein sab hai (tabs is order mein):
+Dashboard (summary + aaj kya karna hai + sheet links) | Holdings | Actions | Rebalance | Watchlist |
+Swing | Investing | Momentum_Top20 | Fundamentals (ye 4 master scan se copy hoti hain).
+Master scan file (reports/RB_Screener_...) sirf data ke liye banti rehti hai, kholne ki zarurat nahi.
+Dhyan: `rbscan --force` ke baad `rbport` dobara chalao, tabhi Portfolio file mein naya scan aayega.
+
 ---
 
 ## 2. Roz ka routine
 
 1. `rbtoken` -> naya Dhan token -> Cmd+S
 2. `rbscan` -> master scan (aaj ho chuka to kuch nahi karega). Best: 15:30 ke baad.
-3. `rbport` -> Portfolio file: **Holdings** sheet (har stock ka HOLD / EXIT / SELL + WHY),
+3. `rbport` -> Portfolio file (sab ek file mein, pehli tab **Dashboard**): **Holdings** sheet (har stock ka HOLD / EXIT / SELL + WHY),
    **Rebalance** (momentum, sirf mahine ka 1st trading day), **Actions** (dropdown)
 4. Actions sheet mein BUY / PAPER / WATCH chuno. Zyada / kam paisa lagana ho to **Amount (Rs)** mein rupaye likho
    (khaali = Rs 10,000). **Qty (auto)** khud nikal aati hai; MTF = 4x. -> save + close

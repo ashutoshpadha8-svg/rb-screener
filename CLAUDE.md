@@ -34,6 +34,9 @@
                         #   trend/stage, RSI, 52w, ATR, rets, W+TT today, swing/investing/momentum rule, fundamentals,
                         #   news, RECOMMENDATION + why), Watchlist (WATCH picks by mom rank), Rebalance (momentum),
                         #   Actions (dropdown -> rbtrack)
+                        #   ONE-FILE view (27 Sep): Dashboard first (money, sell/red flags, new BUY, Super-Buy,
+                        #   rebalance, watchlist, sheet links) + master Swing/Investing/Momentum_Top20/
+                        #   Fundamentals copied in (Strategy_Comparison dropped: Actions = same list + picks)
   gdrive_sync.py        # OPTIONAL native Google Sheets: push() after rbscan/rbport (same folders under My Drive/
                         #   RB_Screener), pull() before rbport/rbtrack (Action picks made in Sheets). On only if
                         #   google_client_secret.json exists; scope drive.file; token google_token.json (gitignored).

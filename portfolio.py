@@ -32,6 +32,9 @@ RECOMMENDATION
      gate did not help in the 2018-26 backtest) -- they are for your eyes.
 
 OUTPUT accounts/<BROKER>_<ID>/reports/Portfolio_<BROKER>_<Name>_<date>.xlsx
+       = the ONE file to open: Dashboard (summary + links), Holdings, Actions,
+       Rebalance, Watchlist, then today's master scan sheets copied in
+       (Swing, Investing, Momentum_Top20, Fundamentals)
 RUN    rbport               (rbscan first, once a day)
        rbport --no-news     faster
        rbport --no-fund     skip Screener.in for holdings not in the scan
@@ -353,16 +356,105 @@ REC_FILL = {"EXIT": "F8CBAD", "SELL": "F8CBAD", "SELL@REBAL": "FCE4D6",
             "AVOID": "F8CBAD"}
 
 
+SCAN_SHEETS = ["Swing", "Investing", "Momentum_Top20", "Fundamentals"]
+SHEET_INFO = [
+    ("Dashboard", "this page: summary + what to do today"),
+    ("Holdings", "your stocks (LIVE + PAPER): trend, RSI, rules, fundamentals, "
+                 "news, NSE filings, RECOMMENDATION + why"),
+    ("Actions", "all buy candidates: pick BUY / PAPER / WATCH + Amount (Rs)"),
+    ("Rebalance", "momentum SELL / BUY / HOLD (1st trading day of the month)"),
+    ("Watchlist", "your WATCH stocks, best momentum rank first"),
+    ("Swing", "master scan: W+TT signals (BUY / FIT / LATE) + fundamentals"),
+    ("Investing", "master scan: same signals, Stage-4 exit"),
+    ("Momentum_Top20", "master scan: RAMOM top 20 (sector cap 4)"),
+    ("Fundamentals", "master scan: Screener.in detail per stock (info only)")]
+TAB = {"Dashboard": "1F4E78", "Holdings": "548235", "Actions": "FFC000",
+       "Rebalance": "548235", "Watchlist": "548235"}
+
+
+def dashboard(ws, d, have):
+    """First sheet: short, sorted summary + clickable sheet list."""
+    from openpyxl.styles import Font, PatternFill, Alignment
+    ws.column_dimensions["A"].width = 26
+    ws.column_dimensions["B"].width = 110
+    ws.sheet_view.showGridLines = False
+    r = [1]
+
+    def line(a, b="", bold=False, color=None, fill=None, link=None):
+        ca = ws.cell(row=r[0], column=1, value=a)
+        cb = ws.cell(row=r[0], column=2, value=b)
+        ca.font = Font(bold=True)
+        cb.font = Font(bold=bold, color=color)
+        cb.alignment = Alignment(wrap_text=True, vertical="top")
+        ca.alignment = Alignment(vertical="top")
+        if fill:
+            for c in (ca, cb):
+                c.fill = PatternFill("solid", fgColor=fill)
+        if link:
+            from openpyxl.worksheet.hyperlink import Hyperlink
+            ca.hyperlink = Hyperlink(ref=ca.coordinate,
+                                     location="'%s'!A1" % link)
+            ca.font = Font(bold=True, color="0563C1", underline="single")
+        r[0] += 1
+
+    def section(t):
+        r[0] += 1
+        c = ws.cell(row=r[0], column=1, value=t)
+        c.font = Font(bold=True, color="FFFFFF", size=12)
+        for col in (1, 2):
+            ws.cell(row=r[0], column=col).fill = PatternFill("solid",
+                                                             fgColor="1F4E78")
+        r[0] += 1
+
+    t = ws.cell(row=1, column=1, value=d["title"])
+    t.font = Font(bold=True, size=16)
+    r[0] = 2
+    line("Prices", d["prices"])
+    line("Master scan", d["master"])
+    line("Market", d["regime"], bold=True,
+         color="C00000" if d["regime_red"] else "006100")
+    section("YOUR MONEY")
+    for a, b in d["money"]:
+        line(a, b)
+    section("DO / CHECK TODAY")
+    for a, b, red in d["todo"]:
+        line(a, b, bold=red, color="C00000" if red else None,
+             fill="FCE4D6" if red else None)
+    section("WATCHLIST")
+    for a, b in d["watch"]:
+        line(a, b)
+    section("SHEETS (click a name)")
+    for name, info in SHEET_INFO:
+        if name in have:
+            line(name, info, link=name)
+    for w in d["warns"]:
+        line("! warning", w, color="C00000")
+    ws.freeze_panes = "A2"
+
+
 def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
-               old_amount=None):
+               old_amount=None, master=None, dash=None):
     old_amount = old_amount or {}
-    from openpyxl import Workbook
+    from openpyxl import Workbook, load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.datavalidation import DataValidation
     head = Font(bold=True, color="FFFFFF")
     hfill = PatternFill("solid", fgColor="1F4E78")
-    wb = Workbook()
+    wb = None
+    if master and os.path.exists(master):   # one file: scan sheets inside
+        try:
+            wb = load_workbook(master)
+            for n in list(wb.sheetnames):
+                if n not in SCAN_SHEETS:
+                    del wb[n]
+        except Exception as e:
+            print("! could not copy the master scan sheets (%s)"
+                  % type(e).__name__)
+            wb = None
+    if wb is None:
+        wb = Workbook()
+        del wb[wb.active.title]
 
     def table(ws, cols, rows, fills=None, widths=None):
         for i, h in enumerate(cols, 1):
@@ -395,8 +487,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                                           max(len(rows) + 1, 2))
         return len(rows) + 1
 
-    ws = wb.active
-    ws.title = "Holdings"
+    ws = wb.create_sheet("Holdings")
     own = [h for h in hold if h["Mode"] != "WATCH"]
     watch = sorted([h for h in hold if h["Mode"] == "WATCH"],
                    key=lambda h: h.get("Mom Rank") if h.get("Mom Rank")
@@ -485,6 +576,18 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         "equal slot). BUY MTF / PAPER MTF buy %dx that. Qty (auto) = Amount / "
         "LTP; rbtrack recalculates it with the price at order time."
         % (format(SLOT_RS, ","), MTF_X))).font = Font(italic=True)
+    dashboard(wb.create_sheet("Dashboard"), dash or {
+        "title": banner, "prices": "", "master": "", "regime": "",
+        "regime_red": False, "money": [], "todo": [], "watch": [],
+        "warns": []}, set(wb.sheetnames))
+    order = [n for n, _ in SHEET_INFO if n in wb.sheetnames]
+    wb._sheets = [wb[n] for n in order] + \
+        [x for x in wb._sheets if x.title not in order]
+    for x in wb.worksheets:
+        x.sheet_properties.tabColor = TAB.get(x.title, "A6A6A6")
+        x.sheet_view.tabSelected = False
+    wb.active = 0
+    wb.worksheets[0].sheet_view.tabSelected = True
     try:
         wb.save(path)
         return path
@@ -495,6 +598,68 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
               "are NOT read by rbtrack until you close + re-run)"
               % (os.path.basename(path), os.path.basename(alt)))
         return alt
+
+
+def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
+                   sw, warns):
+    names = lambda xs: ", ".join(xs) if xs else "-"
+    money = []
+    for m in ("LIVE", "PAPER"):
+        rows = [h for h in hold if h["Mode"] == m]
+        if not rows:
+            money.append(("%s holdings" % m, "none"))
+            continue
+        val = sum(h.get("Value (Rs)") or 0 for h in rows)
+        cost = sum((h.get("Entry") or 0) * h["Qty"] for h in rows
+                   if h.get("Value (Rs)"))
+        money.append(("%s holdings" % m, "%d stock(s) | value ~Rs %s | cost "
+                      "~Rs %s | P&L %s" % (
+                          len(rows), format(int(val), ","),
+                          format(int(cost), ","),
+                          "%+.1f%%" % ((val / cost - 1) * 100) if cost
+                          else "n/a")))
+    own = [h for h in hold if h["Mode"] != "WATCH"]
+    sell = [h["Symbol"] + " (%s %s)" % (h["Mode"], h["Recommendation"])
+            for h in own if h["Recommendation"] in
+            ("EXIT", "SELL", "SELL@REBAL")]
+    near = [h["Symbol"] for h in own if h["Recommendation"] in ("WATCH",
+                                                                "WEAK")]
+    flags = [h["Symbol"] for h in hold if h.get("Red flag")]
+    buys = []
+    if "Action" in sw and "Symbol" in sw:
+        buys = [str(s) for s, a in zip(sw["Symbol"], sw["Action"])
+                if str(a).upper() == "BUY"]
+    sup = []
+    if len(comp) and "Strategy Overlap" in comp:
+        sup = list(comp.loc[comp["Strategy Overlap"] == "Super-Buy", "Ticker"])
+    todo = [("Sell in broker app", names(sell), bool(sell)),
+            ("Near an exit / weak", names(near), False),
+            ("NSE red flags", names(flags), bool(flags)),
+            ("New W+TT BUY signals", names(buys), False),
+            ("Super-Buy (W+TT + momentum)", names(sup), False)]
+    for m in ("LIVE", "PAPER"):
+        rr = [x for x in rebal if x["Mode"] == m]
+        if rr:
+            todo.append(("Momentum rebalance %s" % m,
+                         "only on the 1st trading day: SELL %s | BUY %s" % (
+                             names([x["Symbol"] for x in rr
+                                    if x["Section"] == "SELL"]),
+                             names([x["Symbol"] for x in rr
+                                    if x["Section"] == "BUY"
+                                    and "fills" in str(x.get("Note"))])),
+                         False))
+    wl = [h for h in hold if h["Mode"] == "WATCH"]
+    watch = [(k, names([h["Symbol"] for h in wl
+                        if h["Recommendation"] == k]))
+             for k in ("STRONG", "WEAK", "AVOID")] if wl else \
+        [("Watchlist", "empty -- pick WATCH in the Actions sheet")]
+    return {"title": "RB_Screener | %s | %s" % (acc.label, today),
+            "prices": note, "master": os.path.basename(master),
+            "regime": "RED: Nifty below 200-DMA -- new buys did worse in the "
+                      "backtest, paper first" if regime_red else
+                      "OK: Nifty above 200-DMA",
+            "regime_red": bool(regime_red), "money": money, "todo": todo,
+            "watch": watch, "warns": list(warns)}
 
 
 # ================================================================== main
@@ -533,8 +698,12 @@ def main():
     # need no order and no money, so they go straight onto the watchlist
     old_actions, prev_ltp, old_amount = {}, {}, {}
     prev = path_for()
-    import gdrive_sync
-    gdrive_sync.pull(prev)          # picks you made in Google Sheets
+    try:                            # optional Google Sheets sync
+        import gdrive_sync
+    except ImportError:
+        gdrive_sync = None
+    if gdrive_sync:
+        gdrive_sync.pull(prev)      # picks you made in Google Sheets
     if os.path.exists(prev):
         o = ms._read_sheet(prev, "Actions")
         if "Ticker" in o and "Action" in o:
@@ -679,13 +848,17 @@ def main():
               "backtest. Paper first.")
     for w in warns:
         print("  ! " + w)
+    dash = dashboard_data(acc, today, master, note, regime_red, hold, rebal,
+                          comp, sw, warns)
     path = write_book(path_for(), hold, rebal, comp, held_modes, old_actions,
                       "Portfolio %s | %s | master %s | prices: %s"
                       % (acc.label, today, os.path.basename(master), note),
-                      old_amount)
-    print("\nExcel: %s  (sheets Holdings, Watchlist, Rebalance, Actions)"
-          % path)
-    gdrive_sync.push(path)
+                      old_amount, master, dash)
+    print("\nExcel (the ONE file to open): %s" % path)
+    print("  Dashboard | Holdings | Actions | Rebalance | Watchlist | Swing | "
+          "Investing | Momentum_Top20 | Fundamentals")
+    if gdrive_sync:
+        gdrive_sync.push(path)
     if watch_rows:              # for TradingView "Import list" (one click)
         wl = os.path.join(REPORTS, "Watchlist_%s.txt" % (TAG or "account"))
         with open(wl, "w") as f:
