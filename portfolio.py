@@ -1540,7 +1540,7 @@ def main():
             "%s %s x%d = %s" % (x["Symbol"], x["Product"], x["Qty"],
                                 x["Sell?"]) for x in sells)))
     print("\nExcel (the ONE file to open): %s" % path)
-    print("  Dashboard | Holdings | Journal | Actions | SIP | Super-Buy | Rebalance | "
+    print("  Dashboard | Holdings | Sell | Journal | Actions | SIP | Super-Buy | Rebalance | "
           "Watchlist | Holdings_Table | Swing | Investing | Momentum_Top20 | "
           "Fundamentals")
     if drive_copy:
