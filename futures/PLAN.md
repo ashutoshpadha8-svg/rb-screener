@@ -30,3 +30,22 @@ Fresh project, separate from the NSE swing screener. Nothing from the swing syst
    Kill switch at daily loss limit. Logs every order.
 6. Practice account paper run: 4+ weeks, live results must match backtest.
 7. Buy Topstep 50K Combine. Cancel subscription the day it passes.
+
+## Results log
+
+### Run 1 - 27 Sep 2026 (Dukascopy index CFD 1-min, 2016-2026, costs 1 tick slip/side + $0.75/side)
+Paper parameters, no optimisation. IS = 2016-21, OOS = 2022-26. $/1 micro after costs.
+
+| Strategy | Mkt | IS avg$ / PF / Sharpe | OOS avg$ / PF / Sharpe | Verdict |
+|---|---|---|---|---|
+| NOISE  | MNQ | +5.4 / 1.22 / 1.24 | +8.6 / 1.14 / 0.90 | Candidate #1 |
+| ORB5   | MNQ | +3.0 / 1.10 / 0.47 | +9.5 / 1.13 / 0.61 | Candidate #2 |
+| ORB30  | MNQ | -1.3 / 0.97 | +18.0 / 1.18 | Regime-dependent, reject |
+| LAST30 | MNQ | negative | negative | Reject |
+| VWAPMR | MNQ | negative | negative | Reject |
+| All 5  | MES | ~0 or negative after costs | | S&P too slow for costs |
+
+Combine pass rate (50K, $3k target, $2k EOD trailing MLL, 50% consistency), full period:
+NOISE ~23-27%, ORB5 ~24-37% vs zero-edge baseline 13-28%. Median 60-300 sessions to pass.
+=> Edge is real but thin; ~70% of Combines still fail. Next: improve pass rate (trade filters,
+risk per trade), then confirm on real MNQ futures data before any money.
