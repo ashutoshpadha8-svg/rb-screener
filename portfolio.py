@@ -31,7 +31,7 @@ RECOMMENDATION
      is NOT. Fundamentals and news never change the verdict (the fundamental
      gate did not help in the 2018-26 backtest) -- they are for your eyes.
 
-OUTPUT accounts/<BROKER>_<ID>/reports/Portfolio_<BROKER>_<Name>_<date>.xlsx
+OUTPUT accounts/<BROKER>_<ID>/reports/Portfolio_<BROKER>_<Name>.xlsx (one file)
        = the ONE file to open: Dashboard (summary + links), Holdings, Actions,
        Rebalance, Watchlist, then today's master scan sheets copied in
        (Swing, Investing, Momentum_Top20, Fundamentals)
@@ -47,6 +47,7 @@ import os
 import sys
 import glob
 import math
+import re
 
 import numpy as np
 import pandas as pd
@@ -69,19 +70,46 @@ WATCH_WORD = {"KEEP": "STRONG", "WEAK": "WEAK", "SELL": "AVOID"}
 
 
 def path_for(day=None):
-    day = day or ds.now_ist().date().isoformat()
-    return os.path.join(REPORTS, "Portfolio_%s%s.xlsx"
-                        % (TAG + "_" if TAG else "", day))
+    """ONE portfolio file per account, updated by every rb (RB, 27 Sep);
+    the report date sits on the Dashboard (see report_date)."""
+    return os.path.join(REPORTS, "Portfolio_%s.xlsx" % (TAG or "account"))
 
 
 def latest():
-    """Today's portfolio file, else the newest one (for rbtrack)."""
+    """The portfolio file (for rbtrack)."""
     p = path_for()
     if os.path.exists(p):
         return p
     files = [f for f in glob.glob(os.path.join(REPORTS, "Portfolio_*.xlsx"))
              if not os.path.basename(f).startswith("~$")]
     return max(files, key=os.path.getmtime) if files else None
+
+
+def report_date(path):
+    """'YYYY-MM-DD' the file was made for (Dashboard A1), or None."""
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(path, read_only=True)
+        v = str(wb["Dashboard"]["A1"].value or "")
+        m = re.search(r"(\d{4}-\d{2}-\d{2})\s*$", v)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def tidy_old_files():
+    """Old one-file-per-day Portfolio_*_YYYY-MM-DD*.xlsx -> data/old_reports/
+    (moved, never deleted)."""
+    import shutil
+    old = [f for f in glob.glob(os.path.join(REPORTS, "Portfolio_*.xlsx"))
+           if re.search(r"_\d{4}-\d{2}-\d{2}", os.path.basename(f))]
+    if not old:
+        return 0
+    dst = os.path.join(os.path.dirname(ms.SPLIT_FILE), "old_reports")
+    os.makedirs(dst, exist_ok=True)
+    for f in old:
+        shutil.move(f, os.path.join(dst, os.path.basename(f)))
+    return len(old)
 
 
 # ================================================================== inputs
@@ -1297,6 +1325,10 @@ def main():
     # Action picks already made in today's file (kept on re-run); WATCH picks
     # need no order and no money, so they go straight onto the watchlist
     old_actions, prev_ltp, old_amount = {}, {}, {}
+    moved = tidy_old_files()
+    if moved:
+        print("  %d old dated Portfolio file(s) moved to data/old_reports/"
+              % moved)
     prev = path_for()
     try:                            # copy in Google Drive (Sheets edits)
         import drive_copy
@@ -1307,8 +1339,10 @@ def main():
     import sip
     import settings
     sell_picks = {}
-    if os.path.exists(prev):        # Dashboard switch + Sell picks you made
-        settings.read_dashboard(prev)
+    if os.path.exists(prev):
+        settings.read_dashboard(prev)       # switch: always kept
+    same_day = os.path.exists(prev) and report_date(prev) == today
+    if same_day:                    # Sell + Action picks: only today's
         try:
             so = pd.read_excel(prev, sheet_name="Sell", header=2, dtype=str)
             for _, x in so.fillna("").iterrows():
@@ -1321,7 +1355,7 @@ def main():
     if os.path.exists(prev):        # SIP sheet edits -> sip.csv
         for pr in sip.read_sheet(prev):
             warns.append("SIP row ignored -- " + pr)
-    if os.path.exists(prev):
+    if same_day:
         o = ms._read_sheet(prev, "Actions")
         if "Ticker" in o and "Action" in o:
             for _, r in o.iterrows():

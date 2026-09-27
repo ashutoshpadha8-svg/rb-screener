@@ -10,7 +10,7 @@ edits the .xlsx directly.
 
   My Drive/RB_Reports/
     Master_Scan/2026-09/RB_Screener_2026-09-27.xlsx       <- rbscan
-    DHAN_Ashutosh/2026-09/Portfolio_DHAN_Ashutosh_2026-09-27.xlsx   <- rbport
+    DHAN_Ashutosh/Portfolio_DHAN_Ashutosh.xlsx   <- rb (one file, updated daily)
     DHAN_Ashutosh/Watchlist_DHAN_Ashutosh.txt
     ANGEL_tanu_Angel/...
 
@@ -20,7 +20,7 @@ split.csv and data/ never leave ~/RB_Screener.
 Picks you make in Google Sheets (Actions sheet: Action / Amount) come back:
 rbport and rbtrack first check if the Drive copy was edited after it was
 copied there, and if so take it over the local file (local copy saved as
-*.before_drive.xlsx once).
+data/_drive_backup/).
 
   python3 drive_copy.py        -> shows where the folder is (or why it is off)
 """
@@ -58,8 +58,11 @@ def _where(local):
     if m:
         return os.path.join("Master_Scan", m.group(1))
     m = re.match(r"Portfolio_(?:(.+)_)?(\d{4}-\d{2})-\d{2}.*\.xlsx$", name)
-    if m:
+    if m:                                   # old one-file-per-day names
         return os.path.join(m.group(1) or "account", m.group(2))
+    m = re.match(r"Portfolio_(.+)\.xlsx$", name)
+    if m:                                   # the one file per account
+        return m.group(1)
     m = re.match(r"Watchlist_(.+)\.txt$", name)
     if m:
         return m.group(1)
@@ -121,10 +124,10 @@ def pull(local, quiet=False):
         copied = _state().get(dst)
         if copied is None or os.path.getmtime(dst) <= copied + 2:
             return False
-        if os.path.exists(local):
-            keep = re.sub(r"\.xlsx$", ".before_drive.xlsx", local)
-            if keep != local and not os.path.exists(keep):
-                shutil.copyfile(local, keep)
+        if os.path.exists(local):            # safety copy, out of sight
+            bdir = os.path.join(HERE, "data", "_drive_backup")
+            os.makedirs(bdir, exist_ok=True)
+            shutil.copyfile(local, os.path.join(bdir, os.path.basename(local)))
         shutil.copyfile(dst, local)
         st = _state()
         st[dst] = os.path.getmtime(dst)

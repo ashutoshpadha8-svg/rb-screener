@@ -32,7 +32,9 @@
                         #   NSE sometimes 403s -> retries; works from the cloud too, 26 Sep). Info only, never a rule.
   rb_scan.py            # rbscan: MASTER scan = daily_screener -> momentum_screener -> fundamentals, ONCE a day,
                         #   shared by all accounts (skips if done; re-runs once if the last scan was intraday; --force)
-  portfolio.py          # rbport: per account -> Portfolio_<BROKER>_<Name>_<date>.xlsx: Holdings (demat + PAPER:
+  portfolio.py          # rbport: per account ONE file Portfolio_<BROKER>_<Name>.xlsx (27 Sep: overwritten each run, report
+                        #   date = Dashboard A1; Action/Sell picks kept only same day; old dated files -> data/old_reports):
+                        #   Holdings (demat + PAPER:
                         #   trend/stage, RSI, 52w, ATR, rets, W+TT today, swing/investing/momentum rule, fundamentals,
                         #   news, RECOMMENDATION + why), Watchlist (WATCH picks by mom rank), Rebalance (momentum),
                         #   Actions (dropdown -> rbtrack)
@@ -96,7 +98,7 @@
                         #   momentum_ranks_latest.csv, _nse_industry.csv (same for every account)
   accounts/<BROKER>_<CLIENT_ID>/  # PER ACCOUNT, e.g. DHAN_1100120973 (name never in the path)
     data/               #   split.csv, split_backup.csv, orders_log.csv
-    reports/            #   Portfolio_<BROKER>_<Name>_YYYY-MM-DD.xlsx (Holdings, Rebalance, Actions) -- rbport
+    reports/            #   Portfolio_<BROKER>_<Name>.xlsx (one file) + Watchlist_<TAG>.txt -- rb
     credentials.json    #   Angel/Zerodha api_key etc. (template auto-created; never printed)
     account_name.txt    #   display name
   accounts/.migrated    # marker: the one-time move of the old global files is done

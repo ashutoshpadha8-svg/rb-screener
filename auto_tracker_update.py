@@ -546,9 +546,11 @@ def main():
         print("! No Portfolio file found. Run rbscan, then rbport.")
         sys.exit(1)
     today = ds.now_ist().date().isoformat()
-    if today not in os.path.basename(path):
-        print("! Using %s -- NOT today's report (%s)." % (os.path.basename(path),
-                                                         today))
+    rd = pf.report_date(path)
+    if rd != today:
+        print("\n!! %s is from %s, NOT today (%s): Actions / Sell picks are "
+              "old. Run rb first." % (os.path.basename(path), rd or "?",
+                                      today))
     try:                            # copy in Google Drive (Sheets edits)
         import drive_copy
         drive_copy.pull(path)       # Action picks made in Google Sheets

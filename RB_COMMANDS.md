@@ -39,7 +39,7 @@ Purani commands (rbscan, rbport, rbsync, rbcheck, rbtoken) ab `rb` ke andar hain
 
 ```
 reports/RB_Screener_2026-09-26.xlsx                                  <- MASTER scan, din ki 1 file, sab accounts ki
-accounts/DHAN_1100120973/reports/Portfolio_DHAN_Ashutosh_2026-09-26.xlsx  <- tumhara portfolio (Holdings, Rebalance, Actions)
+accounts/DHAN_1100120973/reports/Portfolio_DHAN_Ashutosh.xlsx  <- tumhara portfolio: EK hi file, har rb pe update (purani: data/old_reports/)
 accounts/DHAN_1100120973/data/split.csv                               <- tumhari positions, hamesha ek file
 ```
 Kholne ke liye: `open ~/RB_Screener/reports/`  aur  `open ~/RB_Screener/accounts/`
@@ -255,7 +255,7 @@ reject honge (prices/scan chalte rahenge). API key / MPIN / TOTP ka screenshot k
 `rbscan` aur `rbport` apni report ki **copy** Google Drive mein daalte hain (Mac ka Google Drive app upload karta hai):
 ```
 My Drive/RB_Reports/Master_Scan/2026-09/RB_Screener_2026-09-27.xlsx
-My Drive/RB_Reports/DHAN_Ashutosh/2026-09/Portfolio_DHAN_Ashutosh_2026-09-27.xlsx
+My Drive/RB_Reports/DHAN_Ashutosh/Portfolio_DHAN_Ashutosh.xlsx
 My Drive/RB_Reports/DHAN_Ashutosh/Watchlist_DHAN_Ashutosh.txt
 ```
 - drive.google.com -> RB_Reports -> file pe double click -> Google Sheets mein khulti hai.
