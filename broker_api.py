@@ -655,6 +655,39 @@ def available_funds(sess):
         return None, "funds reply had no balance field"
 
 
+def mtf_leverage(sess, symbol, price):
+    """(leverage, note) the broker gives this stock under MTF, e.g. 4.55.
+    Dhan only (margin calculator; read-only, no order). Others -> (None, why)."""
+    if sess is None or sess.broker != "DHAN":
+        return None, "%s has no MTF leverage API here" % (
+            sess.label if sess else "no broker")
+    x = symbol_map(sess).get(str(symbol).upper())
+    if not x or not price or price <= 0:
+        return None, "not in the Dhan symbol list / no price"
+    qty = max(1, int(100000 // price))       # ~Rs 1 lakh -> precise ratio
+    body = {"dhanClientId": sess.client_id, "exchangeSegment": "NSE_EQ",
+            "transactionType": "BUY", "quantity": qty, "productType": "MTF",
+            "securityId": str(x["id"]), "price": float(price),
+            "triggerPrice": 0.0}
+    try:
+        d = _call(sess, "POST", "/margincalculator", body=body)
+    except BrokerError as e:
+        return None, "Dhan margin calculator: %s" % e
+    lev = None
+    nums = re.findall(r"\d+(?:\.\d+)?", str(d.get("leverage", "")))
+    if nums:
+        lev = float(nums[-1])            # "4.55" / "4.55X" / "1:4.55"
+    if not lev or not 1 <= lev <= 10:
+        try:
+            m = float(d.get("totalMargin") or 0)
+            lev = qty * price / m if m > 0 else None
+        except (TypeError, ValueError):
+            lev = None
+    if not lev or not 1 <= lev <= 10:
+        return None, "Dhan gave no usable leverage (%s)" % _err(d)
+    return round(lev, 2), "Dhan MTF %.2fx" % lev
+
+
 # ================================================================== orders
 def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
                     sess=None, order_type="MARKET", price=0.0):

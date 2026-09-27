@@ -94,7 +94,8 @@ Commands (v2, 26 Sep 2026 -- RB: "one master scan a day, the rest on the portfol
 Daily routine: rbtoken (fresh Dhan token) -> rbscan (best after 15:30) -> rbport -> pick Actions (BUY / BUY MTF /
 PAPER / PAPER MTF / WATCH dropdown) in the Portfolio file, save, close -> rbtrack after 15:30 -> next morning rbsync.
 Actions sheet 'Amount (Rs)' (optional, per row) = own money for that stock; blank = Rs 10,000 slot (tested
-equal weight). MTF = 4x that. 'Qty (auto)' = Excel formula preview; rbtrack recalculates qty with the order-time price.
+equal weight). MTF = Amount x the broker's per-stock leverage (Dhan /v2/margincalculator productType MTF
+-> 'leverage', fallback totalMargin; other brokers / errors -> 4x ASSUMED + warning; mocked test only, 27 Sep). 'Qty (auto)' = Excel formula preview; rbtrack recalculates qty with the order-time price.
 Recommendation logic in portfolio.py: split.csv-tagged legs -> that strategy's backtested exit rule (worst leg
 wins: EXIT > SELL@REBAL > WATCH > HOLD); untagged holdings -> combined check SELL (Stage 4, or < 40w MA AND rank
 > 40) / WEAK / KEEP -- NOT backtested as a whole. Fundamentals, news and NSE filings ("Red flag" column) never change the verdict.

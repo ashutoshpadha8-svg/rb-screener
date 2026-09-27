@@ -55,7 +55,8 @@ Dhyan: `rbscan --force` ke baad `rbport` dobara chalao, tabhi Portfolio file mei
 3. `rbport` -> Portfolio file (sab ek file mein, pehli tab **Dashboard**): **Holdings** sheet (har stock ka HOLD / EXIT / SELL + WHY),
    **Rebalance** (momentum, sirf mahine ka 1st trading day), **Actions** (dropdown)
 4. Actions sheet mein BUY / PAPER / WATCH chuno. Zyada / kam paisa lagana ho to **Amount (Rs)** mein rupaye likho
-   (khaali = Rs 10,000). **Qty (auto)** khud nikal aati hai; MTF = 4x. -> save + close
+   (khaali = Rs 10,000). **Qty (auto)** khud nikal aati hai. MTF: rbtrack Dhan se us stock ka asli
+   leverage leta hai (jaise 10,000 x 4.55 = 45,500). -> save + close
 5. 15:30 ke baad: `rbtrack --dry-run`, phir `rbtrack`
 6. Agli subah: `rbsync`
 

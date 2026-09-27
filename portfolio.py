@@ -573,8 +573,9 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         Font(italic=True)
     wa.cell(row=last + 3, column=1, value=(
         "Amount (Rs) = YOUR money for that stock (blank = Rs %s, the tested "
-        "equal slot). BUY MTF / PAPER MTF buy %dx that. Qty (auto) = Amount / "
-        "LTP; rbtrack recalculates it with the price at order time."
+        "equal slot). BUY MTF / PAPER MTF: Qty (auto) previews %dx; rbtrack "
+        "uses the broker's real MTF leverage for that stock (Dhan, e.g. "
+        "4.55x) and the price at order time."
         % (format(SLOT_RS, ","), MTF_X))).font = Font(italic=True)
     dashboard(wb.create_sheet("Dashboard"), dash or {
         "title": banner, "prices": "", "master": "", "regime": "",

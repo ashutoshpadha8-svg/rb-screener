@@ -75,7 +75,8 @@ COLUMNS = ["symbol", "swing_qty", "investing_qty", "momentum_qty",
            "order_id", "note"]
 QTY = ("swing_qty", "investing_qty", "momentum_qty")
 LIMIT_BUFFER = 0.02        # --limit: pay at most 2% above the last price
-MTF_LEVERAGE = 4           # BUY MTF: quantity = floor(slot x 4 / price)
+MTF_LEVERAGE = 4           # BUY MTF fallback when the broker gives no leverage;
+                           # Dhan: real per-stock leverage (margin calculator)
 ACTIONS = {"BUY": ("LIVE", "CNC"), "BUY MTF": ("LIVE", "MTF"),
            "PAPER": ("PAPER", "CNC"), "PAPER MTF": ("PAPER", "MTF")}
 
@@ -188,7 +189,7 @@ def prices(sess, symbols):
     return out
 
 
-def plan(rows, px, sp):
+def plan(rows, px, sp, sess=None):
     """Turn Excel rows into split.csv rows (not written yet)."""
     new, skip = [], []
     today = ds.now_ist().date().isoformat()
@@ -213,7 +214,13 @@ def plan(rows, px, sp):
                             errors="coerce")        # Actions sheet, optional
         if amt == amt and amt > 0:
             slot = float(amt)
-        exposure = slot * (MTF_LEVERAGE if product == "MTF" else 1)
+        lev, lev_note = 1.0, ""
+        if product == "MTF":
+            lev, lev_note = ba.mtf_leverage(sess, s, price)
+            if lev is None:
+                lev, lev_note = float(MTF_LEVERAGE), \
+                    "MTF %gx ASSUMED (%s)" % (MTF_LEVERAGE, lev_note)
+        exposure = slot * lev
         shares = ms.shares_for(exposure, price)
         if shares < 1:
             skip.append("%s (price %.0f > Rs %d)" % (s, price, exposure))
@@ -223,10 +230,11 @@ def plan(rows, px, sp):
                     "entry_price": round(price, 2), "entry_date": today,
                     "strategy": "Momentum" if mom else "W+TT", "mode": mode,
                     "product": product, "order_id": "", "shares": shares,
+                    "lev": lev,
                     "note": "%s | own Rs %s | %s%s" % (overlap,
                                                         format(int(slot), ","),
                                                         src,
-                                           " | MTF %dx" % MTF_LEVERAGE
+                                           " | " + lev_note
                                            if product == "MTF" else "")})
     return new, skip
 
@@ -250,31 +258,35 @@ def place_orders(sess, live, use_limit, dry):
         return []
     total = sum(x["shares"] * x["entry_price"] for x in live)
     own = sum(x["shares"] * x["entry_price"] /
-              (MTF_LEVERAGE if x["product"] == "MTF" else 1) for x in live)
+              x.get("lev", 1) for x in live)
     mtf = [x for x in live if x["product"] == "MTF"]
     otype = "LIMIT" if use_limit else "MARKET"
     print("\n%s AMO ORDERS -- account %s (BUY, %s at next open):"
           % (sess.label.upper(), sess.client_id, otype))
     for x in live:
         lim = round(x["entry_price"] * (1 + LIMIT_BUFFER), 1)
-        print("  %-12s %-3s qty %4d  exposure ~Rs %9s%s" % (
+        print("  %-12s %-3s qty %4d  exposure ~Rs %9s%s%s" % (
             x["symbol"], x["product"], x["shares"],
             format(int(x["shares"] * x["entry_price"]), ","),
-            "  limit %.1f" % lim if use_limit else ""))
+            "  limit %.1f" % lim if use_limit else "",
+            "  (%s)" % x["note"].split(" | ")[-1]
+            if x["product"] == "MTF" else ""))
     print("  total exposure ~Rs %s | your own money ~Rs %s "
           "(MARKET fills at the open, can differ)"
           % (format(int(total), ","), format(int(own), ",")))
     if mtf:
-        funded = sum(x["shares"] * x["entry_price"] * (1 - 1.0 / MTF_LEVERAGE)
+        funded = sum(x["shares"] * x["entry_price"] * (1 - 1.0 / x["lev"])
                      for x in mtf)
+        top = max(x["lev"] for x in mtf)
         print("\n  !!! MTF: broker-funded ~Rs %s at 12.49%%/yr = ~Rs %d per "
               "day interest." % (format(int(funded), ","), funded * 0.1249 / 365))
-        print("  !!! At %dx a %d%% fall wipes out the money you put in. "
+        print("  !!! At %.2fx a %.0f%% fall wipes out the money you put in. "
               "Backtest: 4x momentum max DD -97.5%% (1x: -35%%)."
-              % (MTF_LEVERAGE, 100 // MTF_LEVERAGE))
-        print("  !!! Not every stock gets 4x on %s -- if the stock's MTF "
-              "limit is lower, the broker will reject or ask more margin."
-              % sess.label)
+              % (top, 100 / top))
+        if any("ASSUMED" in x["note"] for x in mtf):
+            print("  !!! Leverage ASSUMED %gx for some rows -- if the stock's "
+                  "MTF limit on %s is lower, the broker will reject or ask "
+                  "more margin." % (MTF_LEVERAGE, sess.label))
         if sess.broker != "DHAN":
             print("  !!! 12.49%% is Dhan's MTF rate; %s charges its own."
                   % sess.label)
@@ -413,7 +425,7 @@ def main():
         return
     sp = read_split()
     px = prices(sess, [str(t).upper().strip() for t in rows["Ticker"]])
-    new, skip = plan(rows, px, sp)
+    new, skip = plan(rows, px, sp, sess)
     if skip:
         print("Skipped: " + "; ".join(skip))
     if not new:
