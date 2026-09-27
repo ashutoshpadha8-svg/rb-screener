@@ -10,7 +10,7 @@ v4: results go to ONE Excel file with two sheets, "Swing" and
 
 v3: UNIVERSE = every NSE-listed company with market cap >= Rs 10,000 Cr,
     read fresh each day from NSE's own MCAP file (inside the daily
-    PR bhavcopy zip). All files live in ~/Desktop/RB_Screener.
+    PR bhavcopy zip). All files live in ~/RB_Screener.
 
 WHAT CHANGED FROM v1
   * Signal rules now match the backtest EXACTLY (v1 used a looser
@@ -44,14 +44,14 @@ TODAY'S FIT CHECK (per stock)
   NO FIT : fails at today's price (reason printed).
 
 SETUP (put this file, position_tracker.py and token.txt in
-       ~/Desktop/RB_Screener)
+       ~/RB_Screener)
     pip3 install pandas numpy requests openpyxl
     token.txt : Broker / Client ID / Name / Token lines (account.py)
   Without a token the screener still runs, but on possibly stale data,
   and it will say so loudly.
 
 RUN
-    python3 ~/Desktop/RB_Screener/daily_screener.py
+    python3 ~/RB_Screener/daily_screener.py
 """
 
 import warnings
@@ -82,7 +82,7 @@ KEEP_ROWS = 900        # history rows kept per stock (need ~460)
 MCAP_MIN_CR = 10000   # universe: market cap at or above this (Rs crore)
 
 # everything lives here, wherever the script is run from
-HERE = os.path.join(os.path.expanduser("~"), "Desktop", "RB_Screener")
+HERE = os.path.dirname(os.path.abspath(__file__))   # folder of this script
 DATA = os.path.join(HERE, "data")
 REPORTS = os.path.join(HERE, "reports")
 for _d in (HERE, DATA, REPORTS):

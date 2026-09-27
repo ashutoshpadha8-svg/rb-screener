@@ -39,7 +39,7 @@ IMPORTANT
     shortlist (tens of pages), slowly, and caches each page for the day.
 
 RUN (after rbscan)
-    python3 ~/Desktop/RB_Screener/fundamentals.py
+    python3 ~/RB_Screener/fundamentals.py
   options:
     --file PATH        use a specific RB_Screener_*.xlsx
     --symbols A,B,C    just check these symbols (writes a separate
@@ -65,7 +65,7 @@ import pandas as pd
 import requests
 
 # ------------------------------------------------------------------ config
-HERE = os.path.join(os.path.expanduser("~"), "Desktop", "RB_Screener")
+HERE = os.path.dirname(os.path.abspath(__file__))   # folder of this script
 DATA = os.path.join(HERE, "data")
 REPORTS = os.path.join(HERE, "reports")
 TAG = ""               # broker in file names, e.g. "DHAN" (set by account.py)

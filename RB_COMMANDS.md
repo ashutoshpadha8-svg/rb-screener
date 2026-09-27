@@ -1,6 +1,6 @@
 # RB_Screener — saari commands (26 Sep 2026, v2: master scan + portfolio)
 
-Sab kuch `~/Desktop/RB_Screener` mein. Terminal (zsh) mein chalao.
+Sab kuch `~/RB_Screener` mein. Terminal (zsh) mein chalao.
 
 ---
 
@@ -18,12 +18,12 @@ Sab kuch `~/Desktop/RB_Screener` mein. Terminal (zsh) mein chalao.
 Shortcuts ek baar set karo (purane rb* hata ke naye 6):
 ```
 sed -i '' '/^alias rb/d' ~/.zshrc && cat >> ~/.zshrc <<'X'
-alias rbtoken='open -e ~/Desktop/RB_Screener/token.txt'
-alias rbcheck='python3 ~/Desktop/RB_Screener/broker_api.py check'
-alias rbscan='python3 ~/Desktop/RB_Screener/rb_scan.py'
-alias rbport='python3 ~/Desktop/RB_Screener/portfolio.py'
-alias rbtrack='python3 ~/Desktop/RB_Screener/auto_tracker_update.py'
-alias rbsync='python3 ~/Desktop/RB_Screener/auto_tracker_update.py --sync'
+alias rbtoken='open -e ~/RB_Screener/token.txt'
+alias rbcheck='python3 ~/RB_Screener/broker_api.py check'
+alias rbscan='python3 ~/RB_Screener/rb_scan.py'
+alias rbport='python3 ~/RB_Screener/portfolio.py'
+alias rbtrack='python3 ~/RB_Screener/auto_tracker_update.py'
+alias rbsync='python3 ~/RB_Screener/auto_tracker_update.py --sync'
 X
 source ~/.zshrc
 ```
@@ -38,7 +38,7 @@ reports/RB_Screener_2026-09-26.xlsx                                  <- MASTER s
 accounts/DHAN_1100120973/reports/Portfolio_DHAN_Ashutosh_2026-09-26.xlsx  <- tumhara portfolio (Holdings, Rebalance, Actions)
 accounts/DHAN_1100120973/data/split.csv                               <- tumhari positions, hamesha ek file
 ```
-Kholne ke liye: `open ~/Desktop/RB_Screener/reports/`  aur  `open ~/Desktop/RB_Screener/accounts/`
+Kholne ke liye: `open ~/RB_Screener/reports/`  aur  `open ~/RB_Screener/accounts/`
 
 **Roz sirf ek file kholo: Portfolio_...xlsx.** Usmein sab hai (tabs is order mein):
 Dashboard (summary + aaj kya karna hai + sheet links) | Holdings | Actions | Rebalance | Watchlist |
@@ -116,8 +116,8 @@ API Secret: <Kite Connect secret>
 ```
 Roz:
 ```
-python3 ~/Desktop/RB_Screener/broker_api.py zerodha-url
-python3 ~/Desktop/RB_Screener/broker_api.py zerodha-login <request_token>
+python3 ~/RB_Screener/broker_api.py zerodha-url
+python3 ~/RB_Screener/broker_api.py zerodha-login <request_token>
 ```
 
 **Kabhi mat karna:** token / MPIN / TOTP / API key ka screenshot ya copy kisi ko.
@@ -127,11 +127,11 @@ python3 ~/Desktop/RB_Screener/broker_api.py zerodha-login <request_token>
 ## 5. Account commands
 
 ```
-python3 ~/Desktop/RB_Screener/account.py                    # active + baaki accounts
-python3 ~/Desktop/RB_Screener/account.py --name "Naya Naam" # naam badlo
-python3 ~/Desktop/RB_Screener/broker_api.py check           # = rbcheck
-ls ~/Desktop/RB_Screener/accounts/                          # saare account folders
-open ~/Desktop/RB_Screener/accounts/                        # Finder mein
+python3 ~/RB_Screener/account.py                    # active + baaki accounts
+python3 ~/RB_Screener/account.py --name "Naya Naam" # naam badlo
+python3 ~/RB_Screener/broker_api.py check           # = rbcheck
+ls ~/RB_Screener/accounts/                          # saare account folders
+open ~/RB_Screener/accounts/                        # Finder mein
 ```
 
 Account badalna = token.txt mein us account ki lines. Har account ki files alag:
@@ -142,7 +142,7 @@ Account badalna = token.txt mein us account ki lines. Har account ki files alag:
 ## 6. Nayi files lagana (jab Claude files de)
 
 ```
-mv -f ~/Downloads/<file1>.py ~/Downloads/<file2>.py ~/Desktop/RB_Screener/
+mv -f ~/Downloads/<file1>.py ~/Downloads/<file2>.py ~/RB_Screener/
 ```
 `mv -f` = purani replace, Downloads saaf (koi "(1)" copy nahi).
 
@@ -156,11 +156,11 @@ find ~/Downloads -maxdepth 1 \( -name '*screener*.py' -o -name 'account*.py' -o 
 ## 7. Alag se chalana (bina shortcut)
 
 ```
-python3 ~/Desktop/RB_Screener/daily_screener.py
-python3 ~/Desktop/RB_Screener/momentum_screener.py
-python3 ~/Desktop/RB_Screener/fundamentals.py
-python3 ~/Desktop/RB_Screener/fundamentals.py --symbols TCS,INFY   # sirf ye stocks
-python3 ~/Desktop/RB_Screener/position_tracker.py --no-news    # purana leg-wise tracker (rbport ne jagah le li)
+python3 ~/RB_Screener/daily_screener.py
+python3 ~/RB_Screener/momentum_screener.py
+python3 ~/RB_Screener/fundamentals.py
+python3 ~/RB_Screener/fundamentals.py --symbols TCS,INFY   # sirf ye stocks
+python3 ~/RB_Screener/position_tracker.py --no-news    # purana leg-wise tracker (rbport ne jagah le li)
 ```
 
 ---
@@ -224,9 +224,9 @@ Har report Drive mein **asli Google Sheet** ban ke usi folder structure mein jaa
    "In production" kar do (drive.file scope ke liye Google verification nahi maangta).
 4. Credentials -> Create credentials -> **OAuth client ID** -> Application type **Desktop app** -> Create
    -> **Download JSON** -> naam `google_client_secret.json` karke RB_Screener folder mein rakho:
-   `mv ~/Downloads/client_secret_*.json ~/Desktop/RB_Screener/google_client_secret.json`
+   `mv ~/Downloads/client_secret_*.json ~/RB_Screener/google_client_secret.json`
 5. `pip3 install google-api-python-client google-auth-oauthlib`
-6. `python3 ~/Desktop/RB_Screener/gdrive_sync.py login` -> browser khulega -> apna account ->
+6. `python3 ~/RB_Screener/gdrive_sync.py login` -> browser khulega -> apna account ->
    "Google hasn't verified this app" -> **Continue** (ye tumhara apna app hai) -> Allow -> "Google Sheets sync ON"
 7. `rbscan --force` / `rbport` -> terminal mein `Google Sheet: Drive/RB_Screener/...  <link>` dikhega
 

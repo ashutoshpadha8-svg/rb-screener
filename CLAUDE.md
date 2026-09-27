@@ -5,13 +5,15 @@
 - Trading feedback: direct and honest, no encouragement. If an idea is bad, say so with numbers.
 - Teach one step at a time, not big info dumps.
 - I run Python scripts but don't write code from scratch. Give exact terminal commands.
-- Mac Mini, zsh, Python 3.9 (pip3). Everything lives in `~/Desktop/RB_Screener`.
+- Mac Mini, zsh, Python 3.9 (pip3). Everything lives in `~/RB_Screener` (moved off the Desktop 27 Sep: Google Drive
+  was syncing Desktop incl. token.txt / Angel keys). Personal key notes: ~/RB_Secrets (outside the repo, never read).
+  All scripts find their folder from __file__ (daily_screener/fundamentals HERE fixed 27 Sep).
 - Trading capital ~Rs 2 lakh. Full history of the earlier claude.ai chat (Fusion strategy, EMA 9/33, crypto,
   gold, money maths) is in CHAT_HANDOFF.md.
 
 ## Folder layout
 ```
-~/Desktop/RB_Screener/
+~/RB_Screener/
   daily_screener.py     # v4 - main screener (run daily)
   position_tracker.py   # hold/exit tracker for my positions (swing + investing legs)
   fundamentals.py       # fundamental check on the screener shortlist (Screener.in public pages)
@@ -289,7 +291,7 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 - Copying a terminal command overwrites the clipboard - don't use `pbpaste` right after copying a command.
 - Dhan may not publish today's daily candle until later in the evening; prices are still live.
 - Dhan 401/403 when token is not expired = check Data API subscription.
-- position_tracker.py (v2) imports daily_screener.py for prices, so both files must sit in ~/Desktop/RB_Screener.
+- position_tracker.py (v2) imports daily_screener.py for prices, so both files must sit in ~/RB_Screener.
   Verdicts marked "*" use today's live price during market hours - only valid if the stock closes there.
   Exit rules are checked on every bar since entry_date (split.csv): a missed exit shows "rule already fired".
   Keep entry_date in split.csv correct (YYYY-MM-DD) or only today's bar is checked.
