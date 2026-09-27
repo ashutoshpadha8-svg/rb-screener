@@ -16,7 +16,9 @@
   data/                 # cached price history, NSE market-cap file, Dhan scrip master
   reports/              # RB_Screener_YYYY-MM-DD.xlsx (sheets: Swing, Investing)
 ```
-Shortcut: `rbscan` (zsh alias) = `python3 ~/RB_Screener/daily_screener.py` - NOTE: alias is NOT set up on the Mac Mini (checked 27 Sep 2026).
+Shortcuts (in ~/.zshrc, set 27 Sep 2026): `rbscan` = `python3 ~/RB_Screener/daily_screener.py`;
+`rbfut` = `cd ~/RB_Screener/futures && python3 rule_guard.py` (e.g. `rbfut demo`, `rbfut list`); `rbfutg` = `rbfut watch`; `rbfutch` = `rbfut check`.
+Mac gets new code by downloading the branch ZIP (no git on Mac yet) and `cp -R .../futures/ ~/RB_Screener/futures/`.
 Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`.
 
 ## How daily_screener.py works
