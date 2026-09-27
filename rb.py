@@ -57,6 +57,16 @@ def main():
     acc = account.activate()
     if not acc.token_ok:
         open_token("Token expire ho gaya (%s)." % acc.label)
+    import broker_api as ba                  # date OK != broker accepts it
+    try:
+        _, err = ba.available_funds(acc.session)
+    except Exception as e:                   # network etc.: carry on
+        err = ""
+    e_ = (err or "").lower()
+    if "token" in e_ or "dh-901" in e_ or "http 401" in e_ or "http 403" in e_:
+        open_token("%s ne token REJECT kiya (%s). Date abhi valid thi -- "
+                   "shayad naya token bana / logout hua. Naya token daalo."
+                   % (acc.label, err[:80]))
     if run("auto_tracker_update.py", "--sync") != 0:
         print("! fills sync failed -- continuing")
     r = run("rb_scan.py", *[x for x in a if x == "--force"])

@@ -273,7 +273,12 @@ def _call(sess, method, path, body=None, params=None, form=None, retries=2):
     if sess.broker == "DHAN":
         if r.status_code >= 400 or (isinstance(j, dict) and
                                     (j.get("errorCode") or j.get("errorType"))):
-            raise BrokerError("HTTP %d: %s" % (r.status_code, _err(j)))
+            msg = _err(j)
+            # DH-901 / 'Invalid Token': revoked (e.g. a new token was made in
+            # web.dhan.co) even if the JWT date says it is still valid
+            if "DH-901" in msg or "token" in msg.lower():
+                raise AuthError("HTTP %d: %s" % (r.status_code, msg))
+            raise BrokerError("HTTP %d: %s" % (r.status_code, msg))
         return j
     if sess.broker == "ANGEL":
         if not isinstance(j, dict) or j.get("status") is False or \
