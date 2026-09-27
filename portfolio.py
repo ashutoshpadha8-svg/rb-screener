@@ -1109,6 +1109,26 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                   "Next due": 16, "Capital left (Rs)": 12, "id": 15},
                  freeze="B2", filt=False)
     ned = len(sipm.SHEET)
+    sc = pcols.index("Start date") + 1           # real date + calendar picker
+    for r in range(2, last + 1):
+        c = wp.cell(row=r, column=sc)
+        ds_ = sipm.parse_date(c.value)
+        if ds_:
+            c.value = pd.Timestamp(ds_).to_pydatetime()
+        c.number_format = "DD-MMM-YYYY"
+    v = DataValidation(type="date", operator="greaterThan",
+                       formula1="DATE(2020,1,1)", allow_blank=True,
+                       showErrorMessage=True, errorTitle="Start date",
+                       error="Date chahiye: double-click -> calendar, ya "
+                             "DD-MM-YYYY (01-10-2026)")
+    v.add("%s2:%s%d" % (L(sc), L(sc), last))
+    wp.add_data_validation(v)
+    dl = pcols.index("Day") + 1                   # Day dropdown
+    v = DataValidation(type="list", allow_blank=True, showErrorMessage=False,
+                       formula1='"%s"' % ",".join(
+                           list(sipm.DAYS) + [str(i) for i in range(1, 29)]))
+    v.add("%s2:%s%d" % (L(dl), L(dl), last))
+    wp.add_data_validation(v)
     for r in range(2, last + 1):
         for c in range(1, ned + 1):
             wp.cell(row=r, column=c).fill = fill("FFF2CC")
@@ -1138,7 +1158,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
          "akshar likho (jaise 'tata' / 'nifty') -> list se chuno. "
          "Peele columns bharo, save karo. rbtrack (15:30 ke baad) "
          "jo SIP due hai uska order lagata hai. Day: Monthly = tarikh 1-28, "
-         "Weekly = Mon..Fri, Daily = khaali. Amount = TUMHARA paisa har buy; "
+         "Weekly = Mon..Fri, Daily = khaali. Start date: double-click -> "
+         "calendar (khaali = aaj se). Amount = TUMHARA paisa har buy; "
          "BUY MTF = broker ka leverage x amount.")
     note(wp, last + 3, "Total capital khaali = koi limit nahi. Rokna: Active = "
          "NO. Hatana: row ki Symbol cell khaali karo. Grey columns khud bante "
@@ -1354,7 +1375,7 @@ def main():
     trading = settings.load()["trading"]
     if os.path.exists(prev):        # SIP sheet edits -> sip.csv
         for pr in sip.read_sheet(prev):
-            warns.append("SIP row ignored -- " + pr)
+            warns.append("SIP: " + pr)
     if same_day:
         o = ms._read_sheet(prev, "Actions")
         if "Ticker" in o and "Action" in o:

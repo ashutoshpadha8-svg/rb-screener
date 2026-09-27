@@ -8,6 +8,7 @@ You fill the SIP sheet of the Portfolio file (yellow columns):
   Weekly: Mon-Fri, Daily: -) | Amount per buy (Rs, YOUR money) |
   Total capital (Rs, stop when this much is in; blank = no limit) |
   Product (BUY = normal / BUY MTF) | Active (YES / NO) | Start date
+  (calendar picker; blank = today; DD-MM-YYYY typed also works)
 
 rbtrack (after 15:30) then places an AMO for every SIP that is due:
   Monthly  once a month, on/after that day of the month
@@ -26,6 +27,7 @@ monthly; single stocks: worst 10% of stocks ~ -4%/yr in each half.
 """
 
 import os
+import re
 import math
 import datetime as dt
 
@@ -137,6 +139,24 @@ def symbol_choices(sess=None):
     return ["%s | %s" % (k, names.get(k) or "-") for k in sorted(syms)]
 
 
+def parse_date(x):
+    """Start date cell -> 'YYYY-MM-DD'; '' = blank; None = can't read it.
+    Real date cells, 2026-10-01, 01-10-2026 / 01/10/2026 / 1.10.26 (Indian:
+    DAY first), 1 Oct 2026, and Excel day numbers (46296) all work."""
+    s = str(x or "").strip()
+    if not s or s.lower() in ("nan", "nat", "none", "-"):
+        return ""
+    try:
+        if re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}([ T].*)?", s):   # ISO / real date
+            return pd.Timestamp(s[:10]).date().isoformat()
+        if re.fullmatch(r"\d{5}(\.0+)?", s):                     # Excel serial
+            return (dt.date(1899, 12, 30) +
+                    dt.timedelta(days=int(float(s)))).isoformat()
+        return pd.to_datetime(s, dayfirst=True).date().isoformat()
+    except (ValueError, OverflowError, TypeError):
+        return None
+
+
 def _clean(r):
     """Normalise one plan row; returns (row, problem or '')."""
     sym = str(r.get("symbol", "")).split("|")[0].upper().strip()
@@ -148,7 +168,12 @@ def _clean(r):
         d = _num(day)
         day = str(int(d)) if d and 1 <= d <= 28 else "1"
     elif fr == "Weekly":
-        day = day[:3].capitalize() if day[:3].capitalize() in DAYS else "Mon"
+        d = _num(day)
+        if d and 1 <= d <= 5:                       # 1 = Mon ... 5 = Fri
+            day = DAYS[int(d) - 1]
+        else:
+            day = day[:3].capitalize() if day[:3].capitalize() in DAYS \
+                else "Mon"
     else:
         day = ""
     amt = _num(r.get("amount"))
@@ -159,16 +184,19 @@ def _clean(r):
     if prod not in PRODUCTS:
         return None, "%s: Product must be BUY or BUY MTF" % sym
     act = str(r.get("active", "")).upper().strip() or "YES"
-    start = str(r.get("start", "")).strip()[:10]
-    try:
-        start = pd.Timestamp(start).date().isoformat() if start else ""
-    except ValueError:
-        start = ""
+    raw = str(r.get("start", "")).strip()
+    start = parse_date(raw)
+    warn = ""
+    if start is None:           # keep the row visible but PAUSED (no buy)
+        start, act = "", "NO"
+        warn = ("%s: Start date '%s' samajh nahi aayi -> SIP PAUSED (Active "
+                "NO). Cell pe double-click karke calendar se chuno, ya "
+                "DD-MM-YYYY likho (01-10-2026), phir Active YES" % (sym, raw))
     return {"id": str(r.get("id", "")).strip(), "symbol": sym,
             "frequency": fr, "day": day, "amount": "%g" % amt,
             "capital": "%g" % cap if cap else "", "product": prod,
             "active": "NO" if act.startswith("N") else "YES",
-            "start": start}, ""
+            "start": start}, warn
 
 
 def read_sheet(xlsx):
@@ -192,6 +220,7 @@ def read_sheet(xlsx):
         c, p = _clean(r)
         if p:
             probs.append(p)
+        if c is None:
             continue
         if not c["id"]:                 # same plan read again -> same id
             m = old[(old["symbol"] == c["symbol"]) &
@@ -205,6 +234,10 @@ def read_sheet(xlsx):
                 n += 1
             c["id"] = "%s-%d" % (c["symbol"], n)
             used.add(c["id"])
+        if not c["start"]:              # blank -> kept / today (shown back)
+            m = old.loc[old["id"] == c["id"], "start"]
+            c["start"] = m.iloc[0] if len(m) and m.iloc[0] else \
+                dt.date.today().isoformat()
         rows.append(c)
     new = pd.DataFrame(rows, columns=PLAN_COLS)
     tmp = plans_path() + ".tmp"

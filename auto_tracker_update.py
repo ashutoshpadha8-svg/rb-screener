@@ -570,7 +570,7 @@ def main():
     import sip
     probs = sip.read_sheet(path)            # your SIP sheet -> sip.csv
     for pr in probs:
-        print("! SIP row ignored -- %s" % pr)
+        print("! SIP: %s" % pr)
     sdue = sip.due(today)
     import settings
     trading = settings.read_dashboard(path)
