@@ -335,7 +335,7 @@ def place_orders(sess, live, use_limit, dry):
         ba.log_order({"date": dt.date.today().isoformat(),
                       "broker": sess.broker, "client_id": sess.client_id,
                       "time": ds.now_ist().strftime("%H:%M:%S"),
-                      "symbol": x["symbol"], "qty": x["shares"],
+                      "symbol": x["symbol"], "qty": x["shares"], "side": "BUY",
                       "product": x["product"],
                       "type": otype, "ok": ok, "order_id": res if ok else "",
                       "status": status, "error": "" if ok else res})
@@ -382,6 +382,106 @@ def sync(sess):
         else:
             print("  %-12s still %s" % (r["symbol"], st))
     write_split(sp)
+
+
+# ================================================================== sells
+def read_sells(path):
+    """Sell sheet rows with Sell? = YES: [{symbol, product, qty}]."""
+    try:
+        d = pd.read_excel(path, sheet_name="Sell", header=2, dtype=str)
+    except Exception:
+        return []
+    out = []
+    for _, x in d.fillna("").iterrows():
+        if str(x.get("Sell?", "")).upper().strip() != "YES":
+            continue
+        sym = str(x.get("Symbol", "")).upper().strip()
+        try:
+            q = int(float(x.get("Qty", 0)))
+        except ValueError:
+            q = 0
+        if sym and " " not in sym and q > 0:
+            out.append({"symbol": sym, "qty": q, "product": "MTF" if str(
+                x.get("Product", "")).upper().strip() == "MTF" else "CNC"})
+    return out
+
+
+def place_sells(sess, sells, dry):
+    """SELL AMOs for the Sell sheet's YES rows (checked against the demat
+    right now). Needs the typed confirmation YES SELL."""
+    if ds.market_open():
+        print("\n! Market is open -- SELL AMOs only after 15:30.")
+        return []
+    try:
+        dq = {h["symbol"]: float(h["qty"]) for h in ba.holdings(sess)}
+    except ba.BrokerError as e:
+        print("! Could not read the demat (%s) -- no SELL sent." % e)
+        return []
+    known = ba.symbol_map(sess)
+    todo, skip = [], []
+    for x in sells:
+        s = x["symbol"]
+        have = dq.get(s, 0) - sum(t["qty"] for t in todo if t["symbol"] == s)
+        if s not in known:
+            skip.append("%s (not in the %s symbol list)" % (s, sess.label))
+        elif ba.sold_recently(s) or ba.ordered_today(s, "SELL"):
+            skip.append("%s (SELL already sent)" % s)
+        elif have < 1:
+            skip.append("%s (not in the demat)" % s)
+        else:
+            todo.append(dict(x, qty=int(min(x["qty"], have))))
+    if skip:
+        print("SELL skipped: " + "; ".join(skip))
+    if not todo:
+        return []
+    print("\n%s SELL AMO ORDERS -- account %s (MARKET at the next open):"
+          % (sess.label.upper(), sess.client_id))
+    for x in todo:
+        print("  SELL %-12s %-3s qty %d" % (x["symbol"], x["product"], x["qty"]))
+    if dry:
+        print("(--dry-run: no SELL sent)")
+        return []
+    ok, msg = ba.verify_identity(sess)
+    if not ok:
+        print("! Account check failed: %s. No SELL sent." % msg)
+        return []
+    print("  %s" % msg)
+    ans = input("\nType YES SELL to send these %d SELL order(s) to %s account "
+                "%s: " % (len(todo), sess.label, sess.client_id))
+    if " ".join(ans.upper().split()) != "YES SELL":
+        print("Cancelled -- no SELL sent.")
+        return []
+    done = []
+    sp = read_split()
+    sp["note"] = sp["note"].fillna("").astype(object).astype(str)
+    for x in todo:
+        ok, res, status = ba.place_amo_order(
+            x["symbol"], x["qty"], x["product"] == "MTF", sess=sess,
+            order_type="MARKET", side="SELL")
+        ba.log_order({"date": dt.date.today().isoformat(),
+                      "broker": sess.broker, "client_id": sess.client_id,
+                      "time": ds.now_ist().strftime("%H:%M:%S"),
+                      "symbol": x["symbol"], "qty": x["qty"], "side": "SELL",
+                      "product": x["product"], "type": "MARKET", "ok": ok,
+                      "order_id": res if ok else "", "status": status,
+                      "error": "" if ok else res})
+        if ok:
+            print("  OK   SELL %-12s order %s (%s)" % (x["symbol"], res, status))
+            m = (sp["symbol"] == x["symbol"]) & (sp["mode"] == "LIVE")
+            sp.loc[m, "note"] = [str(v) + " | SELL AMO %s sent %s" % (
+                res, dt.date.today()) for v in sp.loc[m, "note"]]
+            done.append(x)
+        else:
+            print("  FAIL SELL %-12s %s" % (x["symbol"], res))
+            if "DDPI" in res.upper() or "TPIN" in res.upper() or \
+                    "EDIS" in res.upper() or "AUTHORI" in res.upper():
+                print("  ! Broker wants demat authorisation: enable DDPI (or "
+                      "do eDIS/TPIN in the broker app) and try again.")
+    if done:
+        write_split(sp)
+        print("SELL sent: %d. The journal closes them after the fill (next rb)."
+              % len(done))
+    return done
 
 
 # ================================================================== main
@@ -470,10 +570,28 @@ def main():
     for pr in probs:
         print("! SIP row ignored -- %s" % pr)
     sdue = sip.due(today)
+    import settings
+    trading = settings.read_dashboard(path)
+    sells = read_sells(path)
+    if trading != "ON":
+        if len(rows) or sdue or sells:
+            print("\n!! TRADING is OFF (Dashboard, cell B2) -> NO order sent "
+                  "(BUY %d, SIP due %d, SELL YES %d wait)."
+                  % (len(rows), len(sdue), len(sells)))
+            print("   To trade: Dashboard B2 = ON, save, run rbtrack again.")
+        account.banner(acc)
+        return
+    if sells:
+        if no_orders:
+            print("! --no-orders: SELL rows skipped (sell in the broker app).")
+        elif not sess:
+            print("! SELL needs a valid broker token.")
+        else:
+            place_sells(sess, sells, dry)
     if rows.empty and not sdue:
-        if not len(watch):
-            print("Nothing to do: no BUY / BUY MTF in the Actions sheet and "
-                  "no SIP due today (%s)." % os.path.basename(path))
+        if not len(watch) and not sells:
+            print("Nothing to do: no BUY / BUY MTF in the Actions sheet, no "
+                  "SIP due, no SELL = YES (%s)." % os.path.basename(path))
         account.banner(acc)
         return
     sp = read_split()

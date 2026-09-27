@@ -68,6 +68,25 @@ Sell kabhi automatic nahi -- broker app mein khud.
 
 ---
 
+## 2a. TRADING switch + Sell sheet (har account ka alag)
+
+**Dashboard, cell B2: `TRADING (buy + sell)` = ON / OFF** (default OFF)
+- **OFF**: `rbtrack` koi order nahi bhejta: na BUY, na SIP, na SELL. (WATCH chalta hai.)
+- **ON**: BUY / SIP / SELL orders jaate hain, par pehle `YES` / `YES MTF` / `YES SELL` type karna padta hai.
+
+**Sell sheet**: jin stocks pe aaj rule ne bechne ko kaha:
+| Sell? default | Kab |
+|---|---|
+| YES (agar TRADING ON) | EXIT (swing 20% stop / 40w MA, investing Stage 4) |
+| YES (sirf mahine ke aakhri weekday / 1st trading day) | momentum SELL@REBAL (rank > 40) |
+| NO (khud YES chuno to bikega) | bahar se khareeda stock, combined SELL (backtested nahi) |
+| kabhi nahi | SIP stocks |
+- Qty = sirf us strategy ka hissa jiska rule fire hua. Kisi ko rokna ho: Sell? = NO, save.
+- `rbtrack` (15:30 ke baad) -> list dikhata hai -> `YES SELL` type -> agle din open pe MARKET sell. Agle `rb` pe journal khud band karta hai.
+- Demat se bechne ke liye broker pe **DDPI / POA** chahiye (warna TPIN maangega aur API sell fail hogi).
+
+---
+
 ## 2b. SIP (regular buying)
 
 Portfolio file ki **SIP** tab mein peele columns bharo (ek row = ek plan):

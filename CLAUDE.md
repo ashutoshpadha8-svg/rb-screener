@@ -26,7 +26,7 @@
                         #   BUY MTF -> productType MTF, qty floor(10000x4/LTP), type "YES MTF";
                         #   PAPER / PAPER MTF -> split.csv PAPER; --sync = real fills; --no-orders; --dry-run
   broker_api.py         # ONLY place that talks to a broker: Dhan / Angel One (SmartAPI) / Zerodha (Kite)
-                        #   prices, history fill, holdings, funds, AMO BUY (CNC/MTF), order status. No selling.
+                        #   prices, history fill, holdings, funds, AMO BUY/SELL (CNC/MTF), order status. SELL only via the Sell sheet.
   news_feed.py          # Google News RSS headlines + NSE corporate announcements (nse_announcements: official
                         #   filings, routine ones skipped, red flags = pledge/resign/default/strike/downgrade/...;
                         #   NSE sometimes 403s -> retries; works from the cloud too, 26 Sep). Info only, never a rule.
@@ -74,6 +74,15 @@
                         #   column, leg "sip" in portfolio = no sell rule) -> journal. No dip/up rules (backtest said no).
                         #   PAPER / PAPER MTF actions REMOVED (27 Sep, RB): Actions = BUY / BUY MTF / WATCH;
                         #   `rbtrack --clear-paper` drops old PAPER rows from split.csv + journal.
+  settings.py           # Per-account switch (27 Sep, RB): Dashboard B2 "TRADING (buy + sell)" ON/OFF (default OFF)
+                        #   -> accounts/<..>/data/settings.json. OFF = rbtrack sends NO order (BUY, SIP, SELL); WATCH ok.
+                        #   AUTO SELL (27 Sep, RB approved design): Portfolio "Sell" sheet = LIVE demat stocks whose rule
+                        #   says sell: EXIT legs (default YES), momentum SELL@REBAL (YES only in the rebalance window =
+                        #   last weekday of month / 1st weekday), untagged combined SELL (default NO, user may pick YES),
+                        #   SIP never; qty = firing legs only (split.csv), per product CNC/MTF, capped at demat qty.
+                        #   rbtrack: TRADING ON -> sells first (fresh demat check, sold_recently/ordered_today guard,
+                        #   typed "YES SELL", broker_api.place_amo_order(side="SELL"), orders_log side column) -> journal
+                        #   closes after the fill. Needs DDPI/POA. Mock-tested only; never sent a real SELL.
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py

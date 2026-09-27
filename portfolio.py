@@ -287,6 +287,7 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
     t = technicals(c, lo, hi)
     rk = ranks.get(s)
     legs, why, verdicts = pos["legs"], [], []
+    legv = {}                                 # leg -> its rule's verdict
     exits = []          # (verdict, short why, exit level text, door text, door %)
     px_now = float(c.iloc[-1])
 
@@ -298,6 +299,7 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
         r = pt.judge_swing(c, lo, pos["entry"], pos["entry_date"])
         v, w = r[:2]
         verdicts.append(v)
+        legv["swing"] = v
         why.append("Swing rule: %s (%s)" % (v, w))
         lvl = max(x for x in (r[3], r[4]) if x == x) if len(r) > 4 else None
         exits.append((v, "swing: " + w) + pct_door(lvl))
@@ -305,6 +307,7 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
         r = pt.judge_investing(c, pos["entry_date"])
         v, w = r[:2]
         verdicts.append(v)
+        legv["investing"] = v
         why.append("Investing rule: %s (%s)" % (v, w))
         exits.append((v, "investing: " + w) +
                      pct_door(r[3] if len(r) > 3 else None))
@@ -313,6 +316,7 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
                               pos["entry_date"], ranks)
         v, w = r[:2]
         verdicts.append(v)
+        legv["momentum"] = v
         why.append("Momentum rule: %s (%s)" % (v, w))
         rk0 = ranks.get(s)
         exits.append((v, "momentum: " + w, "rank %d" % KEEP_RANK,
@@ -351,7 +355,7 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
     fl = (filings or {}).get(s) or []
     base.update({
         "Kyun": ex[1], "Exit level": ex[2], "Exit se door": ex[3],
-        "_door": ex[4],
+        "_door": ex[4], "_legv": legv,
         "Headline": ("!! " + fl[0][2]) if fl and fl[0][3] else
         ("%s: %s" % (n[0][0], n[0][1]) if n else
          ("%s %s" % (fl[0][0], fl[0][2]) if fl else "")),
@@ -402,6 +406,8 @@ SCAN_SHEETS = ["Swing", "Investing", "Momentum_Top20", "Fundamentals"]
 SHEET_INFO = [
     ("Dashboard", "this page: summary + what to do today"),
     ("Holdings", "your stocks as cards: ACTION, why, P&L, how far the exit is"),
+    ("Sell", "stocks the rules say to SELL today: Sell? YES/NO -> rbtrack "
+             "(only if TRADING is ON)"),
     ("Journal", "every trade: P&L after fees, dividends and tax, month by "
                 "month, vs Nifty"),
     ("Actions", "all buy candidates: pick BUY / BUY MTF / WATCH + Amount (Rs)"),
@@ -417,6 +423,7 @@ SHEET_INFO = [
     ("Momentum_Top20", "master scan: RAMOM top 20 (sector cap 4)"),
     ("Fundamentals", "master scan: Screener.in detail per stock (info only)")]
 TAB = {"Dashboard": "1F4E78", "Holdings": "548235", "Journal": "7030A0",
+       "Sell": "C00000",
        "Actions": "FFC000", "SIP": "FFC000", "Super-Buy": "00B050", "Rebalance": "2E75B6",
        "Watchlist": "2E75B6"}
 NAVY, GREY_TXT, LINE = "1F4E78", "7F7F7F", "D9D9D9"
@@ -501,6 +508,19 @@ def dashboard(ws, d, have):
     t = ws.cell(row=1, column=1, value=d["title"])
     t.font = Font(bold=True, size=16)
     r[0] = 2
+    import settings
+    from openpyxl.worksheet.datavalidation import DataValidation
+    on = d.get("trading", "OFF") == "ON"
+    line(settings.LABEL, "ON" if on else "OFF", bold=True,
+         color="1E7B34" if on else "C00000", fill="FFF2CC")
+    dv = DataValidation(type="list", formula1='"ON,OFF"', allow_blank=False)
+    dv.add("B2")
+    ws.add_data_validation(dv)
+    ws.cell(row=2, column=2).font = Font(bold=True, size=14,
+                                         color="1E7B34" if on else "C00000")
+    line("", "OFF = rbtrack koi order nahi bhejta (na BUY, na SIP, na SELL). "
+         "ON = bhejta hai, phir bhi pehle YES / YES SELL type karna hota hai. "
+         "Badalna: B2 mein ON/OFF chuno, save.", color="7F7F7F")
     line("Prices", d["prices"])
     line("Master scan", d["master"])
     line("Market", d["regime"], bold=True,
@@ -522,6 +542,88 @@ def dashboard(ws, d, have):
     for w in d["warns"]:
         line("! warning", w, color="C00000")
     ws.freeze_panes = "A2"
+
+
+def rebal_window(today):
+    """Momentum sells go at the open of the 1st trading day of a month: an AMO
+    placed on the last weekday of the month (or catch-up on the 1st)."""
+    d = pd.Timestamp(today)
+    nxt = d + pd.Timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += pd.Timedelta(days=1)
+    first = pd.Timestamp(d.year, d.month, 1)
+    while first.weekday() >= 5:
+        first += pd.Timedelta(days=1)
+    return nxt.month != d.month or d.normalize() == first
+
+
+SELL_COLS = ["Symbol", "Product", "Qty", "Sell?", "Rule", "Backtested?",
+             "Kyun", "Note"]
+
+
+def sell_rows(hold, sp, demat, trading, picks, today):
+    """Rows for the Sell sheet: LIVE stocks whose rule says sell today.
+    Qty = only the legs whose rule fired (split.csv), per product; untagged
+    holdings = whole demat qty. Default Sell? = YES only for backtested rules
+    (EXIT, SELL@REBAL in the rebalance window) and only if TRADING is ON."""
+    import broker_api as ba
+    dq = {h["symbol"]: float(h["qty"]) for h in demat or []}
+    win = rebal_window(today)
+    live = sp[sp["mode"] == "LIVE"] if len(sp) else sp
+    out = []
+    for h in hold:
+        if h.get("Mode") != "LIVE" or h.get("Recommendation") not in (
+                "EXIT", "SELL@REBAL", "SELL"):
+            continue
+        s = h["Symbol"]
+        if s not in dq:
+            continue                           # not (or no longer) in demat
+        legv = h.get("_legv") or {}
+        rows = live[live["symbol"] == s] if len(live) else live
+        byprod = {}
+        if legv:                               # tagged: firing legs only
+            for _, r in rows.iterrows():
+                for leg in ("swing", "investing", "momentum"):
+                    v = legv.get(leg)
+                    if str(r.get("strategy")) == "SIP" or r["%s_qty" % leg] <= 0:
+                        continue
+                    if v == "EXIT" or (v == "SELL@REBAL"):
+                        prod = "MTF" if str(r.get("product", "")).upper() \
+                            == "MTF" else "CNC"
+                        byprod.setdefault(prod, [0.0, v])
+                        byprod[prod][0] += r["%s_qty" % leg]
+                        if v == "EXIT":
+                            byprod[prod][1] = "EXIT"
+        else:                                  # bought outside the system
+            byprod["CNC"] = [dq[s], "SELL"]
+        left = dq[s]
+        for prod, (q, rule) in byprod.items():
+            q = min(q, left)
+            left -= q
+            if q < 1:
+                continue
+            tested = rule in ("EXIT", "SELL@REBAL")
+            note, blocked = "", False
+            if not tested:
+                note = "bahar se khareeda: combined check backtested NAHI " \
+                    "(bechna ho to khud YES chuno)"
+            if rule == "SELL@REBAL" and not win:
+                blocked, note = True, "momentum: sirf mahine ke 1st trading " \
+                    "day (uske pehle wali shaam rbtrack)"
+            if ba.sold_recently(s):
+                blocked, note = True, "SELL order pehle hi ja chuka (4 din)"
+            default = "YES" if (tested and trading == "ON") else "NO"
+            pick = picks.get((s, prod))
+            out.append({"Symbol": s, "Product": prod, "Qty": int(q),
+                        "Sell?": "NO" if blocked else (
+                            pick if pick in ("YES", "NO") else default),
+                        "Rule": {"EXIT": "EXIT (strategy rule)",
+                                 "SELL@REBAL": "SELL@REBAL (momentum)",
+                                 "SELL": "SELL (combined check)"}[rule],
+                        "Backtested?": "Haan" if tested else "Nahi",
+                        "Kyun": short_why(h.get("Kyun") or h.get("Why", "")),
+                        "Note": note})
+    return out
 
 
 def cut(t, n):
@@ -552,7 +654,7 @@ def short_why(t):
 
 def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                old_amount=None, master=None, dash=None, jrep=None,
-               sip_rows=None):
+               sip_rows=None, sells=None, trading="OFF"):
     old_amount = old_amount or {}
     from openpyxl import Workbook, load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -792,6 +894,41 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     note(ws, row + 1, "Tagged (split.csv) -> strategy ka backtested rule; "
          "untagged -> combined check (backtested nahi). Fundamentals / news "
          "sirf info.")
+
+    # ------------------------------------------------------------ Sell
+    wsl = wb.create_sheet("Sell")
+    wsl.sheet_view.showGridLines = False
+    on = trading == "ON"
+    band(wsl, 1, "SELL  |  TRADING %s  --  %s" % (
+        "ON" if on else "OFF", "Sell? = YES wale rbtrack se bikenge (YES SELL "
+        "type karke)" if on else "koi order nahi jaayega (Dashboard B2 = ON "
+        "karo)"), len(SELL_COLS), color="1E7B34" if on else "C00000")
+    last = table(wsl, SELL_COLS, list(sells or []), None,
+                 {"Symbol": 13, "Product": 9, "Qty": 8, "Sell?": 8,
+                  "Rule": 24, "Backtested?": 12, "Kyun": 48, "Note": 48},
+                 start=3, freeze="B4", filt=False)
+    sc = SELL_COLS.index("Sell?") + 1
+    for rr, x in enumerate(sells or [], 4):
+        c = wsl.cell(row=rr, column=sc)
+        c.fill = fill("FFF2CC")
+        c.font = Font(bold=True, color="C00000" if x["Sell?"] == "YES"
+                      else "7F7F7F")
+        for cc in (SELL_COLS.index("Kyun") + 1, SELL_COLS.index("Note") + 1):
+            wsl.cell(row=rr, column=cc).alignment = Alignment(wrap_text=True,
+                                                              vertical="top")
+    if sells:
+        v = DataValidation(type="list", formula1='"YES,NO"', allow_blank=False)
+        v.add("%s4:%s%d" % (L(sc), L(sc), last))
+        wsl.add_data_validation(v)
+    else:
+        note(wsl, 4, "Aaj kisi stock pe bechne ka rule nahi aaya.")
+        last = 4
+    note(wsl, last + 2, "YES = rbtrack (15:30 ke baad) is qty ka SELL AMO "
+         "lagayega (agle din open pe). Qty = sirf us strategy ka hissa jiska "
+         "rule fire hua (SIP kabhi nahi). Momentum SELL@REBAL sirf mahine ke 1st "
+         "trading day.")
+    note(wsl, last + 3, "Demat se bechne ke liye broker pe DDPI / POA chahiye. "
+         "Bika hua trade agle rb pe journal mein khud aata hai.")
 
     # ------------------------------------------------------------ Journal
     wj = wb.create_sheet("Journal")
@@ -1078,7 +1215,7 @@ def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
     sup = []
     if len(comp) and "Strategy Overlap" in comp:
         sup = list(comp.loc[comp["Strategy Overlap"] == "Super-Buy", "Ticker"])
-    todo = [("Sell in broker app", names(sell), bool(sell)),
+    todo = [("Sell (Sell sheet)", names(sell), bool(sell)),
             ("Near an exit / weak", names(near), False),
             ("NSE red flags", names(flags), bool(flags)),
             ("New W+TT BUY signals", names(buys), False),
@@ -1151,6 +1288,19 @@ def main():
     if drive_copy:
         drive_copy.pull(prev)       # picks you made in Google Sheets
     import sip
+    import settings
+    sell_picks = {}
+    if os.path.exists(prev):        # Dashboard switch + Sell picks you made
+        settings.read_dashboard(prev)
+        try:
+            so = pd.read_excel(prev, sheet_name="Sell", header=2, dtype=str)
+            for _, x in so.fillna("").iterrows():
+                if x.get("Symbol") and x.get("Product"):
+                    sell_picks[(x["Symbol"].upper(), x["Product"].upper())] = \
+                        str(x.get("Sell?", "")).upper().strip()
+        except Exception:
+            pass
+    trading = settings.load()["trading"]
     if os.path.exists(prev):        # SIP sheet edits -> sip.csv
         for pr in sip.read_sheet(prev):
             warns.append("SIP row ignored -- " + pr)
@@ -1307,6 +1457,7 @@ def main():
     for w in warns:
         print("  ! " + w)
     jrep = None
+    sells = sell_rows(hold, read_split(), broker, trading, sell_picks, today)
     sip_rows = sip.status(today)
     sdue = [r["Symbol"] for r in sip_rows if str(r["Next due"]).startswith(
         "aaj")]
@@ -1323,6 +1474,7 @@ def main():
                          % (type(e).__name__, e))
     dash = dashboard_data(acc, today, master, note, regime_red, hold, rebal,
                           comp, sw, warns, jrep)
+    dash["trading"] = trading
     if sip_rows:
         dash["todo"].append(("SIP", "%d plan(s) active | aaj due: %s" % (
             sum(r["Active"] == "YES" for r in sip_rows),
@@ -1330,7 +1482,12 @@ def main():
     path = write_book(path_for(), hold, rebal, comp, held_modes, old_actions,
                       "Portfolio %s | %s | master %s | prices: %s"
                       % (acc.label, today, os.path.basename(master), note),
-                      old_amount, master, dash, jrep, sip_rows)
+                      old_amount, master, dash, jrep, sip_rows, sells,
+                      trading)
+    if sells:
+        print("\nSELL sheet (TRADING %s): %s" % (trading, ", ".join(
+            "%s %s x%d = %s" % (x["Symbol"], x["Product"], x["Qty"],
+                                x["Sell?"]) for x in sells)))
     print("\nExcel (the ONE file to open): %s" % path)
     print("  Dashboard | Holdings | Journal | Actions | SIP | Super-Buy | Rebalance | "
           "Watchlist | Holdings_Table | Swing | Investing | Momentum_Top20 | "

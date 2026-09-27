@@ -23,7 +23,7 @@ PUBLIC FUNCTIONS
   daily_bars(sess, symbol, frm, to)                             -> DataFrame
   holdings(sess)                                  -> [{symbol, qty, avg_price}]
   available_funds(sess)                           -> (rupees|None, error)
-  place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
+  place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,  (side BUY/SELL)
                   sess=None, order_type="MARKET", price=0.0)
                                                   -> (ok, order_id|error, status)
   check_order_status(order_id, broker=None, token=None, sess=None)
@@ -791,17 +791,22 @@ def mtf_leverage(sess, symbol, price):
 
 # ================================================================== orders
 def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
-                    sess=None, order_type="MARKET", price=0.0):
+                    sess=None, order_type="MARKET", price=0.0, side="BUY"):
     """BUY, NSE cash, After Market Order for the next open.
     is_mtf=False -> delivery (Dhan CNC / Angel DELIVERY / Kite CNC)
     is_mtf=True  -> margin trading (Dhan MTF / Angel MARGIN / Kite MTF)
-    Returns (ok, order_id or error text, status). Never sells."""
+    side="SELL" only from rbtrack's Sell sheet (AUTO SELL ON + typed
+    "YES SELL"); selling from the demat needs DDPI/POA at the broker.
+    Returns (ok, order_id or error text, status)."""
     try:
         sess = _resolve(broker, token, sess)
     except BrokerError as e:
         return False, str(e), "ERROR"
     sym = str(symbol).upper()
     qty = int(quantity)
+    side = str(side).upper()
+    if side not in ("BUY", "SELL"):
+        return False, "side %s not allowed" % side, "ERROR"
     if qty < 1:
         return False, "quantity must be >= 1", "ERROR"
     if order_type not in ("MARKET", "LIMIT"):
@@ -821,7 +826,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
             body = {"dhanClientId": sess.client_id,
                     "correlationId": ("RB%s%s" % (dt.date.today().strftime(
                         "%y%m%d"), sym))[:30],
-                    "transactionType": "BUY", "exchangeSegment": "NSE_EQ",
+                    "transactionType": side, "exchangeSegment": "NSE_EQ",
                     "productType": "MTF" if is_mtf else "CNC",
                     "orderType": order_type, "validity": "DAY",
                     "securityId": str(x["id"]), "quantity": qty,
@@ -837,7 +842,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
             return True, oid, status
         if sess.broker == "ANGEL":
             body = {"variety": "AMO", "tradingsymbol": x["tsym"],
-                    "symboltoken": str(x["id"]), "transactiontype": "BUY",
+                    "symboltoken": str(x["id"]), "transactiontype": side,
                     "exchange": "NSE", "ordertype": order_type,
                     "producttype": "MARGIN" if is_mtf else "DELIVERY",
                     "duration": "DAY", "price": "%.2f" % lim, "squareoff": "0",
@@ -848,7 +853,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
             return (True, oid, "AMO") if oid else \
                 (False, "no order id in reply", "ERROR")
         form = {"tradingsymbol": x["tsym"], "exchange": "NSE",
-                "transaction_type": "BUY", "order_type": order_type,
+                "transaction_type": side, "order_type": order_type,
                 "quantity": qty, "product": "MTF" if is_mtf else "CNC",
                 "validity": "DAY"}
         if order_type == "LIMIT":
@@ -909,14 +914,30 @@ def log_order(row):
                                index=False)
 
 
-def ordered_today(symbol):
-    """True if a BUY order for this symbol was accepted today already."""
+def _log_side(d):
+    return d["side"].fillna("BUY").astype(str).str.upper() if "side" in d \
+        else pd.Series(["BUY"] * len(d), index=d.index)
+
+
+def ordered_today(symbol, side="BUY"):
+    """True if an order (BUY by default) for this symbol was accepted today."""
     if not os.path.exists(ORDER_LOG):
         return False
     d = pd.read_csv(ORDER_LOG)
     today = dt.date.today().isoformat()
     return bool(((d["symbol"] == symbol) & (d["date"] == today) &
-                 (d["ok"] == True)).any())       # noqa: E712
+                 (d["ok"] == True) & (_log_side(d) == side)).any())  # noqa
+
+
+def sold_recently(symbol, days=4):
+    """True if a SELL order for this symbol was accepted in the last days
+    (the demat can still show the shares until settlement)."""
+    if not os.path.exists(ORDER_LOG):
+        return False
+    d = pd.read_csv(ORDER_LOG)
+    since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+    return bool(((d["symbol"] == symbol) & (d["date"].astype(str) >= since) &
+                 (d["ok"] == True) & (_log_side(d) == "SELL")).any())  # noqa
 
 
 # ================================================================== CLI
