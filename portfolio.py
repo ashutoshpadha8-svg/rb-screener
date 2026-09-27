@@ -280,19 +280,38 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
     t = technicals(c, lo, hi)
     rk = ranks.get(s)
     legs, why, verdicts = pos["legs"], [], []
+    exits = []          # (verdict, short why, exit level text, door text, door %)
+    px_now = float(c.iloc[-1])
+
+    def pct_door(level):
+        d = (px_now / level - 1) * 100 if level else None
+        return ("%.1f" % level if level else "-",
+                "%+.1f%%" % d if d is not None else "-", d)
     if "swing" in legs:
-        v, w = pt.judge_swing(c, lo, pos["entry"], pos["entry_date"])[:2]
+        r = pt.judge_swing(c, lo, pos["entry"], pos["entry_date"])
+        v, w = r[:2]
         verdicts.append(v)
         why.append("Swing rule: %s (%s)" % (v, w))
+        lvl = max(x for x in (r[3], r[4]) if x == x) if len(r) > 4 else None
+        exits.append((v, "swing: " + w) + pct_door(lvl))
     if "investing" in legs:
-        v, w = pt.judge_investing(c, pos["entry_date"])[:2]
+        r = pt.judge_investing(c, pos["entry_date"])
+        v, w = r[:2]
         verdicts.append(v)
         why.append("Investing rule: %s (%s)" % (v, w))
+        exits.append((v, "investing: " + w) +
+                     pct_door(r[3] if len(r) > 3 else None))
     if "momentum" in legs:
-        v, w = pt.judge_momentum(s, c, lo, hi, pos["entry"],
-                                 pos["entry_date"], ranks)[:2]
+        r = pt.judge_momentum(s, c, lo, hi, pos["entry"],
+                              pos["entry_date"], ranks)
+        v, w = r[:2]
         verdicts.append(v)
         why.append("Momentum rule: %s (%s)" % (v, w))
+        rk0 = ranks.get(s)
+        exits.append((v, "momentum: " + w, "rank %d" % KEEP_RANK,
+                      "%d rank" % (KEEP_RANK - rk0) if rk0 is not None
+                      else "rank ?", (KEEP_RANK - rk0) / 2.0
+                      if rk0 is not None else None))
     if verdicts:
         rec = min(verdicts, key=lambda v: LEG_ORDER.get(v, 9))
         basis = "+".join(legs)
@@ -305,6 +324,9 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
                    % (rec, "above" if t["px"] > t["ma200"] else "BELOW",
                       t["ma200"], rk if rk is not None else "none (outside "
                       "the >= Rs 10k Cr universe)"))
+        exits.append((rec, "%s 40w MA, rank %s" % (
+            "above" if t["px"] > t["ma200"] else "BELOW",
+            rk if rk is not None else "-")) + pct_door(t["ma200"]))
     if prov.get(s) and rec not in ("HOLD", "KEEP"):
         why.append("live price during market hours -- counts only if it "
                    "CLOSES here")
@@ -312,7 +334,16 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
         why.append(pos["note"])
     f = fund.get(s, {})
     n = news.get(s, [])
+    ex = sorted(exits, key=lambda e: (LEG_ORDER.get(e[0], 9),
+                                      e[4] if e[4] is not None else 1e9))
+    ex = ex[0] if ex else (rec, "", "-", "-", None)
+    fl = (filings or {}).get(s) or []
     base.update({
+        "Kyun": ex[1], "Exit level": ex[2], "Exit se door": ex[3],
+        "_door": ex[4],
+        "Headline": ("!! " + fl[0][2]) if fl and fl[0][3] else
+        ("%s: %s" % (n[0][0], n[0][1]) if n else
+         ("%s %s" % (fl[0][0], fl[0][2]) if fl else "")),
         "Recommendation": rec, "Basis": basis, "Why": " | ".join(why),
         "LTP": round(t["px"], 2),
         "P&L %": round((t["px"] / pos["entry"] - 1) * 100, 1)
@@ -359,20 +390,64 @@ REC_FILL = {"EXIT": "F8CBAD", "SELL": "F8CBAD", "SELL@REBAL": "FCE4D6",
 SCAN_SHEETS = ["Swing", "Investing", "Momentum_Top20", "Fundamentals"]
 SHEET_INFO = [
     ("Dashboard", "this page: summary + what to do today"),
-    ("Holdings", "your stocks (LIVE + PAPER): trend, RSI, rules, fundamentals, "
-                 "news, NSE filings, RECOMMENDATION + why"),
+    ("Holdings", "your stocks as cards: ACTION, why, P&L, how far the exit is"),
+    ("Journal", "every trade: P&L after fees, dividends and tax, month by "
+                "month, vs Nifty"),
     ("Actions", "all buy candidates: pick BUY / PAPER / WATCH + Amount (Rs)"),
     ("Super-Buy", "common stocks: in BOTH the W+TT swing list and momentum "
                   "top 20, best momentum rank first"),
     ("Rebalance", "momentum SELL / BUY / HOLD (1st trading day of the month)"),
     ("Watchlist", "your WATCH stocks, best momentum rank first"),
+    ("Holdings_Table", "the same holdings as one sortable table, all columns"),
     ("Swing", "master scan: W+TT signals (BUY / FIT / LATE) + fundamentals"),
     ("Investing", "master scan: same signals, Stage-4 exit"),
     ("Momentum_Top20", "master scan: RAMOM top 20 (sector cap 4)"),
     ("Fundamentals", "master scan: Screener.in detail per stock (info only)")]
-TAB = {"Dashboard": "1F4E78", "Holdings": "548235", "Actions": "FFC000",
-       "Super-Buy": "00B050",
-       "Rebalance": "548235", "Watchlist": "548235"}
+TAB = {"Dashboard": "1F4E78", "Holdings": "548235", "Journal": "7030A0",
+       "Actions": "FFC000", "Super-Buy": "00B050", "Rebalance": "2E75B6",
+       "Watchlist": "2E75B6"}
+NAVY, GREY_TXT, LINE = "1F4E78", "7F7F7F", "D9D9D9"
+ACT_COL = {"EXIT": ("C00000", "FFFFFF"), "SELL": ("C00000", "FFFFFF"),
+           "AVOID": ("C00000", "FFFFFF"), "SELL@REBAL": ("E46C0A", "FFFFFF"),
+           "WATCH": ("FFC000", "1F1F1F"), "WEAK": ("FFC000", "1F1F1F"),
+           "HOLD": ("1E7B34", "FFFFFF"), "KEEP": ("1E7B34", "FFFFFF"),
+           "STRONG": ("1E7B34", "FFFFFF"), "NO DATA": ("7F7F7F", "FFFFFF")}
+MONEY = ("Value (Rs)", "Amount (Rs)", "Gross", "Gross P&L", "Dividend", "Fees",
+         "Fees (buy)", "NET", "NET (tax se pehle)", "Ab tak kul NET",
+         "Tax (andaaza)", "Unrealised", "Agar aaj becho: NET")
+PRICE = ("Entry", "LTP", "Buy", "Sell", "40w MA", "30w MA", "50 DMA",
+         "Added @")
+SIGNED = ("P&L %", "Net %", "vs 40w %", "Promoter Δ", "FII Δ", "DII Δ",
+          "Nifty same period %", "Nifty same mahina %") + MONEY
+# Watchlist: fewer, clearer columns (header shown -> data key)
+WCOLS = [("Mom Rank", "Mom Rank"), ("Symbol", "Symbol"),
+         ("Verdict", "Recommendation"), ("Kyun", "Why"),
+         ("Since added %", "P&L %"), ("Added @", "Entry"), ("LTP", "LTP"),
+         ("Stage", "Stage"), ("RSI 14", "RSI 14"), ("vs 40w %", "vs 40w %"),
+         ("From 52w High %", "From 52w High %"), ("W+TT today", "W+TT today"),
+         ("Fund (swing)", "Fund (swing)"), ("Red flag", "Red flag"),
+         ("NSE filings (30d)", "NSE filings (30d)"),
+         ("News (7 days)", "News (7 days)")]
+ACOLS = ["Ticker", "Action", "Amount (Rs)", "Qty (auto)", "Strategy Overlap",
+         "Held here", "Mom Rank", "RS Rank", "W+TT Status", "LTP",
+         "Sector / Industry", "Fundamental Status", "Momentum Score", "ATR %",
+         "Dist 52W High %"]
+
+
+def nfmt(h):
+    if h in MONEY:
+        return '#,##0;-#,##0;0'
+    if h in PRICE:
+        return '#,##0.00'
+    if h in ("RSI 14",) or "Rank" in h or h in ("Qty", "Din", "Trades band",
+                                                "Jeete", "Qty Held",
+                                                "Shares to Buy", "Qty (auto)"):
+        return '#,##0'
+    if h in ("Promoter Δ", "FII Δ", "DII Δ"):
+        return '+0.00;-0.00;0'
+    if "%" in h or h in ("P/E", "D/E", "Momentum Score"):
+        return '+0.0;-0.0;0' if h in SIGNED else '0.0'
+    return None
 
 
 def dashboard(ws, d, have):
@@ -436,14 +511,17 @@ def dashboard(ws, d, have):
 
 
 def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
-               old_amount=None, master=None, dash=None):
+               old_amount=None, master=None, dash=None, jrep=None):
     old_amount = old_amount or {}
     from openpyxl import Workbook, load_workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
-    from openpyxl.utils import get_column_letter
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter as L
     from openpyxl.worksheet.datavalidation import DataValidation
     head = Font(bold=True, color="FFFFFF")
-    hfill = PatternFill("solid", fgColor="1F4E78")
+    hfill = PatternFill("solid", fgColor=NAVY)
+    thin = Side(style="thin", color=LINE)
+    box = Border(left=thin, right=thin, top=thin, bottom=thin)
+    fill = lambda c: PatternFill("solid", fgColor=c)                # noqa
     wb = None
     if master and os.path.exists(master):   # one file: scan sheets inside
         try:
@@ -459,107 +537,293 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         wb = Workbook()
         del wb[wb.active.title]
 
-    def table(ws, cols, rows, fills=None, widths=None):
+    def clean(v):
+        if isinstance(v, (np.floating, np.integer)):
+            v = float(v)
+        if isinstance(v, float) and v != v:
+            v = None
+        return v
+
+    def table(ws, cols, rows, fills=None, widths=None, start=1, keys=None,
+              freeze="C2", filt=True):
+        """Header row + rows; number formats + green/red for signed cols."""
+        keys = keys or cols
         for i, h in enumerate(cols, 1):
-            c = ws.cell(row=1, column=i, value=h)
-            c.font, c.fill = head, hfill
-            c.alignment = Alignment(wrap_text=True, vertical="center")
-            ws.column_dimensions[get_column_letter(i)].width = \
-                (widths or {}).get(h, 10)
-        for r, x in enumerate(rows, 2):
-            for i, h in enumerate(cols, 1):
-                v = x.get(h)
-                if isinstance(v, (np.floating, np.integer)):
-                    v = float(v)
-                if isinstance(v, float) and v != v:
-                    v = None
+            c = ws.cell(row=start, column=i, value=h)
+            c.font, c.fill, c.border = head, hfill, box
+            c.alignment = Alignment(wrap_text=True, vertical="center",
+                                    horizontal="center")
+            if widths is not None:
+                ws.column_dimensions[L(i)].width = widths.get(h, 11)
+        ws.row_dimensions[start].height = 30
+        for r, x in enumerate(rows, start + 1):
+            for i, (h, k) in enumerate(zip(cols, keys), 1):
+                v = clean(x.get(k))
                 c = ws.cell(row=r, column=i, value=v)
-                if h in ("Promoter Δ", "FII Δ", "DII Δ") and \
-                        isinstance(v, (int, float)) and v:
-                    c.font = Font(bold=True, color="006100" if v > 0
-                                  else "C00000")
-                    c.number_format = "+0.00;-0.00"
+                c.border = box
+                f = nfmt(h)
+                if f and isinstance(v, (int, float)):
+                    c.number_format = f
+                if h in SIGNED and isinstance(v, (int, float)) and v:
+                    c.font = Font(bold=h in ("P&L %", "Net %", "NET",
+                                             "NET (tax se pehle)"),
+                                  color="1E7B34" if v > 0 else "C00000")
+                if h in ("Symbol", "Ticker"):
+                    c.font = Font(bold=True)
             if fills:
                 k, fmap = fills
                 col = fmap.get(x.get(k))
                 if col:
-                    ws.cell(row=r, column=cols.index(k) + 1).fill = \
-                        PatternFill("solid", fgColor=col)
-        ws.freeze_panes = "D2"
-        ws.auto_filter.ref = "A1:%s%d" % (get_column_letter(len(cols)),
-                                          max(len(rows) + 1, 2))
-        return len(rows) + 1
+                    ws.cell(row=r, column=keys.index(k) + 1).fill = fill(col)
+        if freeze:
+            ws.freeze_panes = freeze
+        if filt and rows:
+            ws.auto_filter.ref = "A%d:%s%d" % (start, L(len(cols)),
+                                               start + len(rows))
+        return start + len(rows)
 
-    ws = wb.create_sheet("Holdings")
+    def note(ws, row, text, col=1):
+        c = ws.cell(row=row, column=col, value=text)
+        c.font = Font(italic=True, color=GREY_TXT, size=10)
+
+    def band(ws, row, text, ncol, color=NAVY, size=12):
+        for i in range(1, ncol + 1):
+            ws.cell(row=row, column=i).fill = fill(color)
+        c = ws.cell(row=row, column=1, value=text)
+        c.font = Font(bold=True, color="FFFFFF", size=size)
+        ws.row_dimensions[row].height = 22
+
+    def boxes(ws, row, items, width=3):
+        """Summary boxes: [(label, value, color)] each `width` columns."""
+        for n, (lab, val, col) in enumerate(items):
+            c0 = 1 + n * width
+            a = ws.cell(row=row, column=c0, value=lab)
+            a.font = Font(size=9, color=GREY_TXT, bold=True)
+            b = ws.cell(row=row + 1, column=c0, value=val)
+            b.font = Font(size=15, bold=True, color=col or "1F1F1F")
+            for rr in (row, row + 1):
+                ws.merge_cells(start_row=rr, start_column=c0, end_row=rr,
+                               end_column=c0 + width - 2)
+                for cc in range(c0, c0 + width - 1):
+                    ws.cell(row=rr, column=cc).fill = fill("F3F6FA")
+        ws.row_dimensions[row + 1].height = 24
+
     own = [h for h in hold if h["Mode"] != "WATCH"]
     watch = sorted([h for h in hold if h["Mode"] == "WATCH"],
                    key=lambda h: h.get("Mom Rank") if h.get("Mom Rank")
                    is not None else 10 ** 6)
-    last = table(ws, HCOLS, own, ("Recommendation", REC_FILL), WIDTH)
-    for i, t in enumerate([banner,
-                           "Tagged (split.csv) -> its strategy's backtested "
-                           "exit rule; untagged -> combined check (SELL/WEAK/"
-                           "KEEP, not backtested as a whole).",
-                           "Fundamentals + news are information only -- they "
-                           "never change the recommendation.",
-                           "Nothing is sold from code: place sells in your "
-                           "broker app."], last + 2):
-        ws.cell(row=i, column=1, value=t).font = Font(italic=True, bold=(
-            i == last + 2))
 
-    ww = wb.create_sheet("Watchlist")
-    wcols = ["Mom Rank"] + [c for c in HCOLS if c not in ("Mom Rank", "Mode",
-                                                        "Qty", "Value (Rs)",
-                                                        "Basis")]
-    wcols = [c if c != "Entry" else "Entry" for c in wcols]
-    last = table(ww, wcols, watch, ("Recommendation", REC_FILL),
-                 dict(WIDTH, **{"Mom Rank": 8}))
-    ww.cell(row=last + 2, column=1, value=(
-        "Your WATCH picks, best momentum rank first. Entry = price when added, "
-        "P&L % = move since then. STRONG = above 40w MA and rank <= 40; WEAK = "
-        "one warning; AVOID = Stage 4 or below 40w MA with rank > 40. Remove: "
-        "rbtrack --unwatch SYMBOL")).font = Font(italic=True)
+    # ------------------------------------------------------------ Holdings
+    ws = wb.create_sheet("Holdings")
+    ws.sheet_view.showGridLines = False
+    PER, W = 4, 3                                  # cards per row, cols/card
+    for k in range(PER):
+        ws.column_dimensions[L(k * W + 1)].width = 15
+        ws.column_dimensions[L(k * W + 2)].width = 27
+        ws.column_dimensions[L(k * W + 3)].width = 2
+    ncol = PER * W
+    who = banner.split(" | master")[0].replace("Portfolio ", "")
+    band(ws, 1, "HOLDINGS  |  " + who, ncol, size=14)
+    sell = [h["Symbol"] for h in own if h.get("Recommendation") in
+            ("EXIT", "SELL", "SELL@REBAL")]
+    near = [h["Symbol"] for h in own if h.get("Recommendation") not in
+            ("EXIT", "SELL", "SELL@REBAL") and h.get("_door") is not None
+            and h["_door"] < 5]
+    flags = [h["Symbol"] for h in own if h.get("Red flag")]
 
-    wr = wb.create_sheet("Rebalance")
-    rcols = ["Section", "Mode", "Symbol", "Mom Rank", "Momentum Score",
-             "Sector", "Qty Held", "Entry", "LTP", "P&L %", "Shares to Buy",
-             "Amount (Rs)", "Note"]
-    last = table(wr, rcols, rebal, ("Section", {"SELL": "FFC7CE",
-                                                "BUY": "C6EFCE",
-                                                "HOLD": "DDEBF7"}),
-                 {"Note": 45, "Sector": 22, "Symbol": 13})
-    wr.cell(row=last + 2, column=1, value=(
-        "Momentum only (split.csv strategy = Momentum). Do it on the 1st "
-        "trading day of the month: sell SELL rows at the open, buy BUY rows "
-        "that fill a free slot. Keep while rank <= %d." % KEEP_RANK)).font = \
-        Font(italic=True)
+    def pnl(mode):
+        rows = [h for h in own if h["Mode"] == mode and h.get("Value (Rs)")]
+        val = sum(h["Value (Rs)"] for h in rows)
+        cost = sum((h.get("Entry") or 0) * h["Qty"] for h in rows)
+        return (val - cost, (val / cost - 1) * 100 if cost else 0) \
+            if rows else None
+    lp, pp = pnl("LIVE"), pnl("PAPER")
+    txt = lambda p: "-" if p is None else "%s%s (%+.1f%%)" % (      # noqa
+        "+" if p[0] >= 0 else "-", format(int(abs(p[0])), ","), p[1])
+    boxes(ws, 3, [
+        ("AAJ BECHNA", ("%d  %s" % (len(sell), ", ".join(sell[:3]))).strip(),
+         "C00000" if sell else "1E7B34"),
+        ("EXIT KE PAAS (<5%)", ("%d  %s" % (len(near),
+                                             ", ".join(near[:3]))).strip(),
+         "9C6500" if near else "1E7B34"),
+        ("RED FLAG", ("%d  %s" % (len(flags), ", ".join(flags[:3]))).strip(),
+         "C00000" if flags else "1E7B34"),
+        ("P&L  LIVE | PAPER", "%s | %s" % (txt(lp), txt(pp)),
+         "1F1F1F")], width=W)
 
-    wsb = wb.create_sheet("Super-Buy")       # common to both strategies
-    sb = [dict(x, **{"Held here": ", ".join(sorted(held_modes.get(
-        str(x.get("Ticker", "")).upper(), [])))})
-          for _, x in comp.iterrows()
-          if x.get("Strategy Overlap") == "Super-Buy"] if len(comp) and \
-        "Strategy Overlap" in comp else []
-    sb.sort(key=lambda x: x.get("Mom Rank") if x.get("Mom Rank") ==
-            x.get("Mom Rank") and x.get("Mom Rank") is not None else 10 ** 6)
-    scols = (["Mom Rank"] + [c for c in comp.columns if c not in
-                             ("Mom Rank", "Strategy Overlap")]
-             if len(comp) else ["Ticker"]) + ["Held here"]
-    last = table(wsb, scols, sb, None, {"Ticker": 13, "Sector / Industry": 22,
-                                        "Regime": 18, "Held here": 10,
-                                        "Mom Rank": 8})
-    for r in range(2, last + 1):
-        wsb.cell(row=r, column=scols.index("Ticker") + 1).font = Font(bold=True)
-    wsb.cell(row=last + 2, column=1, value=(
-        "%d stock(s) in BOTH the W+TT swing list and the momentum top %d. "
-        "To buy: pick the Action in the Actions sheet (same stocks, green rows). "
-        "Buying only the overlap was NOT backtested as its own strategy."
-        % (len(sb), ms.SLOTS) if sb else
-        "No stock is in both lists today.")).font = Font(italic=True)
+    def card(r0, c0, h):
+        rec = h.get("Recommendation", "")
+        bg, fg = ACT_COL.get(rec, ("7F7F7F", "FFFFFF"))
+        a = ws.cell(row=r0, column=c0, value=h["Symbol"])
+        b = ws.cell(row=r0, column=c0 + 1, value=rec)
+        for c in (a, b):
+            c.fill, c.font = fill(bg), Font(bold=True, size=13, color=fg)
+        b.alignment = Alignment(horizontal="right")
+        p = clean(h.get("P&L %"))
+        a = ws.cell(row=r0 + 1, column=c0, value=p / 100 if isinstance(
+            p, (int, float)) else "-")
+        a.number_format = '+0.0%;-0.0%;0.0%'
+        a.font = Font(bold=True, size=18, color="1E7B34" if (p or 0) > 0
+                      else "C00000" if (p or 0) < 0 else "1F1F1F")
+        v = clean(h.get("Value (Rs)"))
+        b = ws.cell(row=r0 + 1, column=c0 + 1, value="Rs %s  |  %s" % (
+            format(int(v), ",") if v else "-", h["Mode"]))
+        b.font = Font(color=GREY_TXT)
+        b.alignment = Alignment(horizontal="right", vertical="center")
+        lines = [
+            ("Kyun", h.get("Kyun") or h.get("Why", "")),
+            ("Exit se door", h.get("Exit se door", "-")),
+            ("Exit level", h.get("Exit level", "-")),
+            ("Qty @ Entry", "%g @ %s" % (h.get("Qty") or 0, "%.2f" %
+                                         h["Entry"] if h.get("Entry") else "-")),
+            ("Stage / RSI", "%s / %s" % (str(h.get("Stage", "-")).split(" (")[0],
+                                         "%.0f" % h["RSI 14"] if h.get(
+                                             "RSI 14") is not None else "-")),
+            ("Rank / W+TT", "%s / %s" % (h.get("Mom Rank") if h.get(
+                "Mom Rank") is not None else "-", h.get("W+TT today", "-"))),
+            ("News / filing", h.get("Headline") or "-")]
+        for n, (lab, val) in enumerate(lines, 2):
+            a = ws.cell(row=r0 + n, column=c0, value=lab)
+            b = ws.cell(row=r0 + n, column=c0 + 1, value=val)
+            a.font = Font(size=9, color=GREY_TXT)
+            b.alignment = Alignment(horizontal="right", vertical="top",
+                                    wrap_text=lab in ("Kyun", "News / filing"))
+            if lab == "Exit se door" and h.get("_door") is not None and \
+                    h["_door"] < 5:
+                b.fill, b.font = fill("FFE0E0"), Font(bold=True,
+                                                     color="C00000")
+            if lab == "News / filing" and str(val).startswith("!!"):
+                b.font = Font(bold=True, color="C00000")
+        for rr in range(r0, r0 + 9):
+            for cc in (c0, c0 + 1):
+                ws.cell(row=rr, column=cc).border = box
+        return 9
 
+    row = 6
+    for mode, label in (("LIVE", "LIVE (demat, asli paisa)"),
+                        ("PAPER", "PAPER (practice)")):
+        rows = sorted([h for h in own if h["Mode"] == mode],
+                      key=lambda x: (LEG_ORDER.get(x.get("Recommendation"), 8),
+                                     x["_door"] if x.get("_door") is not None
+                                     else 1e9))
+        if not rows:
+            continue
+        p = pnl(mode)
+        band(ws, row, "%s  --  %d stock(s)%s" % (
+            label, len(rows), "  |  P&L " + txt(p) if p else ""), ncol,
+            color="548235" if mode == "LIVE" else "8EA9C1")
+        row += 2
+        for n in range(0, len(rows), PER):
+            for k, h in enumerate(rows[n:n + PER]):
+                card(row, 1 + k * W, h)
+            for rr in (row + 2, row + 8):              # Kyun, News wrap
+                ws.row_dimensions[rr].height = 30
+            row += 10
+    if not own:
+        ws.cell(row=6, column=1, value="Koi holding nahi (demat khaali, koi "
+                "PAPER trade nahi).").font = Font(size=12, italic=True)
+        row = 8
+    note(ws, row, "Card ka rang = ACTION. Laal 'Exit se door' = exit 5% se kam "
+         "door. Sort/filter: Holdings_Table tab. Sell hamesha broker app mein.")
+    note(ws, row + 1, "Tagged (split.csv) -> strategy ka backtested rule; "
+         "untagged -> combined check (backtested nahi). Fundamentals / news "
+         "sirf info.")
+
+    # ------------------------------------------------------------ Journal
+    wj = wb.create_sheet("Journal")
+    wj.sheet_view.showGridLines = False
+    widths = [13, 12, 20, 12, 12, 7, 7, 10, 10, 11, 10, 9, 13, 9, 11, 16]
+    for i, w in enumerate(widths, 1):
+        wj.column_dimensions[L(i)].width = w
+    band(wj, 1, "TRADE JOURNAL  |  " + banner.split(" | master")[0].replace(
+        "Portfolio ", ""), 16, size=14)
+    row = 3
+    if not jrep:
+        wj.cell(row=3, column=1, value="Abhi koi trade nahi. rbtrack se BUY / "
+                "PAPER karoge to yahan aayega.").font = Font(size=12,
+                                                             italic=True)
+        row = 5
+    for mode in ("LIVE", "PAPER"):
+        r = (jrep or {}).get(mode)
+        if not r:
+            continue
+        band(wj, row, "LIVE  --  asli paisa" if mode == "LIVE" else
+             "PAPER  --  practice (nakli paisa, asli rates se fees/tax)", 16,
+             color="548235" if mode == "LIVE" else "8EA9C1")
+        row += 1
+        items = []
+        for lab, val, sub in r["cards"]:
+            if isinstance(val, (int, float)):
+                col = "1E7B34" if val > 0 else "C00000" if val < 0 else None
+                val = ("+" if val > 0 else "-" if val < 0 else "") + \
+                    "Rs " + format(int(round(abs(val))), ",")
+            else:
+                col = "1E7B34" if str(val).startswith("+") else \
+                    "C00000" if str(val).startswith("-") else None
+            items.append((lab.upper(), val, col))
+        boxes(wj, row + 1, items, width=3)
+        for n, (_, _, sub) in enumerate(r["cards"]):
+            note(wj, row + 3, sub, col=1 + n * 3)
+        row += 5
+        wj.cell(row=row, column=1, value="MAHINE-WISE").font = Font(
+            bold=True, color=NAVY)
+        mcols = ["Mahina", "Trades band", "Jeete", "Gross", "Dividend", "Fees",
+                 "Tax (andaaza)", "NET", "Graph", "Ab tak kul NET",
+                 "Nifty same mahina %"]
+        big = max([abs(m["NET"]) for m in r["months"]] or [1]) or 1
+        for m in r["months"]:
+            m["Graph"] = "█" * max(1, int(round(abs(m["NET"]) / big * 14))) \
+                if m["NET"] else ""
+        last = table(wj, mcols, r["months"], start=row + 1, freeze=None,
+                     filt=False)
+        for rr, m in enumerate(r["months"], row + 2):
+            g = wj.cell(row=rr, column=mcols.index("Graph") + 1)
+            g.font = Font(color="70AD47" if m["NET"] >= 0 else "E06666")
+        if not r["months"]:
+            note(wj, last + 1, "abhi koi trade band nahi hua / dividend nahi")
+            last += 1
+        row = last + 2
+        wj.cell(row=row, column=1, value="BAND HUE TRADES").font = Font(
+            bold=True, color=NAVY)
+        ccols = ["Symbol", "Strategy", "Kyun becha", "Buy date", "Sell date",
+                 "Din", "Qty", "Buy", "Sell", "Gross P&L", "Dividend", "Fees",
+                 "NET (tax se pehle)", "Net %", "Nifty same period %",
+                 "Rule follow?"]
+        last = table(wj, ccols, r["closed"], start=row + 1, freeze=None,
+                     filt=False)
+        for rr, x in enumerate(r["closed"], row + 2):
+            c = wj.cell(row=rr, column=len(ccols))
+            c.font = Font(bold=True, color="1E7B34" if x["Rule follow?"] ==
+                          "Haan" else "C00000")
+        if not r["closed"]:
+            note(wj, last + 1, "koi nahi")
+            last += 1
+        row = last + 2
+        wj.cell(row=row, column=1, value="ABHI KHULE TRADES").font = Font(
+            bold=True, color=NAVY)
+        ocols = ["Symbol", "Strategy", "Status", "Buy date", "Din", "Qty",
+                 "Buy", "LTP", "Unrealised", "Dividend", "Fees (buy)",
+                 "Agar aaj becho: NET", "Note"]
+        last = table(wj, ocols, r["open"], start=row + 1, freeze=None,
+                     filt=False)
+        if not r["open"]:
+            note(wj, last + 1, "koi nahi")
+            last += 1
+        row = last + 3
+    note(wj, row, "Fees = broker ke official rates (STT 0.1% dono taraf, "
+         "stamp, exchange, SEBI, GST, DP har sell). Tax = ANDAAZA: STCG 20.8%, "
+         "LTCG 13% (Rs 1.25 lakh chhoot), loss set-off ke baad, STT deductible "
+         "nahi. Dividend pe tax slab se (alag). ITR ke liye broker ka P&L "
+         "statement final.")
+    note(wj, row + 1, "Sell apne aap pakda jaata hai (demat + broker trade "
+         "history). Na pakde to: rbtrack --sold SYMBOL PRICE --date "
+         "YYYY-MM-DD   |   PAPER: rbtrack --sold SYMBOL --paper")
+
+    # ------------------------------------------------------------ Actions
     wa = wb.create_sheet("Actions")
-    acols = (list(comp.columns) if len(comp) else ["Ticker"]) + \
-        ["Held here", "Action", "Amount (Rs)", "Qty (auto)"]
+    extra = [c for c in comp.columns if c not in ACOLS and c not in
+             ("Regime", "Shares (Rs slot)")] if len(comp) else []
+    acols = ACOLS + extra
     rows = []
     for _, x in comp.iterrows():
         d = dict(x)
@@ -568,23 +832,24 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         d["Action"] = old_actions.get(t, "")
         d["Amount (Rs)"] = old_amount.get(t)
         rows.append(d)
-    widths = {"Ticker": 13, "Strategy Overlap": 14, "Sector / Industry": 22,
-              "Regime": 18, "Action": 11, "Held here": 10,
-              "Amount (Rs)": 11, "Qty (auto)": 9}
-    last = table(wa, acols, rows, ("Strategy Overlap", {"Super-Buy": "C6EFCE"}),
-                 widths)
-    col = get_column_letter(acols.index("Action") + 1)
-    amt = get_column_letter(acols.index("Amount (Rs)") + 1)
-    ltp = get_column_letter(acols.index("LTP") + 1) if "LTP" in acols else None
+    widths = {"Ticker": 13, "Strategy Overlap": 14, "Sector / Industry": 24,
+              "Action": 12, "Held here": 10, "Amount (Rs)": 12,
+              "Qty (auto)": 9, "Fundamental Status": 12, "W+TT Status": 9}
+    last = table(wa, acols, rows, ("Strategy Overlap",
+                                   {"Super-Buy": "C6EFCE"}), widths,
+                 freeze="E2")
+    col = L(acols.index("Action") + 1)
+    amt = L(acols.index("Amount (Rs)") + 1)
+    qty = acols.index("Qty (auto)") + 1
+    ltp = L(acols.index("LTP") + 1)
     for r in range(2, last + 1):
         for c in (col, amt):
-            wa["%s%d" % (c, r)].fill = PatternFill("solid", fgColor="FFF2CC")
+            wa["%s%d" % (c, r)].fill = fill("FFF2CC")
         wa["%s%d" % (amt, r)].number_format = "#,##0"
-        if ltp:     # live preview; rbtrack recalculates with the fresh price
-            wa.cell(row=r, column=len(acols), value=(
-                '=IF(OR({a}{r}="",{a}{r}="WATCH"),"",IFERROR(INT(IF({m}{r}="",'
-                '{d},{m}{r})*IF(ISNUMBER(SEARCH("MTF",{a}{r})),{x},1)/{p}{r}),'
-                '""))').format(a=col, m=amt, p=ltp, r=r, d=SLOT_RS, x=MTF_X))
+        wa.cell(row=r, column=qty, value=(
+            '=IF(OR({a}{r}="",{a}{r}="WATCH"),"",IFERROR(INT(IF({m}{r}="",'
+            '{d},{m}{r})*IF(ISNUMBER(SEARCH("MTF",{a}{r})),{x},1)/{p}{r}),'
+            '""))').format(a=col, m=amt, p=ltp, r=r, d=SLOT_RS, x=MTF_X))
     dv = DataValidation(type="list", formula1='"%s"' % ",".join(ms.ACTIONS),
                         allow_blank=True, showErrorMessage=True,
                         errorTitle="Action", error="Pick from the list",
@@ -593,16 +858,64 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                                "WATCH = no order")
     dv.add("%s2:%s%d" % (col, col, max(last, 2)))
     wa.add_data_validation(dv)
-    wa.cell(row=last + 2, column=1, value=(
-        "Pick an Action (yellow), save + close, then rbtrack after 15:30. "
-        "Momentum buys only on the 1st trading day of the month.")).font = \
-        Font(italic=True)
-    wa.cell(row=last + 3, column=1, value=(
-        "Amount (Rs) = YOUR money for that stock (blank = Rs %s, the tested "
-        "equal slot). BUY MTF / PAPER MTF: Qty (auto) previews %dx; rbtrack "
-        "uses the broker's real MTF leverage for that stock (Dhan, e.g. "
-        "4.55x) and the price at order time."
-        % (format(SLOT_RS, ","), MTF_X))).font = Font(italic=True)
+    note(wa, last + 2, "Peele columns bharo: Action + Amount (Rs) (khaali = Rs "
+         "%s). Qty apne aap. Save karo, phir rbtrack (15:30 ke baad). Hara = "
+         "Super-Buy. Momentum buy sirf mahine ke 1st trading day."
+         % format(SLOT_RS, ","))
+    note(wa, last + 3, "MTF: Qty (auto) %dx maan ke dikhata hai; rbtrack broker "
+         "ka asli leverage leta hai." % MTF_X)
+
+    # ------------------------------------------------------------ Super-Buy
+    wsb = wb.create_sheet("Super-Buy")
+    sb = [dict(x, **{"Held here": ", ".join(sorted(held_modes.get(
+        str(x.get("Ticker", "")).upper(), [])))})
+          for _, x in comp.iterrows()
+          if x.get("Strategy Overlap") == "Super-Buy"] if len(comp) and \
+        "Strategy Overlap" in comp else []
+    sb.sort(key=lambda x: x.get("Mom Rank") if x.get("Mom Rank") ==
+            x.get("Mom Rank") and x.get("Mom Rank") is not None else 10 ** 6)
+    scols = ["Mom Rank", "Ticker", "W+TT Status", "RS Rank", "LTP",
+             "Sector / Industry", "Fundamental Status", "Momentum Score",
+             "ATR %", "Dist 52W High %", "Held here"]
+    scols = [c for c in scols if not len(comp) or c in comp.columns or
+             c == "Held here"]
+    last = table(wsb, scols, sb, None, {"Ticker": 13, "Sector / Industry": 24,
+                                        "Held here": 10, "Mom Rank": 8,
+                                        "Fundamental Status": 12})
+    note(wsb, last + 2, "%d stock(s) W+TT swing list AUR momentum top %d dono "
+         "mein. Khareedna: Actions sheet (wahi stocks, hare). Sirf overlap "
+         "khareedna alag se backtest NAHI hua." % (len(sb), ms.SLOTS)
+         if sb else "Aaj koi stock dono list mein nahi.")
+
+    # ------------------------------------------------------------ Rebalance
+    wr = wb.create_sheet("Rebalance")
+    rcols = ["Section", "Mode", "Symbol", "Mom Rank", "Momentum Score",
+             "Sector", "Qty Held", "Entry", "LTP", "P&L %", "Shares to Buy",
+             "Amount (Rs)", "Note"]
+    last = table(wr, rcols, rebal, ("Section", {"SELL": "FFC7CE",
+                                                "BUY": "C6EFCE",
+                                                "HOLD": "DDEBF7"}),
+                 {"Note": 45, "Sector": 22, "Symbol": 13})
+    note(wr, last + 2, "Sirf momentum. Mahine ke 1st trading day: SELL rows "
+         "open pe becho, BUY rows khaali slot bharo. Rakho jab tak rank <= %d."
+         % KEEP_RANK)
+
+    # ------------------------------------------------------------ Watchlist
+    ww = wb.create_sheet("Watchlist")
+    last = table(ww, [h for h, _ in WCOLS], watch,
+                 ("Recommendation", REC_FILL),
+                 {"Mom Rank": 8, "Symbol": 13, "Verdict": 10, "Kyun": 45,
+                  "Stage": 16, "NSE filings (30d)": 60, "News (7 days)": 60,
+                  "Red flag": 8}, keys=[k for _, k in WCOLS])
+    note(ww, last + 2, "Tumhare WATCH stocks, best momentum rank pehle. STRONG = "
+         "40w MA ke upar + rank <= 40; WEAK = ek warning; AVOID = Stage 4 ya "
+         "40w MA ke neeche + rank > 40. Hatana: rbtrack --unwatch SYMBOL")
+
+    # ------------------------------------------------------------ table copy
+    wt = wb.create_sheet("Holdings_Table")
+    last = table(wt, HCOLS, own, ("Recommendation", REC_FILL), WIDTH)
+    note(wt, last + 2, banner)
+
     dashboard(wb.create_sheet("Dashboard"), dash or {
         "title": banner, "prices": "", "master": "", "regime": "",
         "regime_red": False, "money": [], "todo": [], "watch": [],
@@ -628,9 +941,16 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
 
 
 def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
-                   sw, warns):
+                   sw, warns, jrep=None):
     names = lambda xs: ", ".join(xs) if xs else "-"
     money = []
+    for m, r in (jrep or {}).items():
+        c = dict((k, v) for k, v, _ in r["cards"])
+        v = c.get("Net profit (fees + tax ke baad)", 0)
+        money.append(("Journal %s" % m, "net (fees + tax ke baad) %sRs %s | "
+                      "jeete/band %s | khule %d" % (
+                          "+" if v >= 0 else "-", format(int(abs(v)), ","),
+                          c.get("Win rate", "-"), len(r["open"]))))
     for m in ("LIVE", "PAPER"):
         rows = [h for h in hold if h["Mode"] == m]
         if not rows:
@@ -749,6 +1069,14 @@ def main():
     if added:
         print("  WATCH picks added to the watchlist: %s" % ", ".join(added))
     sp = read_split()
+    import journal
+    try:                            # buys, confirmed sells, dividends
+        _, jmsg = journal.sync(sp, broker, {}, {}, sess, acc.broker)
+        if any(" SOLD " in m for m in jmsg):
+            sp = read_split()       # closed trades left split.csv
+    except Exception as e:
+        journal = None
+        warns.append("journal not updated (%s: %s)" % (type(e).__name__, e))
     pos = positions(broker, sp)
     syms = sorted({p["symbol"] for p in pos})
     print("  %d demat holding(s), %d position row(s)" % (len(broker), len(pos)))
@@ -875,15 +1203,28 @@ def main():
               "backtest. Paper first.")
     for w in warns:
         print("  ! " + w)
+    jrep = None
+    if journal:
+        try:                        # exit signals ("rule followed?") + sheet
+            last_px = {s_: float(c_.iloc[-1]) for s_, c_ in closes.items()
+                       if c_ is not None and len(c_)}
+            jr, _ = journal.sync(read_split(), broker, {
+                (h["Mode"], h["Symbol"]): h.get("Recommendation")
+                for h in hold}, last_px, sess, acc.broker, quiet=True)
+            jrep = journal.report(jr, last_px)
+        except Exception as e:
+            warns.append("journal sheet skipped (%s: %s)"
+                         % (type(e).__name__, e))
     dash = dashboard_data(acc, today, master, note, regime_red, hold, rebal,
-                          comp, sw, warns)
+                          comp, sw, warns, jrep)
     path = write_book(path_for(), hold, rebal, comp, held_modes, old_actions,
                       "Portfolio %s | %s | master %s | prices: %s"
                       % (acc.label, today, os.path.basename(master), note),
-                      old_amount, master, dash)
+                      old_amount, master, dash, jrep)
     print("\nExcel (the ONE file to open): %s" % path)
-    print("  Dashboard | Holdings | Actions | Super-Buy | Rebalance | Watchlist | Swing | "
-          "Investing | Momentum_Top20 | Fundamentals")
+    print("  Dashboard | Holdings | Journal | Actions | Super-Buy | Rebalance | "
+          "Watchlist | Holdings_Table | Swing | Investing | Momentum_Top20 | "
+          "Fundamentals")
     if drive_copy:
         drive_copy.push(path)
     if watch_rows:              # for TradingView "Import list" (one click)

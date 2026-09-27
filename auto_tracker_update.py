@@ -35,6 +35,10 @@ OPTIONS
                 rejected / cancelled orders are marked and set to 0 shares
   --file PATH   use another report
   --unwatch A,B remove symbols from the watchlist
+  --sold SYM [PRICE] [--date YYYY-MM-DD] [--paper]
+                close a trade in the journal by hand (LIVE sell the broker
+                history did not show, or a PAPER sell; PAPER without PRICE =
+                last price). Also takes it out of split.csv.
 
   WATCH       -> no order; the symbol goes on this account's watchlist
                  (data/watchlist.csv) and rbport analyses it every run
@@ -187,6 +191,10 @@ def prices(sess, symbols):
                           "close %s (free source, may be old)"
                           % df.index[-1].date())
     return out
+
+
+def today_str():
+    return ds.now_ist().date().isoformat()
 
 
 def plan(rows, px, sp, sess=None):
@@ -384,6 +392,29 @@ def main():
         print("Removed %d from the watchlist." % unwatch(syms))
         return
     sess = ms.get_session()
+    if "--sold" in a:
+        k = a.index("--sold")
+        sym = a[k + 1].upper() if k + 1 < len(a) else ""
+        price = None
+        if k + 2 < len(a):
+            try:
+                price = float(a[k + 2].replace(",", ""))
+            except ValueError:
+                price = None
+        day = a[a.index("--date") + 1] if "--date" in a else today_str()
+        mode = "PAPER" if "--paper" in a else "LIVE"
+        if not sym:
+            print("Use: rbtrack --sold SYMBOL [PRICE] [--date YYYY-MM-DD] "
+                  "[--paper]")
+            sys.exit(1)
+        px = {}
+        if price is None:
+            got = prices(sess, [sym])
+            px = {sym: got[sym][0]} if sym in got else {}
+        import journal
+        print(journal.close_manual(sym, price, day, mode, acc.broker, px))
+        account.banner(acc)
+        return
     if "--sync" in a:
         if not sess:
             print("! --sync needs a valid (not expired) broker token.")

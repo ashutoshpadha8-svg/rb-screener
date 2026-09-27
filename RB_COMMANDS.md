@@ -1,33 +1,37 @@
-# RB_Screener — saari commands (26 Sep 2026, v2: master scan + portfolio)
+# RB_Screener — saari commands (27 Sep 2026, v3: sirf 2 commands)
 
 Sab kuch `~/RB_Screener` mein. Terminal (zsh) mein chalao.
 
 ---
 
-## 1. Sirf 6 commands
+## 1. Sirf 2 commands
 
-| Command | Kya karta hai | Kitni baar |
+| Command | Kya karta hai | Kab |
 |---|---|---|
-| `rbtoken` | token.txt kholta hai (naya token paste) | roz (Dhan) |
-| `rbcheck` | account + funds + 1 price check, koi order nahi | jab chaaho |
-| `rbscan` | **MASTER scan** -- sab accounts ke liye ek file | din mein 1 baar (dobara chalao to skip) |
-| `rbport` | **TUMHARA portfolio**: har holding ka trend, technical, fundamental, news, NSE filings (red flag), strategy test, HOLD/EXIT + wajah, rebalance, Actions | jab chaaho |
-| `rbtrack` | Actions sheet ke BUY / PAPER -> order / split.csv | 15:30 ke baad |
-| `rbsync` | agli subah asli fill prices | subah 9:15 ke baad |
+| `rb` | **Roz ka sab kuch** (koi order nahi): token check (expire ho to token.txt khud khulta hai) -> kal ke orders ke asli fill prices -> master scan (aaj ho chuka to skip) -> Portfolio file (Dashboard, Holdings cards, Journal, Actions...) + Google Drive copy | roz, best 15:30 ke baad |
+| `rbtrack` | **Order bhejta hai**: Actions sheet ke BUY / BUY MTF / PAPER / WATCH | 15:30 ke baad, Actions bharne ke baad |
 
-Shortcuts ek baar set karo (purane rb* hata ke naye 6):
+Shortcuts ek baar set karo (purane rb* hata ke naye 2):
 ```
 sed -i '' '/^alias rb/d' ~/.zshrc && cat >> ~/.zshrc <<'X'
-alias rbtoken='open -e ~/RB_Screener/token.txt'
-alias rbcheck='python3 ~/RB_Screener/broker_api.py check'
-alias rbscan='python3 ~/RB_Screener/rb_scan.py'
-alias rbport='python3 ~/RB_Screener/portfolio.py'
+alias rb='python3 ~/RB_Screener/rb.py'
 alias rbtrack='python3 ~/RB_Screener/auto_tracker_update.py'
-alias rbsync='python3 ~/RB_Screener/auto_tracker_update.py --sync'
 X
 source ~/.zshrc
 ```
-Check: `alias | grep rb` -> 6 lines.
+Check: `alias | grep rb` -> 2 lines.
+
+Options (kabhi kabhi):
+```
+rb --force            scan dobara (aaj ka scan hone ke baad bhi)
+rb --no-news          tez (news / NSE filings nahi)
+rbtrack --dry-run     sirf dikhata hai, kuch nahi bhejta
+rbtrack --sold SYMBOL PRICE --date 2026-11-12    sell journal mein haath se (agar apne aap na pakda)
+rbtrack --sold SYMBOL --paper                    PAPER trade band karo (aaj ke price pe)
+rbtrack --unwatch SYM1,SYM2                      watchlist se hatao
+python3 ~/RB_Screener/broker_api.py check        account + funds + 1 price (purana rbcheck)
+```
+Purani commands (rbscan, rbport, rbsync, rbcheck, rbtoken) ab `rb` ke andar hain.
 
 ---
 
@@ -44,25 +48,21 @@ Kholne ke liye: `open ~/RB_Screener/reports/`  aur  `open ~/RB_Screener/accounts
 Dashboard (summary + aaj kya karna hai + sheet links) | Holdings | Actions | Rebalance | Watchlist |
 Swing | Investing | Momentum_Top20 | Fundamentals (ye 4 master scan se copy hoti hain).
 Master scan file (reports/RB_Screener_...) sirf data ke liye banti rehti hai, kholne ki zarurat nahi.
-Dhyan: `rbscan --force` ke baad `rbport` dobara chalao, tabhi Portfolio file mein naya scan aayega.
+Dhyan: scan dobara chahiye to `rb --force`.
 
 ---
 
 ## 2. Roz ka routine
 
-1. `rbtoken` -> naya Dhan token -> Cmd+S
-2. `rbscan` -> master scan (aaj ho chuka to kuch nahi karega). Best: 15:30 ke baad.
-3. `rbport` -> Portfolio file (sab ek file mein, pehli tab **Dashboard**): **Holdings** sheet (har stock ka HOLD / EXIT / SELL + WHY),
-   **Rebalance** (momentum, sirf mahine ka 1st trading day), **Actions** (dropdown)
-4. Actions sheet mein BUY / PAPER / WATCH chuno. Zyada / kam paisa lagana ho to **Amount (Rs)** mein rupaye likho
-   (khaali = Rs 10,000). **Qty (auto)** khud nikal aati hai. MTF: rbtrack Dhan se us stock ka asli
-   leverage leta hai (jaise 10,000 x 4.55 = 45,500). -> save + close
-5. 15:30 ke baad: `rbtrack --dry-run`, phir `rbtrack`
-6. Agli subah: `rbsync`
+1. `rb` (15:30 ke baad best). Dhan token expire ho to token.txt khud khulega: naya token paste, Cmd+S, `rb` dobara.
+2. File kholo (Mac pe ya Google Sheets: My Drive/RB_Reports/...). Pehli tab **Dashboard**.
+   **Holdings** = har stock ek card (rang = ACTION). **Journal** = har trade ka hisaab (fees, dividend, tax ke baad).
+3. Kuch khareedna ho: **Actions** sheet mein Action (BUY / PAPER / WATCH) + Amount (Rs) (khaali = Rs 10,000). Qty khud.
+4. `rbtrack --dry-run`, phir `rbtrack`.
+5. Becha (broker app se)? Kuch nahi karna: agle `rb` pe journal khud pakdega (Dhan). Angel/Zerodha: usi din shaam `rb` chalao.
+   Na pakde to: `rbtrack --sold SYMBOL PRICE --date YYYY-MM-DD`.
 
-Options: `rbscan --force` (dobara scan), `rbport --no-news` (tez), `rbport --no-fund`.
-WATCH chuna = koi order nahi; agle `rbport` pe stock tumhari watchlist mein chala jaata hai (rbtrack ki zarurat nahi) aur `rbport` roz uska analysis dikhata hai
-(STRONG / WEAK / AVOID). Hatana: `rbtrack --unwatch SYMBOL` (kai ho to SYM1,SYM2).
+WATCH = koi order nahi; stock watchlist mein, `rb` roz analysis dikhata hai. Hatana: `rbtrack --unwatch SYMBOL`.
 Sell kabhi automatic nahi -- broker app mein khud.
 
 ---

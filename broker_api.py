@@ -655,6 +655,82 @@ def available_funds(sess):
         return None, "funds reply had no balance field"
 
 
+def trades(sess, frm, to=None):
+    """Executed trades (BUY and SELL) between two dates, for the journal:
+    [{symbol, side, qty, price, date}]. Read-only.
+      Dhan    GET /v2/trades/{from}/{to}/{page}  (any past dates)
+      Angel   getTradeBook, Zerodha /trades      (TODAY only -- run rb on the
+                                                  day you sell)
+    Any problem -> [] (the journal then asks for the price)."""
+    to = to or dt.date.today()
+    ids = {}
+    try:
+        ids = {str(v["id"]): k for k, v in symbol_map(sess).items()}
+    except Exception:
+        pass
+
+    def clean(sym, sid=None):
+        if sid is not None and str(sid) in ids:
+            return ids[str(sid)]
+        return re.sub(r"-(EQ|BE)$", "", str(sym or "").upper())
+
+    def day(v):
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", str(v or ""))
+        if m:
+            return m.group(1)
+        for f in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y"):
+            try:
+                return dt.datetime.strptime(str(v), f).date().isoformat()
+            except ValueError:
+                pass
+        return to.isoformat()
+
+    out = []
+    try:
+        if sess.broker == "DHAN":
+            for page in range(20):
+                d = _call(sess, "GET", "/trades/%s/%s/%d" % (
+                    pd_date(frm), pd_date(to), page))
+                d = d.get("data", d) if isinstance(d, dict) else d
+                if not d:
+                    break
+                for x in d:
+                    if "EQ" not in str(x.get("exchangeSegment", "EQ")):
+                        continue
+                    out.append({"symbol": clean(x.get("tradingSymbol"),
+                                                x.get("securityId")),
+                                "side": str(x.get("transactionType")).upper(),
+                                "qty": float(x.get("tradedQuantity") or 0),
+                                "price": float(x.get("tradedPrice") or 0),
+                                "date": day(x.get("exchangeTime") or
+                                            x.get("createTime"))})
+        elif sess.broker == "ANGEL":
+            d = _call(sess, "GET",
+                      "/rest/secure/angelbroking/order/v1/getTradeBook")
+            for x in d or []:
+                out.append({"symbol": clean(x.get("tradingsymbol"),
+                                            x.get("symboltoken")),
+                            "side": str(x.get("transactiontype")).upper(),
+                            "qty": float(x.get("fillsize") or 0),
+                            "price": float(x.get("fillprice") or 0),
+                            "date": to.isoformat()})
+        else:
+            d = _call(sess, "GET", "/trades")
+            for x in d or []:
+                out.append({"symbol": clean(x.get("tradingsymbol")),
+                            "side": str(x.get("transaction_type")).upper(),
+                            "qty": float(x.get("quantity") or 0),
+                            "price": float(x.get("average_price") or 0),
+                            "date": day(x.get("fill_timestamp"))})
+    except BrokerError:
+        return []
+    return [x for x in out if x["qty"] > 0 and x["price"] > 0]
+
+
+def pd_date(d):
+    return d.isoformat() if hasattr(d, "isoformat") else str(d)[:10]
+
+
 def mtf_leverage(sess, symbol, price):
     """(leverage, note) the broker gives this stock under MTF, e.g. 4.55.
     Read-only margin calculators, no order is placed:

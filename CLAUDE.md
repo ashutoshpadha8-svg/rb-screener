@@ -40,6 +40,11 @@
                         #   rebalance, watchlist, sheet links) + master Swing/Investing/Momentum_Top20/
                         #   Fundamentals copied in (Strategy_Comparison dropped: Actions = same list + picks)
                         #   Super-Buy sheet (27 Sep): stocks in BOTH W+TT swing list and momentum top 20
+                        #   Layout v2 (27 Sep, RB chose): Holdings = CARDS (4 per row, colour = ACTION, exit door),
+                        #   Journal = month-wise first (Option 2), Holdings_Table = full sortable table (grey tab),
+                        #   Actions columns reordered (Action/Amount/Qty first, Regime/Shares dropped), Watchlist
+                        #   16 columns, number formats everywhere. Tabs: Dashboard, Holdings, Journal, Actions,
+                        #   Super-Buy, Rebalance, Watchlist, Holdings_Table, Swing, Investing, Momentum_Top20, Fundamentals.
   drive_copy.py         # Output copies for Google Sheets (27 Sep, replaces gdrive_sync.py = retired, no OAuth):
                         #   copies ONLY RB_Screener_*.xlsx / Portfolio_*.xlsx / Watchlist_*.txt into the Google Drive
                         #   for desktop folder: My Drive/RB_Reports/{Master_Scan|<BROKER>_<Name>}/<YYYY-MM>/.
@@ -47,6 +52,20 @@
                         #   (mtime > our copy time, data/_drive_copy.json) over the local file (*.before_drive.xlsx
                         #   kept). Secrets/split.csv/data never copied. Tested with a fake Drive folder only.
                         #   rbport also writes reports/Watchlist_<TAG>.txt for TradingView 'Import list'.
+  rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
+                        #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio. No orders.
+                        #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.
+  journal.py            # Trade journal (27 Sep): accounts/<..>/data/journal.csv, one row per buy. PAPER logged from
+                        #   split.csv, LIVE once seen in demat. LIVE sell = left demat AND broker trade history shows
+                        #   SELL (broker_api.trades: Dhan /v2/trades/{from}/{to}/{page}; Angel getTradeBook / Kite
+                        #   /trades = today only) else note + `rbtrack --sold SYM PRICE --date D` (PAPER: --paper).
+                        #   Closed trade leaves split.csv. Dividends: NSE corporates-corporateActions (ex-date held x
+                        #   qty, cached daily in data/_nse_ca). Fees: broker rate cards (official pages 27 Sep: STT
+                        #   0.1% both, NSE 0.00307%, SEBI 10/cr, GST 18%, stamp 0.015% buy, DP Dhan 12.5+GST /
+                        #   Zerodha 15.34 / Angel 20+GST, Angel brokerage min(20, 0.1%, >=5)); MTF interest 12.49%.
+                        #   Tax ESTIMATE per FY: STCG 20.8%, LTCG 13% > 1.25L, set-off, STT not deductible; dividends
+                        #   (slab) excluded. Exit signal date -> "Rule follow?". PAPER_AUTO_EXIT = False (ask RB).
+                        #   Tested with mocked data only.
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
