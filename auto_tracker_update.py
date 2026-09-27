@@ -209,6 +209,10 @@ def plan(rows, px, sp):
         overlap = str(r.get("Strategy Overlap", ""))
         mom = overlap in ("Momentum only", "Super-Buy")
         slot = ms.CAPITAL / ms.SLOTS              # your own money per slot
+        amt = pd.to_numeric(str(r.get("Amount (Rs)", "")).replace(",", ""),
+                            errors="coerce")        # Actions sheet, optional
+        if amt == amt and amt > 0:
+            slot = float(amt)
         exposure = slot * (MTF_LEVERAGE if product == "MTF" else 1)
         shares = ms.shares_for(exposure, price)
         if shares < 1:
@@ -219,7 +223,9 @@ def plan(rows, px, sp):
                     "entry_price": round(price, 2), "entry_date": today,
                     "strategy": "Momentum" if mom else "W+TT", "mode": mode,
                     "product": product, "order_id": "", "shares": shares,
-                    "note": "%s | %s%s" % (overlap, src,
+                    "note": "%s | own Rs %s | %s%s" % (overlap,
+                                                        format(int(slot), ","),
+                                                        src,
                                            " | MTF %dx" % MTF_LEVERAGE
                                            if product == "MTF" else "")})
     return new, skip

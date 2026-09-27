@@ -48,7 +48,8 @@ Kholne ke liye: `open ~/Desktop/RB_Screener/reports/`  aur  `open ~/Desktop/RB_S
 2. `rbscan` -> master scan (aaj ho chuka to kuch nahi karega). Best: 15:30 ke baad.
 3. `rbport` -> Portfolio file: **Holdings** sheet (har stock ka HOLD / EXIT / SELL + WHY),
    **Rebalance** (momentum, sirf mahine ka 1st trading day), **Actions** (dropdown)
-4. Actions sheet mein BUY / PAPER / WATCH chuno -> save + close
+4. Actions sheet mein BUY / PAPER / WATCH chuno. Zyada / kam paisa lagana ho to **Amount (Rs)** mein rupaye likho
+   (khaali = Rs 10,000). **Qty (auto)** khud nikal aati hai; MTF = 4x. -> save + close
 5. 15:30 ke baad: `rbtrack --dry-run`, phir `rbtrack`
 6. Agli subah: `rbsync`
 

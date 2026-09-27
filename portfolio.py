@@ -57,6 +57,8 @@ REPORTS = os.path.join(ds.HERE, "reports")     # routed to the account folder
 TAG = ""                                       # e.g. DHAN_Ashutosh (routed)
 WATCH_FILE = os.path.join(ds.DATA, "watchlist.csv")   # routed per account
 KEEP_RANK = ms.BUFFER * ms.SLOTS
+SLOT_RS = int(ms.CAPITAL / ms.SLOTS)   # default own money per stock (Rs 10,000)
+MTF_X = 4                              # = auto_tracker_update.MTF_LEVERAGE
 LEG_ORDER = {"EXIT": 0, "SELL@REBAL": 1, "SELL": 1, "WATCH": 2, "WEAK": 2,
              "HOLD": 3, "KEEP": 3, "AVOID": 4, "STRONG": 4}
 WATCH_WORD = {"KEEP": "STRONG", "WEAK": "WEAK", "SELL": "AVOID"}
@@ -351,7 +353,9 @@ REC_FILL = {"EXIT": "F8CBAD", "SELL": "F8CBAD", "SELL@REBAL": "FCE4D6",
             "AVOID": "F8CBAD"}
 
 
-def write_book(path, hold, rebal, comp, held_modes, old_actions, banner):
+def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
+               old_amount=None):
+    old_amount = old_amount or {}
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
@@ -437,23 +441,33 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner):
         Font(italic=True)
 
     wa = wb.create_sheet("Actions")
-    acols = list(comp.columns) + ["Held here", "Action"] if len(comp) else \
-        ["Ticker", "Held here", "Action"]
+    acols = (list(comp.columns) if len(comp) else ["Ticker"]) + \
+        ["Held here", "Action", "Amount (Rs)", "Qty (auto)"]
     rows = []
     for _, x in comp.iterrows():
         d = dict(x)
         t = str(d.get("Ticker", "")).upper()
         d["Held here"] = ", ".join(sorted(held_modes.get(t, [])))
         d["Action"] = old_actions.get(t, "")
+        d["Amount (Rs)"] = old_amount.get(t)
         rows.append(d)
     widths = {"Ticker": 13, "Strategy Overlap": 14, "Sector / Industry": 22,
-              "Regime": 18, "Action": 11, "Held here": 10}
+              "Regime": 18, "Action": 11, "Held here": 10,
+              "Amount (Rs)": 11, "Qty (auto)": 9}
     last = table(wa, acols, rows, ("Strategy Overlap", {"Super-Buy": "C6EFCE"}),
                  widths)
-    col = get_column_letter(len(acols))
+    col = get_column_letter(acols.index("Action") + 1)
+    amt = get_column_letter(acols.index("Amount (Rs)") + 1)
+    ltp = get_column_letter(acols.index("LTP") + 1) if "LTP" in acols else None
     for r in range(2, last + 1):
-        wa.cell(row=r, column=len(acols)).fill = PatternFill("solid",
-                                                             fgColor="FFF2CC")
+        for c in (col, amt):
+            wa["%s%d" % (c, r)].fill = PatternFill("solid", fgColor="FFF2CC")
+        wa["%s%d" % (amt, r)].number_format = "#,##0"
+        if ltp:     # live preview; rbtrack recalculates with the fresh price
+            wa.cell(row=r, column=len(acols), value=(
+                '=IF(OR({a}{r}="",{a}{r}="WATCH"),"",IFERROR(INT(IF({m}{r}="",'
+                '{d},{m}{r})*IF(ISNUMBER(SEARCH("MTF",{a}{r})),{x},1)/{p}{r}),'
+                '""))').format(a=col, m=amt, p=ltp, r=r, d=SLOT_RS, x=MTF_X))
     dv = DataValidation(type="list", formula1='"%s"' % ",".join(ms.ACTIONS),
                         allow_blank=True, showErrorMessage=True,
                         errorTitle="Action", error="Pick from the list",
@@ -466,6 +480,11 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner):
         "Pick an Action (yellow), save + close, then rbtrack after 15:30. "
         "Momentum buys only on the 1st trading day of the month.")).font = \
         Font(italic=True)
+    wa.cell(row=last + 3, column=1, value=(
+        "Amount (Rs) = YOUR money for that stock (blank = Rs %s, the tested "
+        "equal slot). BUY MTF / PAPER MTF buy %dx that. Qty (auto) = Amount / "
+        "LTP; rbtrack recalculates it with the price at order time."
+        % (format(SLOT_RS, ","), MTF_X))).font = Font(italic=True)
     try:
         wb.save(path)
         return path
@@ -512,7 +531,7 @@ def main():
                      "the PAPER portfolio")
     # Action picks already made in today's file (kept on re-run); WATCH picks
     # need no order and no money, so they go straight onto the watchlist
-    old_actions, prev_ltp = {}, {}
+    old_actions, prev_ltp, old_amount = {}, {}, {}
     prev = path_for()
     import gdrive_sync
     gdrive_sync.pull(prev)          # picks you made in Google Sheets
@@ -525,6 +544,10 @@ def main():
                     t = str(r["Ticker"]).upper()
                     old_actions[t] = " ".join(v.upper().split())
                     prev_ltp[t] = (r.get("LTP"), r.get("Strategy Overlap", ""))
+                a = pd.to_numeric(str(r.get("Amount (Rs)", "")).replace(",", ""),
+                                  errors="coerce")
+                if a == a and a > 0:
+                    old_amount[str(r["Ticker"]).upper()] = float(a)
     added = add_watch([(t,) + prev_ltp[t] for t, v in old_actions.items()
                        if v == "WATCH"])
     if added:
@@ -658,7 +681,8 @@ def main():
         print("  ! " + w)
     path = write_book(path_for(), hold, rebal, comp, held_modes, old_actions,
                       "Portfolio %s | %s | master %s | prices: %s"
-                      % (acc.label, today, os.path.basename(master), note))
+                      % (acc.label, today, os.path.basename(master), note),
+                      old_amount)
     print("\nExcel: %s  (sheets Holdings, Watchlist, Rebalance, Actions)"
           % path)
     gdrive_sync.push(path)
