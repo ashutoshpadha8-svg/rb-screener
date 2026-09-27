@@ -725,12 +725,12 @@ def main():
     # need no order and no money, so they go straight onto the watchlist
     old_actions, prev_ltp, old_amount = {}, {}, {}
     prev = path_for()
-    try:                            # optional Google Sheets sync
-        import gdrive_sync
+    try:                            # copy in Google Drive (Sheets edits)
+        import drive_copy
     except ImportError:
-        gdrive_sync = None
-    if gdrive_sync:
-        gdrive_sync.pull(prev)      # picks you made in Google Sheets
+        drive_copy = None
+    if drive_copy:
+        drive_copy.pull(prev)       # picks you made in Google Sheets
     if os.path.exists(prev):
         o = ms._read_sheet(prev, "Actions")
         if "Ticker" in o and "Action" in o:
@@ -884,13 +884,15 @@ def main():
     print("\nExcel (the ONE file to open): %s" % path)
     print("  Dashboard | Holdings | Actions | Super-Buy | Rebalance | Watchlist | Swing | "
           "Investing | Momentum_Top20 | Fundamentals")
-    if gdrive_sync:
-        gdrive_sync.push(path)
+    if drive_copy:
+        drive_copy.push(path)
     if watch_rows:              # for TradingView "Import list" (one click)
         wl = os.path.join(REPORTS, "Watchlist_%s.txt" % (TAG or "account"))
         with open(wl, "w") as f:
             f.write(",".join("NSE:" + h["Symbol"] for h in watch_rows) + "\n")
         print("Watchlist for TradingView import: %s" % wl)
+        if drive_copy:
+            drive_copy.push(wl, quiet=True)
     if old_actions:
         print("  kept your Action picks: %s" % ", ".join(
             "%s=%s" % kv for kv in old_actions.items()))

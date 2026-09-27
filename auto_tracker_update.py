@@ -399,9 +399,9 @@ def main():
     if today not in os.path.basename(path):
         print("! Using %s -- NOT today's report (%s)." % (os.path.basename(path),
                                                          today))
-    try:                            # optional Google Sheets sync
-        import gdrive_sync
-        gdrive_sync.pull(path)      # Action picks made in Google Sheets
+    try:                            # copy in Google Drive (Sheets edits)
+        import drive_copy
+        drive_copy.pull(path)       # Action picks made in Google Sheets
     except ImportError:
         pass
     rows = action_rows(path)

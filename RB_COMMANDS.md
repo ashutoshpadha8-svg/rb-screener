@@ -211,27 +211,19 @@ reject honge (prices/scan chalte rahenge). API key / MPIN / TOTP ka screenshot k
 
 ---
 
-## 10. Google Sheets sync (optional, ek baar setup)
+## 10. Google Sheets mein reports (Excel ki zarurat nahi)
 
-Har report Drive mein **asli Google Sheet** ban ke usi folder structure mein jaati hai
-(`My Drive/RB_Screener/reports/...`, `.../accounts/DHAN_.../reports/...`). Sheets mein Action chuno ->
-`rbport` / `rbtrack` wahi padhte hain. Permission sirf in files tak (drive.file) -- baaki Drive nahi dikhti.
-
-1. **console.cloud.google.com** -> apne Google account se -> naya project: `RB_Screener`
-2. APIs & Services -> Library -> **Google Drive API** -> Enable
-3. OAuth consent screen (Google Auth Platform): External, app name `RB_Screener`, apna email;
-   **Test users / Audience** mein apna Gmail add karo. Weekly re-login se bachna ho to Publishing status
-   "In production" kar do (drive.file scope ke liye Google verification nahi maangta).
-4. Credentials -> Create credentials -> **OAuth client ID** -> Application type **Desktop app** -> Create
-   -> **Download JSON** -> naam `google_client_secret.json` karke RB_Screener folder mein rakho:
-   `mv ~/Downloads/client_secret_*.json ~/RB_Screener/google_client_secret.json`
-5. `pip3 install google-api-python-client google-auth-oauthlib`
-6. `python3 ~/RB_Screener/gdrive_sync.py login` -> browser khulega -> apna account ->
-   "Google hasn't verified this app" -> **Continue** (ye tumhara apna app hai) -> Allow -> "Google Sheets sync ON"
-7. `rbscan --force` / `rbport` -> terminal mein `Google Sheet: Drive/RB_Screener/...  <link>` dikhega
-
-Band karna: `google_client_secret.json` hata do. Logout: `google_token.json` delete.
-Dono files kabhi share / screenshot mat karna.
+`rbscan` aur `rbport` apni report ki **copy** Google Drive mein daalte hain (Mac ka Google Drive app upload karta hai):
+```
+My Drive/RB_Reports/Master_Scan/2026-09/RB_Screener_2026-09-27.xlsx
+My Drive/RB_Reports/DHAN_Ashutosh/2026-09/Portfolio_DHAN_Ashutosh_2026-09-27.xlsx
+My Drive/RB_Reports/DHAN_Ashutosh/Watchlist_DHAN_Ashutosh.txt
+```
+- drive.google.com -> RB_Reports -> file pe double click -> Google Sheets mein khulti hai.
+- Actions sheet mein Action / Amount chuno -> Sheets khud save karta hai -> `rbtrack` / `rbport` wahi picks lete hain
+  ("took your Google Sheets edits").
+- Sirf reports jaate hain. token.txt, keys, split.csv kabhi nahi.
+- Check: `python3 ~/RB_Screener/drive_copy.py` -> "Google Drive copy ON -> ..."
 
 ## 11. Watchlist TradingView mein
 `rbport` banata hai: `accounts/<..>/reports/Watchlist_<BROKER>_<Naam>.txt` (NSE:SIGMAADV,NSE:STLTECH,...).

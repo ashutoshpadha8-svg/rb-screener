@@ -40,11 +40,13 @@
                         #   rebalance, watchlist, sheet links) + master Swing/Investing/Momentum_Top20/
                         #   Fundamentals copied in (Strategy_Comparison dropped: Actions = same list + picks)
                         #   Super-Buy sheet (27 Sep): stocks in BOTH W+TT swing list and momentum top 20
-  gdrive_sync.py        # OPTIONAL native Google Sheets: push() after rbscan/rbport (same folders under My Drive/
-                        #   RB_Screener), pull() before rbport/rbtrack (Action picks made in Sheets). On only if
-                        #   google_client_secret.json exists; scope drive.file; token google_token.json (gitignored).
-                        #   Tested with a mocked Drive only (26 Sep). Broker APIs have NO watchlist endpoint ->
-                        #   rbport writes reports/Watchlist_<TAG>.txt for TradingView 'Import list'.
+  drive_copy.py         # Output copies for Google Sheets (27 Sep, replaces gdrive_sync.py = retired, no OAuth):
+                        #   copies ONLY RB_Screener_*.xlsx / Portfolio_*.xlsx / Watchlist_*.txt into the Google Drive
+                        #   for desktop folder: My Drive/RB_Reports/{Master_Scan|<BROKER>_<Name>}/<YYYY-MM>/.
+                        #   push() after rbscan/rbport; pull() before rbport/rbtrack takes a copy edited in Sheets
+                        #   (mtime > our copy time, data/_drive_copy.json) over the local file (*.before_drive.xlsx
+                        #   kept). Secrets/split.csv/data never copied. Tested with a fake Drive folder only.
+                        #   rbport also writes reports/Watchlist_<TAG>.txt for TradingView 'Import list'.
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
