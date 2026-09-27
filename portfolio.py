@@ -1560,6 +1560,12 @@ def main():
         print("\nSELL sheet (TRADING %s): %s" % (trading, ", ".join(
             "%s %s x%d = %s" % (x["Symbol"], x["Product"], x["Qty"],
                                 x["Sell?"]) for x in sells)))
+    print("\nSIP plans: %s" % ("; ".join(
+        "%s %s %s Rs %g, start %s, %s, next %s" % (
+            r["Symbol"], r["Frequency"], r["Day"],
+            r["Amount per buy (Rs)"] or 0, r["Start date"] or "-",
+            "ON" if r["Active"] == "YES" else "PAUSED", r["Next due"])
+        for r in sip_rows) or "none (SIP sheet khaali)"))
     print("\nExcel (the ONE file to open): %s" % path)
     print("  Dashboard | Holdings | Sell | Journal | Actions | SIP | Super-Buy | Rebalance | "
           "Watchlist | Holdings_Table | Swing | Investing | Momentum_Top20 | "
