@@ -129,7 +129,9 @@ def symbol_choices(sess=None):
     if sess is not None:
         try:
             import broker_api as ba
-            syms |= {k for k in ba.symbol_map(sess) if k and k != ba.INDEX}
+            syms |= {k for k in ba.symbol_map(sess) if k and k != ba.INDEX
+                     and k in names or (k and "TEST" not in k and
+                                        not k[0].isdigit() and k != ba.INDEX)}
         except Exception:
             pass
     return ["%s | %s" % (k, names.get(k) or "-") for k in sorted(syms)]
