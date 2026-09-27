@@ -35,6 +35,7 @@ OPTIONS
                 rejected / cancelled orders are marked and set to 0 shares
   --file PATH   use another report
   --unwatch A,B remove symbols from the watchlist
+  --clear-paper remove all PAPER rows (PAPER mode is gone since 27 Sep)
   --sold SYM [PRICE] [--date YYYY-MM-DD] [--paper]
                 close a trade in the journal by hand (LIVE sell the broker
                 history did not show, or a PAPER sell; PAPER without PRICE =
@@ -81,8 +82,8 @@ QTY = ("swing_qty", "investing_qty", "momentum_qty")
 LIMIT_BUFFER = 0.02        # --limit: pay at most 2% above the last price
 MTF_LEVERAGE = 4           # BUY MTF fallback when the broker gives no leverage;
                            # Dhan: real per-stock leverage (margin calculator)
-ACTIONS = {"BUY": ("LIVE", "CNC"), "BUY MTF": ("LIVE", "MTF"),
-           "PAPER": ("PAPER", "CNC"), "PAPER MTF": ("PAPER", "MTF")}
+ACTIONS = {"BUY": ("LIVE", "CNC"), "BUY MTF": ("LIVE", "MTF")}   # PAPER removed
+                                                             # 27 Sep (RB)
 
 
 # ================================================================== split.csv
@@ -128,7 +129,8 @@ def action_rows(path):
         print("! Actions sheet has no Ticker/Action column.")
         sys.exit(1)
     # "buy  mtf" / "Buy MTF" -> "BUY MTF"; anything else is ignored
-    d["act"] = d["Action"].astype(str).str.upper().str.split().str.join(" ")
+    d["act"] = d["Action"].fillna("").astype(str).str.upper().str.split() \
+        .str.join(" ")
     bad = d[(d["Action"].notna()) & (d["act"] != "NAN") & (d["act"] != "")
             & (d["act"] != "WATCH") & ~d["act"].isin(list(ACTIONS))]
     if len(bad):
@@ -364,7 +366,8 @@ def sync(sess):
         oid = str(r["order_id"]).split(".")[0]
         o = ba.check_order_status(oid, sess=sess)
         q, avg, st = o["filled_qty"], o["avg_price"], o["status"] or o["raw"] or "?"
-        leg = "momentum_qty" if r["momentum_qty"] > 0 else "swing_qty"
+        leg = next((c for c in ("momentum_qty", "investing_qty", "swing_qty")
+                    if r[c] > 0), "swing_qty")       # SIP rows: investing_qty
         if q > 0 and avg:
             sp.at[i, leg] = q
             sp.at[i, "entry_price"] = round(avg, 2)
@@ -373,6 +376,8 @@ def sync(sess):
         elif st in ("REJECTED", "CANCELLED", "EXPIRED"):
             sp.at[i, leg] = 0
             sp.at[i, "note"] = str(r["note"]).replace("pending", st.lower())
+            import sip
+            sip.mark_rejected(oid)          # SIP: rejected buy doesn't count
             print("  %-12s %s -- set to 0 shares" % (r["symbol"], st))
         else:
             print("  %-12s still %s" % (r["symbol"], st))
@@ -392,6 +397,20 @@ def main():
         print("Removed %d from the watchlist." % unwatch(syms))
         return
     sess = ms.get_session()
+    if "--clear-paper" in a:                # PAPER mode removed 27 Sep
+        sp = read_split()
+        n = int((sp["mode"] == "PAPER").sum())
+        if n:
+            write_split(sp[sp["mode"] != "PAPER"])
+        import journal
+        j = journal.load()
+        k = int((j["mode"] == "PAPER").sum())
+        if k:
+            journal.save(j[j["mode"] != "PAPER"])
+        print("Removed %d PAPER row(s) from split.csv (backup: "
+              "split_backup.csv) and %d from the journal." % (n, k))
+        account.banner(acc)
+        return
     if "--sold" in a:
         k = a.index("--sold")
         sym = a[k + 1].upper() if k + 1 < len(a) else ""
@@ -446,17 +465,39 @@ def main():
             if added else ("already on the watchlist" if not dry
                            else "(--dry-run: not saved)")))
         print("  remove later with:  rbtrack --unwatch SYMBOL")
-    if rows.empty and len(watch):
+    import sip
+    probs = sip.read_sheet(path)            # your SIP sheet -> sip.csv
+    for pr in probs:
+        print("! SIP row ignored -- %s" % pr)
+    sdue = sip.due(today)
+    if rows.empty and not sdue:
+        if not len(watch):
+            print("Nothing to do: no BUY / BUY MTF in the Actions sheet and "
+                  "no SIP due today (%s)." % os.path.basename(path))
         account.banner(acc)
         return
-    if rows.empty:
-        print("No BUY / BUY MTF / PAPER / PAPER MTF in the Action column of "
-              "the Actions sheet (%s)." % os.path.basename(path))
-        print("Type one of them, SAVE and CLOSE the file, then run again.")
-        return
     sp = read_split()
-    px = prices(sess, [str(t).upper().strip() for t in rows["Ticker"]])
-    new, skip = plan(rows, px, sp, sess)
+    px = prices(sess, sorted({str(t).upper().strip() for t in rows["Ticker"]}
+                             | {x["symbol"] for x in sdue}))
+    new, skip = plan(rows, px, sp, sess) if len(rows) else ([], [])
+
+    def lev_of(sym, price):
+        lev, note = ba.mtf_leverage(sess, sym, price)
+        return (lev, note) if lev else (float(MTF_LEVERAGE),
+                                        "MTF %gx ASSUMED (%s)"
+                                        % (MTF_LEVERAGE, note))
+    snew, sskip = sip.plan_orders(sdue, px, lev_of, today)
+    for x in snew:
+        if ba.ordered_today(x["symbol"]):
+            sskip.append("SIP %s (order already placed today)" % x["symbol"])
+    snew = [x for x in snew if not ba.ordered_today(x["symbol"])]
+    if snew:
+        print("SIP due today: " + ", ".join(
+            "%s %s x%d (own Rs %s)" % (x["sip_id"], x["product"], x["shares"],
+                                      format(int(x["own"]), ","))
+            for x in snew))
+    new += snew
+    skip += sskip
     if skip:
         print("Skipped: " + "; ".join(skip))
     if not new:
@@ -478,11 +519,13 @@ def main():
     show = pd.DataFrame(add)
     print("\nTo add to split.csv:")
     print(show[["symbol", "mode", "product", "strategy", "momentum_qty",
-                "swing_qty", "entry_price", "order_id"]].to_string(index=False))
+                "swing_qty", "investing_qty", "entry_price", "order_id"]]
+          .to_string(index=False))
     if dry:
         print("\n(--dry-run: nothing written)")
         return
     write_split(pd.concat([sp, show[COLUMNS]], ignore_index=True))
+    sip.log_buys(add, today)
     print("\nSaved %d row(s) (previous copy: split_backup.csv)." % len(add))
     if any("free source" in x["note"] for x in add):
         print("! Some prices came from the free source, not the broker.")

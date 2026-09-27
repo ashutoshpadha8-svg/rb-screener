@@ -9,7 +9,7 @@ Sab kuch `~/RB_Screener` mein. Terminal (zsh) mein chalao.
 | Command | Kya karta hai | Kab |
 |---|---|---|
 | `rb` | **Roz ka sab kuch** (koi order nahi): token check (expire ho to token.txt khud khulta hai) -> kal ke orders ke asli fill prices -> master scan (aaj ho chuka to skip) -> Portfolio file (Dashboard, Holdings cards, Journal, Actions...) + Google Drive copy | roz, best 15:30 ke baad |
-| `rbtrack` | **Order bhejta hai**: Actions sheet ke BUY / BUY MTF / PAPER / WATCH | 15:30 ke baad, Actions bharne ke baad |
+| `rbtrack` | **Order bhejta hai**: Actions sheet ke BUY / BUY MTF / WATCH + jo **SIP** aaj due hai | 15:30 ke baad |
 
 Shortcuts ek baar set karo (purane rb* hata ke naye 2):
 ```
@@ -27,7 +27,7 @@ rb --force            scan dobara (aaj ka scan hone ke baad bhi)
 rb --no-news          tez (news / NSE filings nahi)
 rbtrack --dry-run     sirf dikhata hai, kuch nahi bhejta
 rbtrack --sold SYMBOL PRICE --date 2026-11-12    sell journal mein haath se (agar apne aap na pakda)
-rbtrack --sold SYMBOL --paper                    PAPER trade band karo (aaj ke price pe)
+rbtrack --clear-paper                            purane PAPER trades hatao (PAPER band hai, 27 Sep)
 rbtrack --unwatch SYM1,SYM2                      watchlist se hatao
 python3 ~/RB_Screener/broker_api.py check        account + funds + 1 price (purana rbcheck)
 ```
@@ -57,13 +57,33 @@ Dhyan: scan dobara chahiye to `rb --force`.
 1. `rb` (15:30 ke baad best). Dhan token expire ho to token.txt khud khulega: naya token paste, Cmd+S, `rb` dobara.
 2. File kholo (Mac pe ya Google Sheets: My Drive/RB_Reports/...). Pehli tab **Dashboard**.
    **Holdings** = har stock ek card (rang = ACTION). **Journal** = har trade ka hisaab (fees, dividend, tax ke baad).
-3. Kuch khareedna ho: **Actions** sheet mein Action (BUY / PAPER / WATCH) + Amount (Rs) (khaali = Rs 10,000). Qty khud.
+3. Kuch khareedna ho: **Actions** sheet mein Action (BUY / BUY MTF / WATCH) + Amount (Rs) (khaali = Rs 10,000). Qty khud.
+   Regular buying: **SIP** sheet (neeche section 2b).
 4. `rbtrack --dry-run`, phir `rbtrack`.
 5. Becha (broker app se)? Kuch nahi karna: agle `rb` pe journal khud pakdega (Dhan). Angel/Zerodha: usi din shaam `rb` chalao.
    Na pakde to: `rbtrack --sold SYMBOL PRICE --date YYYY-MM-DD`.
 
 WATCH = koi order nahi; stock watchlist mein, `rb` roz analysis dikhata hai. Hatana: `rbtrack --unwatch SYMBOL`.
 Sell kabhi automatic nahi -- broker app mein khud.
+
+---
+
+## 2b. SIP (regular buying)
+
+Portfolio file ki **SIP** tab mein peele columns bharo (ek row = ek plan):
+
+| Symbol | Frequency | Day | Amount per buy (Rs) | Total capital (Rs) | Product | Active | Start date |
+|---|---|---|---|---|---|---|---|
+| NIFTYBEES | Monthly | 5 | 5000 | 60000 | BUY | YES | |
+| TCS | Weekly | Mon | 2000 | 20000 | BUY | YES | |
+
+- Day: Monthly = tarikh 1-28, Weekly = Mon..Fri, Daily = khaali.
+- Amount = tumhara paisa har buy. BUY MTF = broker ka asli leverage x amount.
+- Total capital khaali = koi limit nahi; poora lag gaya to plan "DONE".
+- Save karo -> `rbtrack` (15:30 ke baad) jo due hai uska order lagata hai. Chhoota din usi mahine/hafte mein pakad leta hai.
+- Rokna: Active = NO. Hatana: Symbol cell khaali.
+- Har buy journal mein "SIP" ke naam se (fees, dividend, P&L). SIP stock pe koi sell rule nahi.
+- Backtest (sip_backtest.py): seedhi monthly SIP ~ Nifty; weekly/daily se kuch extra nahi; single stock mein bura risk.
 
 ---
 
@@ -173,7 +193,7 @@ python3 ~/RB_Screener/position_tracker.py --no-news    # purana leg-wise tracker
 | `does not match the token` | Client ID aur token alag account ke -> sahi token daalo |
 | `HTTP 401` / `DH-901` | Token expire -> naya token |
 | `Market is open` | rbtrack 15:30 ke baad chalao |
-| `Not enough funds` | Dhan mein paise nahi -> PAPER use karo |
+| `Not enough funds` | Dhan mein paise nahi -> pehle paise daalo |
 | `NotOpenSSLWarning` | Ignore, kuch nahi bigadta |
 | Excel `_fund.xlsx` bani | Excel khuli thi -> band karke `rbscan --force` |
 | `No master scan yet` | pehle `rbscan`, phir `rbport` |

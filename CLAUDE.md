@@ -64,8 +64,16 @@
                         #   0.1% both, NSE 0.00307%, SEBI 10/cr, GST 18%, stamp 0.015% buy, DP Dhan 12.5+GST /
                         #   Zerodha 15.34 / Angel 20+GST, Angel brokerage min(20, 0.1%, >=5)); MTF interest 12.49%.
                         #   Tax ESTIMATE per FY: STCG 20.8%, LTCG 13% > 1.25L, set-off, STT not deductible; dividends
-                        #   (slab) excluded. Exit signal date -> "Rule follow?". PAPER_AUTO_EXIT = False (ask RB).
+                        #   (slab) excluded. Exit signal date -> "Rule follow?". PAPER_AUTO_EXIT moot (PAPER removed).
                         #   Tested with mocked data only.
+  sip.py                # SIP (27 Sep, RB): SIP sheet in the Portfolio file (Symbol, Frequency Monthly/Weekly/Daily,
+                        #   Day, Amount per buy = own Rs, Total capital cap, Product BUY/BUY MTF, Active, Start) <->
+                        #   accounts/<..>/data/sip.csv (+ sip_log.csv of buys). rbtrack places AMOs for due plans
+                        #   (once per month/week/weekday, catch-up inside the same period, last buy cut to capital
+                        #   left, MTF qty = amount x broker leverage). Buys -> split.csv strategy SIP (investing_qty
+                        #   column, leg "sip" in portfolio = no sell rule) -> journal. No dip/up rules (backtest said no).
+                        #   PAPER / PAPER MTF actions REMOVED (27 Sep, RB): Actions = BUY / BUY MTF / WATCH;
+                        #   `rbtrack --clear-paper` drops old PAPER rows from split.csv + journal.
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py

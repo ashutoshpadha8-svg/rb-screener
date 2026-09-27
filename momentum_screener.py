@@ -66,7 +66,7 @@ INDUSTRY_URL = ("https://nsearchives.nseindia.com/content/indices/"
 SPLIT_FILE = os.path.join(ds.HERE, "split.csv")
 RED = "High Risk - Market Red"
 # Action dropdown in Strategy_Comparison (rbtrack acts on the first four)
-ACTIONS = ("BUY", "BUY MTF", "PAPER", "PAPER MTF", "WATCH")
+ACTIONS = ("BUY", "BUY MTF", "WATCH")        # PAPER removed 27 Sep (RB)
 
 
 # ================================================================== helpers

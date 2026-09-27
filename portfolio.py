@@ -15,7 +15,7 @@ account part, for the account in token.txt:
              RECOMMENDATION + WHY
   Rebalance  momentum: SELL / BUY / HOLD per LIVE and PAPER (1st trading day)
   Actions    the master Strategy_Comparison list + an Action dropdown
-             (BUY / BUY MTF / PAPER / PAPER MTF / WATCH) -> rbtrack
+             (BUY / BUY MTF / WATCH) -> rbtrack;  SIP  regular buying plans
 
 RECOMMENDATION
   A stock tagged in split.csv is judged by ITS strategy's exit rule (the
@@ -63,7 +63,7 @@ KEEP_RANK = ms.BUFFER * ms.SLOTS
 SLOT_RS = int(ms.CAPITAL / ms.SLOTS)   # default own money per stock (Rs 10,000)
 MTF_X = 4                              # = auto_tracker_update.MTF_LEVERAGE
 LEG_ORDER = {"EXIT": 0, "SELL@REBAL": 1, "SELL": 1, "WATCH": 2, "WEAK": 2,
-             "HOLD": 3, "KEEP": 3, "AVOID": 4, "STRONG": 4}
+             "HOLD": 3, "KEEP": 3, "AVOID": 4, "STRONG": 4, "SIP": 5}
 WATCH_WORD = {"KEEP": "STRONG", "WEAK": "WEAK", "SELL": "AVOID"}
 
 
@@ -109,12 +109,16 @@ def positions(broker_holdings, sp):
         for _, r in rows.iterrows():
             for leg in ("swing", "investing", "momentum"):
                 if r["%s_qty" % leg] > 0:
-                    legs[leg] = legs.get(leg, 0) + r["%s_qty" % leg]
+                    k = "sip" if str(r.get("strategy")) == "SIP" else leg
+                    legs[k] = legs.get(k, 0) + r["%s_qty" % leg]
         tagged_qty = sum(legs.values())
         edate = rows["entry_date"].dropna().astype(str).min() if len(rows) \
             and "entry_date" in rows else None
-        entry = float(rows["entry_price"][rows["entry_price"] > 0].mean()) \
-            if len(rows) and (rows["entry_price"] > 0).any() else h["avg_price"]
+        rq = rows["swing_qty"] + rows["investing_qty"] + rows["momentum_qty"] \
+            if len(rows) else None
+        ok = (rows["entry_price"] > 0) & (rq > 0) if len(rows) else None
+        entry = float((rows["entry_price"][ok] * rq[ok]).sum() / rq[ok].sum()) \
+            if len(rows) and ok.any() else h["avg_price"]      # qty-weighted
         note = ""
         if legs and abs(tagged_qty - h["qty"]) > 0.5:
             note = "split.csv legs total %g, demat %g" % (tagged_qty, h["qty"])
@@ -125,8 +129,8 @@ def positions(broker_holdings, sp):
     for _, r in (live[~live["symbol"].isin(held)].iterrows() if len(live)
                  else []):
         q = r["swing_qty"] + r["investing_qty"] + r["momentum_qty"]
-        legs = {leg: r["%s_qty" % leg] for leg in ("swing", "investing",
-                                                   "momentum")
+        legs = {("sip" if str(r.get("strategy")) == "SIP" else leg):
+                r["%s_qty" % leg] for leg in ("swing", "investing", "momentum")
                 if r["%s_qty" % leg] > 0}
         if q > 0:
             out.append({"mode": "LIVE", "symbol": r["symbol"], "qty": q,
@@ -149,7 +153,9 @@ def positions(broker_holdings, sp):
         q = sum(legs.values())
         if q > 0:
             out.append({"mode": "PAPER", "symbol": s, "qty": q,
-                        "entry": float(g["entry_price"].mean()),
+                        "entry": float((g["entry_price"] * (
+                            g["swing_qty"] + g["investing_qty"] +
+                            g["momentum_qty"])).sum() / q),
                         "entry_date": g["entry_date"].astype(str).min()
                         if "entry_date" in g else None,
                         "legs": legs, "note": ""})
@@ -312,6 +318,10 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
                       "%d rank" % (KEEP_RANK - rk0) if rk0 is not None
                       else "rank ?", (KEEP_RANK - rk0) / 2.0
                       if rk0 is not None else None))
+    if "sip" in legs:
+        verdicts.append("SIP")
+        why.append("SIP: regular buying, no sell rule (%g sh)" % legs["sip"])
+        exits.append(("SIP", "SIP: koi sell rule nahi", "-", "-", None))
     if verdicts:
         rec = min(verdicts, key=lambda v: LEG_ORDER.get(v, 9))
         basis = "+".join(legs)
@@ -384,7 +394,7 @@ WIDTH = {"Why": 70, "News (7 days)": 90, "NSE filings (30d)": 90, "Red flag": 8,
 REC_FILL = {"EXIT": "F8CBAD", "SELL": "F8CBAD", "SELL@REBAL": "FCE4D6",
             "WATCH": "FFE699", "WEAK": "FFE699", "HOLD": "C6EFCE",
             "KEEP": "C6EFCE", "NO DATA": "D9D9D9", "STRONG": "C6EFCE",
-            "AVOID": "F8CBAD"}
+            "AVOID": "F8CBAD", "SIP": "DDEBF7"}
 
 
 SCAN_SHEETS = ["Swing", "Investing", "Momentum_Top20", "Fundamentals"]
@@ -393,7 +403,9 @@ SHEET_INFO = [
     ("Holdings", "your stocks as cards: ACTION, why, P&L, how far the exit is"),
     ("Journal", "every trade: P&L after fees, dividends and tax, month by "
                 "month, vs Nifty"),
-    ("Actions", "all buy candidates: pick BUY / PAPER / WATCH + Amount (Rs)"),
+    ("Actions", "all buy candidates: pick BUY / BUY MTF / WATCH + Amount (Rs)"),
+    ("SIP", "regular buying plans: Monthly / Weekly / Daily, amount, capital, "
+            "BUY / BUY MTF -> rbtrack buys when due"),
     ("Super-Buy", "common stocks: in BOTH the W+TT swing list and momentum "
                   "top 20, best momentum rank first"),
     ("Rebalance", "momentum SELL / BUY / HOLD (1st trading day of the month)"),
@@ -404,14 +416,15 @@ SHEET_INFO = [
     ("Momentum_Top20", "master scan: RAMOM top 20 (sector cap 4)"),
     ("Fundamentals", "master scan: Screener.in detail per stock (info only)")]
 TAB = {"Dashboard": "1F4E78", "Holdings": "548235", "Journal": "7030A0",
-       "Actions": "FFC000", "Super-Buy": "00B050", "Rebalance": "2E75B6",
+       "Actions": "FFC000", "SIP": "FFC000", "Super-Buy": "00B050", "Rebalance": "2E75B6",
        "Watchlist": "2E75B6"}
 NAVY, GREY_TXT, LINE = "1F4E78", "7F7F7F", "D9D9D9"
 ACT_COL = {"EXIT": ("C00000", "FFFFFF"), "SELL": ("C00000", "FFFFFF"),
            "AVOID": ("C00000", "FFFFFF"), "SELL@REBAL": ("E46C0A", "FFFFFF"),
            "WATCH": ("FFC000", "1F1F1F"), "WEAK": ("FFC000", "1F1F1F"),
            "HOLD": ("1E7B34", "FFFFFF"), "KEEP": ("1E7B34", "FFFFFF"),
-           "STRONG": ("1E7B34", "FFFFFF"), "NO DATA": ("7F7F7F", "FFFFFF")}
+           "STRONG": ("1E7B34", "FFFFFF"), "NO DATA": ("7F7F7F", "FFFFFF"),
+           "SIP": ("2E75B6", "FFFFFF")}
 MONEY = ("Value (Rs)", "Amount (Rs)", "Gross", "Gross P&L", "Dividend", "Fees",
          "Fees (buy)", "NET", "NET (tax se pehle)", "Ab tak kul NET",
          "Tax (andaaza)", "Unrealised", "Agar aaj becho: NET")
@@ -511,7 +524,8 @@ def dashboard(ws, d, have):
 
 
 def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
-               old_amount=None, master=None, dash=None, jrep=None):
+               old_amount=None, master=None, dash=None, jrep=None,
+               sip_rows=None):
     old_amount = old_amount or {}
     from openpyxl import Workbook, load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -648,7 +662,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
          "9C6500" if near else "1E7B34"),
         ("RED FLAG", ("%d  %s" % (len(flags), ", ".join(flags[:3]))).strip(),
          "C00000" if flags else "1E7B34"),
-        ("P&L  LIVE | PAPER", "%s | %s" % (txt(lp), txt(pp)),
+        ("P&L (LIVE)", txt(lp) if not pp else "%s | paper %s" % (txt(lp),
+                                                                 txt(pp)),
          "1F1F1F")], width=W)
 
     def card(r0, c0, h):
@@ -721,7 +736,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
             row += 10
     if not own:
         ws.cell(row=6, column=1, value="Koi holding nahi (demat khaali, koi "
-                "PAPER trade nahi).").font = Font(size=12, italic=True)
+                "SIP / trade abhi).").font = Font(size=12, italic=True)
         row = 8
     note(ws, row, "Card ka rang = ACTION. Laal 'Exit se door' = exit 5% se kam "
          "door. Sort/filter: Holdings_Table tab. Sell hamesha broker app mein.")
@@ -740,7 +755,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     row = 3
     if not jrep:
         wj.cell(row=3, column=1, value="Abhi koi trade nahi. rbtrack se BUY / "
-                "PAPER karoge to yahan aayega.").font = Font(size=12,
+                "BUY MTF / SIP karoge to yahan aayega.").font = Font(size=12,
                                                              italic=True)
         row = 5
     for mode in ("LIVE", "PAPER"):
@@ -817,7 +832,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
          "statement final.")
     note(wj, row + 1, "Sell apne aap pakda jaata hai (demat + broker trade "
          "history). Na pakde to: rbtrack --sold SYMBOL PRICE --date "
-         "YYYY-MM-DD   |   PAPER: rbtrack --sold SYMBOL --paper")
+         "YYYY-MM-DD")
 
     # ------------------------------------------------------------ Actions
     wa = wb.create_sheet("Actions")
@@ -854,8 +869,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                         allow_blank=True, showErrorMessage=True,
                         errorTitle="Action", error="Pick from the list",
                         promptTitle="Action", showInputMessage=True,
-                        prompt="BUY / BUY MTF = real AMO, PAPER = mock, "
-                               "WATCH = no order")
+                        prompt="BUY / BUY MTF = real AMO (next open), "
+                               "WATCH = no order, only the watchlist")
     dv.add("%s2:%s%d" % (col, col, max(last, 2)))
     wa.add_data_validation(dv)
     note(wa, last + 2, "Peele columns bharo: Action + Amount (Rs) (khaali = Rs "
@@ -864,6 +879,42 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
          % format(SLOT_RS, ","))
     note(wa, last + 3, "MTF: Qty (auto) %dx maan ke dikhata hai; rbtrack broker "
          "ka asli leverage leta hai." % MTF_X)
+
+    # ------------------------------------------------------------ SIP
+    import sip as sipm
+    wp = wb.create_sheet("SIP")
+    pcols = [h for h, _ in sipm.SHEET] + sipm.STATUS
+    prow = list(sip_rows or [])
+    blank = 5
+    last = table(wp, pcols, prow + [{} for _ in range(blank)], None,
+                 {"Symbol": 13, "Frequency": 11, "Day": 7,
+                  "Amount per buy (Rs)": 12, "Total capital (Rs)": 12,
+                  "Product": 10, "Active": 8, "Start date": 11,
+                  "Invested (Rs)": 11, "Buys": 6, "Last buy": 11,
+                  "Next due": 16, "Capital left (Rs)": 12, "id": 11},
+                 freeze="B2", filt=False)
+    ned = len(sipm.SHEET)
+    for r in range(2, last + 1):
+        for c in range(1, ned + 1):
+            wp.cell(row=r, column=c).fill = fill("FFF2CC")
+        for c in range(ned + 1, len(pcols) + 1):
+            wp.cell(row=r, column=c).font = Font(color=GREY_TXT)
+    for colname, opts in (("Frequency", sipm.FREQS),
+                          ("Product", sipm.PRODUCTS), ("Active", ("YES", "NO"))):
+        L_ = L(pcols.index(colname) + 1)
+        v = DataValidation(type="list", formula1='"%s"' % ",".join(opts),
+                           allow_blank=True)
+        v.add("%s2:%s%d" % (L_, L_, last))
+        wp.add_data_validation(v)
+    note(wp, last + 2, "Peele columns bharo, save karo. rbtrack (15:30 ke baad) "
+         "jo SIP due hai uska order lagata hai. Day: Monthly = tarikh 1-28, "
+         "Weekly = Mon..Fri, Daily = khaali. Amount = TUMHARA paisa har buy; "
+         "BUY MTF = broker ka leverage x amount.")
+    note(wp, last + 3, "Total capital khaali = koi limit nahi. Rokna: Active = "
+         "NO. Hatana: row ki Symbol cell khaali karo. Grey columns khud bante "
+         "hain. Har buy journal mein 'SIP' ke naam se.")
+    note(wp, last + 4, "Backtest: seedhi monthly SIP ~ Nifty; weekly/daily se "
+         "kuch extra nahi; single stock SIP: sabse bure 10% stocks ~ -4%/saal.")
 
     # ------------------------------------------------------------ Super-Buy
     wsb = wb.create_sheet("Super-Buy")
@@ -1051,6 +1102,10 @@ def main():
         drive_copy = None
     if drive_copy:
         drive_copy.pull(prev)       # picks you made in Google Sheets
+    import sip
+    if os.path.exists(prev):        # SIP sheet edits -> sip.csv
+        for pr in sip.read_sheet(prev):
+            warns.append("SIP row ignored -- " + pr)
     if os.path.exists(prev):
         o = ms._read_sheet(prev, "Actions")
         if "Ticker" in o and "Action" in o:
@@ -1204,6 +1259,9 @@ def main():
     for w in warns:
         print("  ! " + w)
     jrep = None
+    sip_rows = sip.status(today)
+    sdue = [r["Symbol"] for r in sip_rows if str(r["Next due"]).startswith(
+        "aaj")]
     if journal:
         try:                        # exit signals ("rule followed?") + sheet
             last_px = {s_: float(c_.iloc[-1]) for s_, c_ in closes.items()
@@ -1217,12 +1275,16 @@ def main():
                          % (type(e).__name__, e))
     dash = dashboard_data(acc, today, master, note, regime_red, hold, rebal,
                           comp, sw, warns, jrep)
+    if sip_rows:
+        dash["todo"].append(("SIP", "%d plan(s) active | aaj due: %s" % (
+            sum(r["Active"] == "YES" for r in sip_rows),
+            ", ".join(sdue) or "-"), False))
     path = write_book(path_for(), hold, rebal, comp, held_modes, old_actions,
                       "Portfolio %s | %s | master %s | prices: %s"
                       % (acc.label, today, os.path.basename(master), note),
-                      old_amount, master, dash, jrep)
+                      old_amount, master, dash, jrep, sip_rows)
     print("\nExcel (the ONE file to open): %s" % path)
-    print("  Dashboard | Holdings | Journal | Actions | Super-Buy | Rebalance | "
+    print("  Dashboard | Holdings | Journal | Actions | SIP | Super-Buy | Rebalance | "
           "Watchlist | Holdings_Table | Swing | Investing | Momentum_Top20 | "
           "Fundamentals")
     if drive_copy:
