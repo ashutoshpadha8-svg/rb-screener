@@ -654,7 +654,7 @@ def short_why(t):
 
 def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                old_amount=None, master=None, dash=None, jrep=None,
-               sip_rows=None, sells=None, trading="OFF"):
+               sip_rows=None, sells=None, trading="OFF", symbols=None):
     old_amount = old_amount or {}
     from openpyxl import Workbook, load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1069,7 +1069,9 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     import sip as sipm
     wp = wb.create_sheet("SIP")
     pcols = [h for h, _ in sipm.SHEET] + sipm.STATUS
-    prow = list(sip_rows or [])
+    cmap = {c.split(" | ")[0]: c for c in symbols or []}
+    prow = [dict(x, Symbol=cmap.get(x["Symbol"], x["Symbol"]))
+            for x in sip_rows or []]
     blank = 5
     last = table(wp, pcols, prow + [{} for _ in range(blank)], None,
                  {"Symbol": 13, "Frequency": 11, "Day": 7,
@@ -1084,6 +1086,19 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
             wp.cell(row=r, column=c).fill = fill("FFF2CC")
         for c in range(ned + 1, len(pcols) + 1):
             wp.cell(row=r, column=c).font = Font(color=GREY_TXT)
+    if symbols:                   # searchable Symbol dropdown (hidden list)
+        wl = wb.create_sheet("Symbols")
+        wl.cell(row=1, column=1, value="Symbol | Company (SIP dropdown)")
+        for i, x in enumerate(symbols, 2):
+            wl.cell(row=i, column=1, value=x)
+        wl.column_dimensions["A"].width = 60
+        wl.sheet_state = "hidden"
+        v = DataValidation(type="list", allow_blank=True,
+                           formula1="Symbols!$A$2:$A$%d" % (len(symbols) + 1),
+                           showErrorMessage=False)
+        v.add("A2:A%d" % last)
+        wp.add_data_validation(v)
+        wp.column_dimensions["A"].width = 30
     for colname, opts in (("Frequency", sipm.FREQS),
                           ("Product", sipm.PRODUCTS), ("Active", ("YES", "NO"))):
         L_ = L(pcols.index(colname) + 1)
@@ -1091,7 +1106,9 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                            allow_blank=True)
         v.add("%s2:%s%d" % (L_, L_, last))
         wp.add_data_validation(v)
-    note(wp, last + 2, "Peele columns bharo, save karo. rbtrack (15:30 ke baad) "
+    note(wp, last + 2, "Symbol: cell pe click -> dropdown mein naam ke kuch "
+         "akshar likho (jaise 'tata' / 'nifty') -> list se chuno. "
+         "Peele columns bharo, save karo. rbtrack (15:30 ke baad) "
          "jo SIP due hai uska order lagata hai. Day: Monthly = tarikh 1-28, "
          "Weekly = Mon..Fri, Daily = khaali. Amount = TUMHARA paisa har buy; "
          "BUY MTF = broker ka leverage x amount.")
@@ -1483,7 +1500,7 @@ def main():
                       "Portfolio %s | %s | master %s | prices: %s"
                       % (acc.label, today, os.path.basename(master), note),
                       old_amount, master, dash, jrep, sip_rows, sells,
-                      trading)
+                      trading, sip.symbol_choices(sess))
     if sells:
         print("\nSELL sheet (TRADING %s): %s" % (trading, ", ".join(
             "%s %s x%d = %s" % (x["Symbol"], x["Product"], x["Qty"],

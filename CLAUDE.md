@@ -72,6 +72,8 @@
                         #   (once per month/week/weekday, catch-up inside the same period, last buy cut to capital
                         #   left, MTF qty = amount x broker leverage). Buys -> split.csv strategy SIP (investing_qty
                         #   column, leg "sip" in portfolio = no sell rule) -> journal. No dip/up rules (backtest said no).
+                        #   Symbol dropdown: hidden 'Symbols' sheet 'SYM | Company' (NSE EQUITY_L.csv + ETF list, weekly
+                        #   cache data/_nse_symbols.csv, + broker symbols); read back as the part before ' | '.
                         #   PAPER / PAPER MTF actions REMOVED (27 Sep, RB): Actions = BUY / BUY MTF / WATCH;
                         #   `rbtrack --clear-paper` drops old PAPER rows from split.csv + journal.
   settings.py           # Per-account switch (27 Sep, RB): Dashboard B2 "TRADING (buy + sell)" ON/OFF (default OFF)

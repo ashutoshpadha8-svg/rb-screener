@@ -87,9 +87,57 @@ def _num(v):
         return None
 
 
+NSE_LISTS = ("https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv",
+             "https://nsearchives.nseindia.com/content/equities/"
+             "eq_etfseclist.csv")
+
+
+def symbol_choices(sess=None):
+    """['TATAMOTORS | Tata Motors Limited', 'NIFTYBEES | ...', ...] for the SIP
+    dropdown: NSE equity (+ ETF) list with names, cached a week in data/,
+    plus every symbol the broker trades (ETFs without a name get '-')."""
+    import time
+    import requests
+    import daily_screener as ds
+    p = os.path.join(ds.DATA, "_nse_symbols.csv")
+    names = {}
+    if not os.path.exists(p) or time.time() - os.path.getmtime(p) > 7 * 86400:
+        rows = []
+        for u in NSE_LISTS:
+            try:
+                r = requests.get(u, headers={"User-Agent": "Mozilla/5.0"},
+                                 timeout=30)
+                if r.status_code == 200 and r.text.startswith(("SYMBOL",
+                                                               "Symbol")):
+                    from io import StringIO
+                    d = pd.read_csv(StringIO(r.text), index_col=False)
+                    d.columns = [c.strip().upper() for c in d.columns]
+                    nm = next((c for c in d.columns if "NAME" in c or
+                               "UNDERLYING" in c), None)
+                    for _, x in d.iterrows():
+                        rows.append((str(x["SYMBOL"]).strip().upper(),
+                                     str(x[nm]).strip() if nm else ""))
+            except Exception:
+                pass
+        if rows:
+            pd.DataFrame(rows, columns=["symbol", "name"]).drop_duplicates(
+                "symbol").to_csv(p, index=False)
+    if os.path.exists(p):
+        d = pd.read_csv(p, dtype=str).fillna("")
+        names = dict(zip(d["symbol"], d["name"]))
+    syms = set(names)
+    if sess is not None:
+        try:
+            import broker_api as ba
+            syms |= {k for k in ba.symbol_map(sess) if k and k != ba.INDEX}
+        except Exception:
+            pass
+    return ["%s | %s" % (k, names.get(k) or "-") for k in sorted(syms)]
+
+
 def _clean(r):
     """Normalise one plan row; returns (row, problem or '')."""
-    sym = str(r.get("symbol", "")).upper().strip()
+    sym = str(r.get("symbol", "")).split("|")[0].upper().strip()
     fr = str(r.get("frequency", "")).strip().capitalize() or "Monthly"
     if fr not in FREQS:
         return None, "%s: Frequency must be Monthly / Weekly / Daily" % sym
@@ -134,7 +182,7 @@ def read_sheet(xlsx):
     old = load_plans()
     rows, probs, used = [], [], set(old["id"])
     for _, x in d.iterrows():
-        sym = str(x.get("Symbol", "")).strip()
+        sym = str(x.get("Symbol", "")).split("|")[0].strip()
         if not sym or " " in sym or len(sym) > 20:      # blank / note lines
             continue
         r = {k: x.get(h, "") for h, k in SHEET}
