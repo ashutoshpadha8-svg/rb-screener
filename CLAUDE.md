@@ -5,18 +5,18 @@
 - Trading feedback: direct and honest, no encouragement. If an idea is bad, say so with numbers.
 - Teach one step at a time, not big info dumps.
 - I run Python scripts but don't write code from scratch. Give exact terminal commands.
-- Mac Mini, zsh, Python 3.9 (pip3). Everything lives in `~/Desktop/RB_Screener`.
+- Mac Mini, zsh, Python 3.9 (pip3). Everything lives in `~/RB_Screener` (home folder, NOT Desktop). Futures project: `~/RB_Screener/futures`.
 
 ## Folder layout
 ```
-~/Desktop/RB_Screener/
+~/RB_Screener/
   daily_screener.py     # v4 - main screener (run daily)
   position_tracker.py   # hold/exit tracker for my positions (swing + investing legs)
   dhan_token.txt        # today's Dhan access token, one line. NEVER print or copy it anywhere
   data/                 # cached price history, NSE market-cap file, Dhan scrip master
   reports/              # RB_Screener_YYYY-MM-DD.xlsx (sheets: Swing, Investing)
 ```
-Shortcut: `rbscan` (zsh alias) = `python3 ~/Desktop/RB_Screener/daily_screener.py`.
+Shortcut: `rbscan` (zsh alias) = `python3 ~/RB_Screener/daily_screener.py` - NOTE: alias is NOT set up on the Mac Mini (checked 27 Sep 2026).
 Daily routine: paste fresh Dhan token into dhan_token.txt (TextEdit, Cmd+A, Cmd+V, Cmd+S), then `rbscan`.
 
 ## How daily_screener.py works
