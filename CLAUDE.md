@@ -385,5 +385,18 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 11. DONE: live momentum chain (momentum_screener.py, auto_tracker_update.py, tracker momentum leg). Next: paper trade it.
 12. DONE: BUY MTF / PAPER MTF (4x qty, "YES MTF" confirm, MTF summary in tracker) -- leverage test above says no.
 14. DONE: multi-broker adapter (broker_api.py) + accounts/<BROKER>_<ID>/. Angel/Zerodha untested live.
+15. IDEAS PARKED (27 Sep, RB: "yaad dilaate rehna, research karte rehna") -- REMIND RB at the start of new work:
+    a) `rb --all`: ONE folder ~/RB_Screener/users/*.txt (token.txt format + 'Telegram Chat ID:' + 'Active: YES/NO',
+       chmod 700, never Drive) -> master scan once, then per active user: holdings/SIP/file/Drive + Telegram to
+       THAT user only; one bad token never stops the others (alert that user). Orders stay rbtrack-only, per account.
+       Needs account.activate() to take a token-file path. Limits: Dhan token daily by hand (Angel AUTO ok), all
+       keys in one folder (FileVault!), each user /start's the bot once, get their consent.
+    b) Auto-run: macOS launchd weekdays ~16:15 -> rb (or rb --all); pair with Telegram alerts.
+    c) 'Telegram Chat ID:' line in token.txt instead of `telegram_alert.py link` (phone number can NOT be used:
+       bots need chat_id and the user must /start first).
+    d) Moneycontrol: NO login scraping (ToS, password risk, news never changes a verdict); optional free public
+       RSS feeds in news_feed.py if RB wants.
+    e) Research to do before building a): per-user token storage, SEBI retail-algo rules for API orders
+       (static IP / registration) before any unattended orders, Telegram rate limits, launchd + sleep/wake.
 13. DONE: PAPER mode + news, Dhan AMO buy bridge (untested against the real Dhan API from the cloud -- first live use:
     ONE row, ONE share, then check the Dhan order book), Rebalance_Dashboard sheet (SELL/BUY/HOLD per LIVE/PAPER).
