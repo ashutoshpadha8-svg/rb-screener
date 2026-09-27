@@ -33,9 +33,16 @@ def run(script, *args):
                            list(args))
 
 
-def open_token(why):
+def open_token(why, alert=False):
     tok = os.path.join(HERE, "token.txt")
     print("\n!!! %s" % why)
+    if alert:                       # phone knows too (auto-run, Mac unseen)
+        try:
+            import telegram_alert
+            telegram_alert.send("⛔ rb ruk gaya: %s\nMac pe token.txt mein "
+                                "naya token daalo, phir: rb" % why, quiet=True)
+        except Exception:
+            pass
     print("    token.txt khul raha hai: naya token 'Token:' line pe paste "
           "karo, Cmd+S, phir dobara: rb")
     if not os.path.exists(tok):
@@ -56,7 +63,7 @@ def main():
     import account
     acc = account.activate()
     if not acc.token_ok:
-        open_token("Token expire ho gaya (%s)." % acc.label)
+        open_token("Token expire ho gaya (%s)." % acc.label, alert=True)
     import broker_api as ba                  # date OK != broker accepts it
     try:
         _, err = ba.available_funds(acc.session)
@@ -66,7 +73,7 @@ def main():
     if "token" in e_ or "dh-901" in e_ or "http 401" in e_ or "http 403" in e_:
         open_token("%s ne token REJECT kiya (%s). Date abhi valid thi -- "
                    "shayad naya token bana / logout hua. Naya token daalo."
-                   % (acc.label, err[:80]))
+                   % (acc.label, err[:80]), alert=True)
     if run("auto_tracker_update.py", "--sync") != 0:
         print("! fills sync failed -- continuing")
     r = run("rb_scan.py", *[x for x in a if x == "--force"])

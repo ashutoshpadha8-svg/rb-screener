@@ -268,3 +268,20 @@ My Drive/RB_Reports/DHAN_Ashutosh/Watchlist_DHAN_Ashutosh.txt
 `rbport` banata hai: `accounts/<..>/reports/Watchlist_<BROKER>_<Naam>.txt` (NSE:SIGMAADV,NSE:STLTECH,...).
 TradingView -> Watchlist -> ... -> **Import list** -> ye file. Broker apps (Dhan/Angel/Zerodha) ki API se watchlist
 nahi banti, wahan haath se jodna padega.
+
+## 12. Telegram alert (har account ko sirf uska apna summary)
+
+Bot sirf message BHEJTA hai -- koi command nahi sunta, koi order nahi lagata.
+Ek baar setup:
+```
+python3 ~/RB_Screener/telegram_alert.py bot      # Telegram @BotFather -> /newbot -> token 'Bot Token:' line pe paste, Cmd+S
+```
+Har account ke liye (us account ka token token.txt mein ho):
+1. Us insaan ke phone pe bot kholo -> `/start` bhejo
+2. 15 minute ke andar Mac pe:
+```
+python3 ~/RB_Screener/telegram_alert.py link     # test message aana chahiye
+```
+Phir har `rb` ke baad us account ka summary: value/P&L, EXIT/HOLD, SIP due, rebalance list, NSE red flags,
+market RED/GREEN, TRADING ON/OFF. Token expire/reject hua to bhi alert.
+`python3 ~/RB_Screener/telegram_alert.py test` = test message, `unlink` = band.

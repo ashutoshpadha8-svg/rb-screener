@@ -1566,6 +1566,13 @@ def main():
             r["Amount per buy (Rs)"] or 0, r["Start date"] or "-",
             "ON" if r["Active"] == "YES" else "PAUSED", r["Next due"])
         for r in sip_rows) or "none (SIP sheet khaali)"))
+    try:                            # phone summary (only if linked)
+        import telegram_alert
+        telegram_alert.send(telegram_alert.summary(
+            acc, today, hold, rebal, sip_rows, regime_red, trading, val, cost,
+            news_on="--no-news" not in a))
+    except Exception as e:
+        print("  ! Telegram alert skipped (%s)" % type(e).__name__)
     print("\nExcel (the ONE file to open): %s" % path)
     print("  Dashboard | Holdings | Sell | Journal | Actions | SIP | Super-Buy | Rebalance | "
           "Watchlist | Holdings_Table | Swing | Investing | Momentum_Top20 | "

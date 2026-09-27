@@ -92,6 +92,12 @@
                         #   rbtrack: TRADING ON -> sells first (fresh demat check, sold_recently/ordered_today guard,
                         #   typed "YES SELL", broker_api.place_amo_order(side="SELL"), orders_log side column) -> journal
                         #   closes after the fill. Needs DDPI/POA. Mock-tested only; never sent a real SELL.
+  telegram_alert.py     # Telegram summary per account (27 Sep, RB): ONE bot (accounts/telegram_bot.txt, never printed),
+                        #   each account linked to ONE chat (accounts/<..>/telegram.json via `telegram_alert.py link` =
+                        #   /start of the last 15 min). rb/portfolio sends: value/P&L, EXIT/SELL@REBAL/WATCH/HOLD/SIP,
+                        #   SIP next due, LIVE rebalance (next 1st weekday), NSE red flags, regime, TRADING. rb also
+                        #   alerts when the token is expired/rejected. SEND-ONLY: no commands, no orders.
+                        #   Mock-tested only (fake _api), never hit the real Telegram API from the cloud.
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py
