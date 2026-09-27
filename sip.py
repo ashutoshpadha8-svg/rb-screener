@@ -283,6 +283,20 @@ def status(today=None):
     return out
 
 
+def exec_day(run, early=False):
+    """rbtrack places an AMO -> it fills on the NEXT weekday's open (before
+    09:00 on a weekday: that same day). The plan's day / week / month is
+    judged on this fill day, so a Sunday run for a Monday plan buys ONCE
+    (Monday), not 'last week' + 'this week'. Exchange holidays ignored."""
+    d = pd.Timestamp(run).normalize()
+    if early and d.weekday() < 5:
+        return d
+    d += pd.Timedelta(days=1)
+    while d.weekday() >= 5:
+        d += pd.Timedelta(days=1)
+    return d
+
+
 def _is_due(p, log, d):
     if p["active"] != "YES" or d.weekday() >= 5 and p["frequency"] == "Daily":
         return False
@@ -295,10 +309,16 @@ def _is_due(p, log, d):
     if (g["period"] == period(p["frequency"], d)).any():
         return False
     if p["frequency"] == "Monthly":
-        return d.day >= int(p["day"] or 1)
-    if p["frequency"] == "Weekly":
-        return d.weekday() >= DAYS.index(p["day"] or "Mon")
-    return True
+        sched = d.replace(day=int(p["day"] or 1))
+    elif p["frequency"] == "Weekly":
+        sched = d + pd.Timedelta(days=DAYS.index(p["day"] or "Mon")
+                                 - d.weekday())
+    else:
+        return True
+    # catch-up only for a buy day ON/AFTER the start date (a plan started on
+    # the 27th with day 1 waits for next month, no instant 'missed' buy)
+    return sched <= d and not (p["start"] and
+                               sched.date().isoformat() < p["start"])
 
 
 def next_due(p, log, today):
@@ -308,25 +328,30 @@ def next_due(p, log, today):
     if cap and cap - _invested(log, p["id"])[0] < 1:
         return "DONE (capital used)"
     for k in range(0, 40):
-        d = today + pd.Timedelta(days=k)
+        r = today + pd.Timedelta(days=k)
+        d = exec_day(r)
         if _is_due(p, log, d):
-            return "aaj (rbtrack)" if k == 0 else d.strftime("%d %b")
+            return ("aaj rbtrack -> buy %s" if k == 0 else
+                    "rbtrack %s -> buy %s" % (r.strftime("%a %d %b"), "%s")) \
+                % d.strftime("%a %d %b")
     return "-"
 
 
-def due(today=None):
+def due(today=None, early=False):
+    """Plans to order in this rbtrack run (fill day = exec_day)."""
     today = pd.Timestamp(str(today or dt.date.today())[:10])
+    fill = exec_day(today, early)
     plans, log = load_plans(), load_log()
     out = []
     for _, p in plans.iterrows():
-        if _is_due(p, log, today):
+        if _is_due(p, log, fill):
             inv, _ = _invested(log, p["id"])
             cap = _num(p["capital"])
             amt = _num(p["amount"])
             if cap:
                 amt = min(amt, cap - inv)
             out.append(dict(p, amount_now=amt,
-                            period=period(p["frequency"], today)))
+                            period=period(p["frequency"], fill)))
     return out
 
 

@@ -571,7 +571,7 @@ def main():
     probs = sip.read_sheet(path)            # your SIP sheet -> sip.csv
     for pr in probs:
         print("! SIP: %s" % pr)
-    sdue = sip.due(today)
+    sdue = sip.due(today, early=ds.now_ist().hour < 9)
     import settings
     trading = settings.read_dashboard(path)
     sells = read_sells(path)

@@ -79,6 +79,8 @@
                         #   Start date = real date cell + calendar picker (Sheets double-click); blank -> today;
                         #   typed 01-10-2026 = DAY first; unreadable -> plan PAUSED (Active NO) + warning. Day dropdown
                         #   (Mon..Fri, 1..28); Weekly '1'..'5' = Mon..Fri.
+                        #   Due is judged on the AMO FILL day (next weekday; before 09:00 = same day), catch-up only
+                        #   for a buy day >= Start date (Sunday run of a Mon plan = ONE buy Mon, not last week + this week).
                         #   PAPER / PAPER MTF actions REMOVED (27 Sep, RB): Actions = BUY / BUY MTF / WATCH;
                         #   `rbtrack --clear-paper` drops old PAPER rows from split.csv + journal.
   settings.py           # Per-account switch (27 Sep, RB): Dashboard B2 "TRADING (buy + sell)" ON/OFF (default OFF)
