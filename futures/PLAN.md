@@ -80,3 +80,11 @@ Next step (waiting on RB): make free Topstep account, check (a) free Practice ac
 (b) can API subscription ($14.50/mo) be bought without a Combine.
 After that: install requests, create topstep_login.txt, run guard live on Practice; then NOISE signal mode.
 Not done yet: Express Funded rules in guard (40% payout consistency, scaling plan) - verify then add.
+
+### Run 3 - ICT / SMC ideas (smc_test.py), fixed rules, no tuning, $250 risk/trade
+AMD_LDN (Asia range -> London sweep -> NY reversal), AMD_NY (overnight range sweep 9:30-11:00, 5-min close back
+inside -> reverse), SWEEP_PD (prev-day high/low sweep reversal), each with 2R target and hold-to-close.
+Result: NO edge. Before costs, average trade = -0.10R to +0.14R and the sign flips between 2016-21 and 2022-26
+(pure noise). After costs every variant loses on MNQ and MES; Combine pass 0-10%, at or below luck.
+Order flow NOT tested: needs tick data with aggressor side (bid/ask volume); 1-min price data can't do it.
+=> Rejected. NOISE stays the only candidate.
