@@ -79,7 +79,8 @@ Done:
 Next step (waiting on RB): Topstep account made (28 Sep). Practice account is NOT free - needs an active Combine.
 Full rules in futures/TOPSTEP_RULES.md. Before paying: email support (India eligibility + bot OK).
 After that: install requests, create topstep_login.txt, run guard live on Practice; then NOISE signal mode.
-Not done yet: Express Funded rules in guard (40% payout consistency, scaling plan) - verify then add.
+Guard now has XFA mode (--stage xfa --path standard|consistency --payout-since --dll): 40% early warning,
+winning days, payout eligibility/amount, scaling plan (50K verified; 100K/150K use 50K table until verified).
 
 ### Run 3 - ICT / SMC ideas (smc_test.py), fixed rules, no tuning, $250 risk/trade
 AMD_LDN (Asia range -> London sweep -> NY reversal), AMD_NY (overnight range sweep 9:30-11:00, 5-min close back

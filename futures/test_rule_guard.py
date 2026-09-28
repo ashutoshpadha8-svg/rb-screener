@@ -75,6 +75,30 @@ def test_pretrade_blocks_trade_that_can_hit_mll():
     assert ok
 
 
+def test_xfa_floor_scaling_and_payout_lock():
+    r = g.make_rules("xfa", "50k", "standard")
+    today = D(2026, 11, 6)
+    assert g.account_limits({}, today, r) == (-2000.0, 20)
+    daily = {D(2026, 11, 3): 1000.0, D(2026, 11, 4): 700.0}              # EOD 1700 -> floor -300, 30 micros
+    assert g.account_limits(daily, today, r) == (-300.0, 30)
+    daily[D(2026, 11, 5)] = 500.0                                          # EOD 2200 -> floor locks at 0, 50 micros
+    assert g.account_limits(daily, today, r) == (0.0, 50)
+    r2 = g.make_rules("xfa", "50k", "standard", payout_since=D(2026, 11, 4))
+    assert g.account_limits({D(2026, 11, 3): 100.0}, today, r2)[0] == 0.0  # after payout MLL = 0
+
+
+def test_xfa_consistency_early_warning():
+    r = g.make_rules("xfa", "50k", "consistency")
+    now = dt.datetime(2026, 11, 6, 10, 0, tzinfo=CT)
+    snap = {"balance": 1000.0 + 560.0, "orders": [], "positions": [],
+            "daily": {D(2026, 11, 4): 500.0, D(2026, 11, 5): 400.0, D(2026, 11, 6): 560.0}}   # max today = 600
+    a = [x for x in g.evaluate(snap, now, r) if x[1] == "xfa_cons"]
+    assert a and a[0][0] == g.WARN and "paas" in a[0][2]
+    snap["daily"][D(2026, 11, 6)] = 700.0
+    a = [x for x in g.evaluate(snap, now, r) if x[1] == "xfa_cons"]
+    assert "> 40%" in a[0][2]
+
+
 if __name__ == "__main__":
     n = 0
     for name, fn in list(globals().items()):

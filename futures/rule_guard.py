@@ -14,6 +14,10 @@ Commands:
   python3 rule_guard.py watch --since 2026-10-01     # live watch (since = day the account started)
   python3 rule_guard.py watch --account NAME --size 100k --since 2026-10-01
                                                      # one Terminal window per account
+  python3 rule_guard.py watch --stage xfa --path consistency --dll --since 2026-11-03
+                                                     # Express Funded: payout rules, 40% early warning, scaling plan
+  python3 rule_guard.py watch --stage xfa --payout-since 2026-11-20 --since 2026-11-03
+                                                     # after a payout: MLL locked at $0, rules count from that day
   python3 rule_guard.py check MNQ 10 20 --since 2026-10-01
                                                      # pre-trade: 10 MNQ with 20-point stop -> GO / NO-GO
 
@@ -54,13 +58,45 @@ def combine(size_k, mll, target, max_minis):
     }
 
 
-# Account types: --size 50k / 100k / 150k. Verify on help.topstep.com before buying - Topstep changes these.
+def xfa(size_k, mll, cap_std, cap_cons, max_minis):
+    return {
+        "name": "Topstep %dK Express Funded Account" % size_k,
+        "stage": "xfa",
+        "start_balance": 0.0,           # XFA starts at $0
+        "mll": mll,                     # starts at -MLL, trails EOD, locks at $0; $0 for good after any payout
+        "max_micros": max_minis * 10,
+        # Scaling plan: (balance at start of session, max micros). 50K verified (2 / 3 / 5 minis).
+        # 100K/150K thresholds NOT published in the help center - using the 50K table as a safe floor until verified.
+        "scaling": [(0.0, 20), (1500.0, 30), (2000.0, 50)],
+        "cap_standard": cap_std,        # max per payout request (x2 if DLL was chosen at purchase)
+        "cap_consistency": cap_cons,
+        "xfa_consistency": 0.40,        # Consistency path: best day <= 40% of profit since last payout, 3+ days
+        "win_day": 150.0,               # Standard path: 5 winning days of $150+
+        "win_days_needed": 5,
+        "flat_by": dt.time(15, 10),
+        "day_starts": dt.time(17, 0),
+    }
+
+
+# Account types: --size 50k / 100k / 150k, --stage combine / xfa. Verify on help.topstep.com - Topstep changes these.
 PROFILES = {
     "50k": combine(50, 2000.0, 3000.0, 5),
     "100k": combine(100, 3000.0, 6000.0, 10),
     "150k": combine(150, 4500.0, 9000.0, 15),
 }
+XFA_PROFILES = {
+    "50k": xfa(50, 2000.0, 2000.0, 3000.0, 5),
+    "100k": xfa(100, 3000.0, 3000.0, 4000.0, 10),
+    "150k": xfa(150, 4500.0, 5000.0, 6000.0, 15),
+}
 RULES = PROFILES["50k"]
+
+
+def make_rules(stage="combine", size="50k", path="standard", payout_since=None, dll=False):
+    """payout_since: date of your last XFA payout (MLL is then locked at $0; payout rules count from that day)."""
+    r = dict(XFA_PROFILES[size] if stage == "xfa" else PROFILES[size])
+    r.update({"path": path, "payout_since": payout_since, "dll_caps": dll})
+    return r
 
 PERSONAL = {
     "daily_loss_limit": 800.0,     # your own stop for the day (Topstep doesn't force one). None to switch off
@@ -130,6 +166,19 @@ def mll_floor(daily, today, start, mll):
     return min(peak - mll, start)
 
 
+def account_limits(daily, today, rules):
+    """(MLL floor, max micros right now) for Combine or XFA."""
+    if rules.get("stage") == "xfa":
+        floor = 0.0 if rules.get("payout_since") else mll_floor(daily, today, 0.0, rules["mll"])
+        bal_sod = sum(v for d, v in daily.items() if d < today)       # balance at start of this session
+        cap = rules["scaling"][0][1]
+        for thr, micros in rules["scaling"]:
+            if bal_sod >= thr:
+                cap = micros
+        return floor, min(cap, rules["max_micros"])
+    return mll_floor(daily, today, rules["start_balance"], rules["mll"]), rules["max_micros"]
+
+
 def point_value(p):
     return p["tick_value"] / p["tick_size"]
 
@@ -143,7 +192,7 @@ def evaluate(snap, now_ct, rules=RULES, personal=PERSONAL):
     alerts = []
     today = trading_day(now_ct)
     start, mll = rules["start_balance"], rules["mll"]
-    floor = mll_floor(snap["daily"], today, start, mll)
+    floor, max_micros = account_limits(snap["daily"], today, rules)
 
     unreal = 0.0
     for p in snap["positions"]:
@@ -175,12 +224,12 @@ def evaluate(snap, now_ct, rules=RULES, personal=PERSONAL):
     for o in snap["orders"]:
         if o["type"] not in ORDER_STOP_TYPES:   # entry orders that could add size
             working += micro_equiv(o["contract"], o["size"])
-    if size > rules["max_micros"]:
-        alerts.append((BREACH, "size", "SIZE LIMIT TOOTA: %d micro-equiv > %d. Turant kam karo." % (size, rules["max_micros"])))
-    elif size + working > rules["max_micros"]:
-        alerts.append((DANGER, "size", "Open + pending orders = %d micro-equiv > limit %d. Pending order fill hua to violation." % (size + working, rules["max_micros"])))
-    elif size >= 0.8 * rules["max_micros"]:
-        alerts.append((WARN, "size", "Size %d / %d micro-equiv." % (size, rules["max_micros"])))
+    if size > max_micros:
+        alerts.append((BREACH, "size", "SIZE LIMIT TOOTA: %d micro-equiv > %d. Turant kam karo (10 sec se zyada = review)." % (size, max_micros)))
+    elif size + working > max_micros:
+        alerts.append((DANGER, "size", "Open + pending orders = %d micro-equiv > limit %d. Pending order fill hua to violation." % (size + working, max_micros)))
+    elif size >= 0.8 * max_micros:
+        alerts.append((WARN, "size", "Size %d / %d micro-equiv." % (size, max_micros)))
 
     # 4. Stops: exist, and not below MLL / daily limit if hit
     loss_at_stops = 0.0
@@ -215,6 +264,10 @@ def evaluate(snap, now_ct, rules=RULES, personal=PERSONAL):
         elif 0 < mins_left <= 15:
             alerts.append((WARN, "time", "%.0f min baaki 3:10 PM CT close tak. Naya trade mat lo." % mins_left))
 
+    # 6. Combine target + 55% consistency, or XFA payout rules
+    if rules.get("stage") == "xfa":
+        alerts.extend(xfa_payout_alerts(snap, today, today_net, equity, rules))
+        return alerts
     # 6. Target and consistency
     total = equity - start
     days = dict(snap["daily"])
@@ -231,11 +284,57 @@ def evaluate(snap, now_ct, rules=RULES, personal=PERSONAL):
     return alerts
 
 
+def xfa_payout_alerts(snap, today, today_net, equity, rules):
+    """Payout eligibility + early warnings for the 40% consistency path / 5 winning days path."""
+    out = []
+    since = rules.get("payout_since")
+    period = {d: v for d, v in snap["daily"].items() if (since is None or d > since) and d != today}
+    before = sum(period.values())                      # profit since last payout, before today
+    total = before + today_net
+    days = dict(period)
+    days[today] = today_net
+    traded_days = len([d for d, v in days.items() if v != 0 or d == today])
+    mult = 2 if rules.get("dll_caps") else 1
+    after_payout = "Payout ke baad MLL $0 pe lock hoga - bacha balance hi buffer hai."
+
+    if rules.get("path") == "consistency":
+        lim = rules["xfa_consistency"]
+        cap = rules["cap_consistency"] * mult
+        best = max([v for v in days.values()] + [0.0])
+        if before > 0:
+            max_today = lim / (1 - lim) * before        # today <= 40% of (before + today)
+            if today_net > max_today:
+                need = best / lim - total
+                out.append((WARN, "xfa_cons", "Aaj ka profit $%.0f > 40%% limit $%.0f. Payout ke liye ab kam se kam $%.0f aur profit doosre din chahiye. Aaj ruk jao." % (today_net, max_today, max(need, 0))))
+            elif today_net > 0.85 * max_today:
+                out.append((WARN, "xfa_cons", "40%% limit paas: aaj $%.0f / max $%.0f (sirf $%.0f bacha). Yahan band karo ya size kam karo." % (today_net, max_today, max_today - today_net)))
+            elif today_net > 0.6 * max_today:
+                out.append((INFO, "xfa_cons", "Aaj ka profit $%.0f. 40%% rule ke hisaab se aaj max $%.0f tak." % (today_net, max_today)))
+        elif today_net > 0:
+            out.append((INFO, "xfa_cons", "Is payout period ka pehla profit din: $%.0f. Baaki din milake yeh total ka 40%% se kam hona chahiye - chhota rakho." % today_net))
+        if traded_days >= 3 and total > 0 and best <= lim * total:
+            amt = min(0.5 * equity, cap)
+            out.append((INFO, "payout", "PAYOUT ELIGIBLE (Consistency path): request up to $%.0f (50%% balance / cap $%.0f). %s" % (amt, cap, after_payout)))
+    else:
+        cap = rules["cap_standard"] * mult
+        wins = len([v for d, v in period.items() if v >= rules["win_day"]])
+        need = rules["win_days_needed"]
+        if today_net >= rules["win_day"] and wins < need:
+            out.append((INFO, "xfa_win", "Aaj winning day ban gaya ($%.0f >= $%.0f): %d/%d. Ab profit bachao - aur risk mat lo." % (today_net, rules["win_day"], wins + 1, need)))
+        elif 0.7 * rules["win_day"] <= today_net < rules["win_day"] and wins < need:
+            out.append((INFO, "xfa_win", "Winning day ke liye sirf $%.0f aur (aaj $%.0f / $%.0f)." % (rules["win_day"] - today_net, today_net, rules["win_day"])))
+        wins_incl = wins + (1 if today_net >= rules["win_day"] else 0)
+        if wins_incl >= need and total > 0:
+            amt = min(0.5 * equity, cap)
+            out.append((INFO, "payout", "PAYOUT ELIGIBLE (Standard path, %d winning days): request up to $%.0f (50%% balance / cap $%.0f). %s" % (wins_incl, amt, cap, after_payout)))
+    return out
+
+
 def pretrade(snap, now_ct, contract, qty, stop_pts, tick_size, tick_value, rules=RULES, personal=PERSONAL):
     """Would this new trade break anything if the stop is hit? Returns (ok, reasons)."""
     reasons = []
     today = trading_day(now_ct)
-    floor = mll_floor(snap["daily"], today, rules["start_balance"], rules["mll"])
+    floor, max_micros = account_limits(snap["daily"], today, rules)
     unreal = sum((1 if p["type"] == LONG else -1) * (p["last"] - p["avg"]) * p["size"] * point_value(p)
                  for p in snap["positions"])
     equity = snap["balance"] + unreal
@@ -244,8 +343,8 @@ def pretrade(snap, now_ct, contract, qty, stop_pts, tick_size, tick_value, rules
     size_new = size_now + micro_equiv(contract, qty)
     today_net = snap["daily"].get(today, 0.0) + unreal
 
-    if size_new > rules["max_micros"]:
-        reasons.append("Size %d micro-equiv > limit %d" % (size_new, rules["max_micros"]))
+    if size_new > max_micros:
+        reasons.append("Size %d micro-equiv > limit %d" % (size_new, max_micros))
     if equity - risk <= floor + 100:
         reasons.append("Stop hit hua to equity $%.0f -> MLL floor $%.0f ke paas/neeche" % (equity - risk, floor))
     if risk > personal.get("max_risk_per_trade", 1e9):
@@ -376,10 +475,14 @@ class TopstepX:
 
 # ---------------------------------------------------------------- commands
 
+def rules_from_args(args):
+    return make_rules(args.stage, args.size, args.path, args.payout_since, args.dll)
+
+
 def cmd_watch(args):
     api, alerter = TopstepX(), Alerter()
     since = dt.datetime.combine(args.since, dt.time(0), tzinfo=CT) - dt.timedelta(hours=7)
-    rules = PROFILES[args.size]
+    rules = rules_from_args(args)
     print("Rule Guard ON - %s. Read-only, har %ds check. Ctrl+C se band." % (rules["name"], args.every))
     while True:
         try:
@@ -390,7 +493,7 @@ def cmd_watch(args):
                 alerter.send(*a)
             if args.verbose or not alerts:
                 today = trading_day(now)
-                floor = mll_floor(snap["daily"], today, rules["start_balance"], rules["mll"])
+                floor, _ = account_limits(snap["daily"], today, rules)
                 print("%s %s ok | bal $%.0f | floor $%.0f | positions %d" %
                       (dt.datetime.now(IST).strftime("%H:%M:%S"), snap["account"], snap["balance"], floor, len(snap["positions"])), end="\r")
         except KeyboardInterrupt:
@@ -406,7 +509,7 @@ def cmd_check(args):
     snap = api.snapshot(args.account, since)
     c = api.find_contract(args.symbol)
     ok, reasons, info = pretrade(snap, dt.datetime.now(CT), c["id"], args.qty, args.stop_points, c["tickSize"], c["tickValue"],
-                                 PROFILES[args.size])
+                                 rules_from_args(args))
     print(info)
     print("\033[32mGO\033[0m" if ok else "\033[31mNO-GO\033[0m")
     for r in reasons:
@@ -442,10 +545,33 @@ def demo_snapshots():
     ]
 
 
+def demo_xfa():
+    mnq = "CON.F.US.MNQ.Z26"
+    base = {"tick_size": 0.25, "tick_value": 0.5}
+    return [
+        ("XFA Consistency path - aaj 40% limit ke paas", dt.datetime(2026, 11, 5, 11, 0, tzinfo=CT),
+         make_rules("xfa", "50k", "consistency"), {
+            "balance": 1100.0, "daily": {dt.date(2026, 11, 3): 500.0, dt.date(2026, 11, 4): 400.0, dt.date(2026, 11, 5): 200.0},
+            "positions": [dict(base, contract=mnq, type=LONG, size=5, avg=20000.0, last=20035.0)],   # +$350 open
+            "orders": [{"contract": mnq, "type": 4, "side": ASK, "size": 5, "stop": 19990.0}]}),
+        ("XFA Standard path - 5th winning day", dt.datetime(2026, 11, 10, 11, 0, tzinfo=CT),
+         make_rules("xfa", "50k", "standard"), {
+            "balance": 1180.0, "daily": {dt.date(2026, 11, 3): 200.0, dt.date(2026, 11, 4): 250.0, dt.date(2026, 11, 5): -100.0,
+                                          dt.date(2026, 11, 6): 300.0, dt.date(2026, 11, 9): 170.0, dt.date(2026, 11, 10): 160.0},
+            "positions": [], "orders": []}),
+        ("XFA - scaling plan: $0-1,500 balance = sirf 20 micros", dt.datetime(2026, 11, 3, 10, 0, tzinfo=CT),
+         make_rules("xfa", "50k", "standard"), {
+            "balance": 0.0, "daily": {},
+            "positions": [dict(base, contract=mnq, type=LONG, size=25, avg=20000.0, last=20000.0)],
+            "orders": [{"contract": mnq, "type": 4, "side": ASK, "size": 25, "stop": 19990.0}]}),
+    ]
+
+
 def cmd_demo(args):
     alerter = Alerter()
     for title, now, snap in demo_snapshots():
         print("\n=== %s (%s CT)" % (title, now.strftime("%H:%M")))
+        alerter = Alerter()
         alerts = evaluate(snap, now)
         if not alerts:
             print("  sab theek - koi alert nahi")
@@ -453,6 +579,11 @@ def cmd_demo(args):
             alerter.send(*a)
         ok, reasons, info = pretrade(snap, now, "CON.F.US.MNQ.Z26", 10, 30, 0.25, 0.5)
         print("  Pre-trade 10 MNQ, 30pt stop: %s | %s" % ("GO" if ok else "NO-GO: " + "; ".join(reasons), info))
+    for title, now, rules, snap in demo_xfa():
+        print("\n=== %s (%s CT)" % (title, now.strftime("%H:%M")))
+        alerter = Alerter()      # fresh, so repeated alert types still show in the demo
+        for a in evaluate(snap, now, rules):
+            alerter.send(*a)
 
 
 def main():
@@ -465,6 +596,10 @@ def main():
     w.add_argument("--since", type=dt.date.fromisoformat, required=True, help=since_help)
     w.add_argument("--account", default=None, help="account name from 'list'")
     w.add_argument("--size", choices=sorted(PROFILES), default="50k")
+    w.add_argument("--stage", choices=["combine", "xfa"], default="combine", help="combine = exam, xfa = Express Funded")
+    w.add_argument("--path", choices=["standard", "consistency"], default="standard", help="XFA payout path")
+    w.add_argument("--payout-since", type=dt.date.fromisoformat, default=None, help="XFA: date of your last payout")
+    w.add_argument("--dll", action="store_true", help="XFA: you chose the Daily Loss Limit (payout caps x2)")
     w.add_argument("--every", type=int, default=5)
     w.add_argument("--verbose", action="store_true")
     c = sub.add_parser("check")
@@ -474,6 +609,10 @@ def main():
     c.add_argument("--since", type=dt.date.fromisoformat, required=True, help=since_help)
     c.add_argument("--account", default=None, help="account name from 'list'")
     c.add_argument("--size", choices=sorted(PROFILES), default="50k")
+    c.add_argument("--stage", choices=["combine", "xfa"], default="combine", help="combine = exam, xfa = Express Funded")
+    c.add_argument("--path", choices=["standard", "consistency"], default="standard", help="XFA payout path")
+    c.add_argument("--payout-since", type=dt.date.fromisoformat, default=None, help="XFA: date of your last payout")
+    c.add_argument("--dll", action="store_true", help="XFA: you chose the Daily Loss Limit (payout caps x2)")
     args = ap.parse_args()
     {"demo": cmd_demo, "list": cmd_list, "watch": cmd_watch, "check": cmd_check}[args.cmd](args)
 
