@@ -97,3 +97,16 @@ Order flow NOT tested: needs tick data with aggressor side (bid/ask volume); 1-m
 - Red flags: Trustpilot removed ~1,300 reviews (early 2025) for guideline breaches; payout denials/closures citing
   discretionary "gambling", "2% risk rule", margin use - some reversed only after public escalation.
 - Bot/automation rules for futures not published. No official funnel stats like Topstep's.
+
+### Run 4 - profit-lock / small target exits on NOISE entries (giveback_test.py), MNQ ~11 micros, 55% consistency
+| Exit rule | win% IS/OOS | avg$/trade IS/OOS | Combine pass% IS/OOS |
+|---|---|---|---|
+| NOISE as tested (no lock) | 37/39 | +26/+26 | 28.8/35.9 |
+| lock after +$100, exit on 10% giveback (RB idea) | 76/77 | -10/+1 | 15.3/17.2 |
+| lock after +$300, exit on 30% giveback | 59/58 | +2/+6 | 24.2/26.0 |
+| lock after +$500, exit on 50% giveback | 47/47 | +12/+27 | 28.8/37.8 |
+| fixed +$500 target (1% of 50K) | 50/49 | +2/+12 | 20.9/33.2 |
+First run of RB idea showed 34-45% pass but used an optimistic same-bar assumption (peak from bar high, then exit
+at lock in the same bar). Conservative version (lock from previous bars, gap fills at open) above = the real answer.
+Tight profit locks raise win rate but kill the big winners that pay for the losers. Also: Combine MLL is EOD, an
+intraday open-profit peak does NOT move the MLL, so locking +$90 of a +$100 trade isn't needed for drawdown.
