@@ -88,3 +88,12 @@ Result: NO edge. Before costs, average trade = -0.10R to +0.14R and the sign fli
 (pure noise). After costs every variant loses on MNQ and MES; Combine pass 0-10%, at or below luck.
 Order flow NOT tested: needs tick data with aggressor side (bid/ask volume); 1-min price data can't do it.
 => Rejected. NOISE stays the only candidate.
+
+## Hola Prime check (28 Sep 2026) - verdict: NOT primary, maybe later as small second firm
+- Founded Oct/Nov 2024 (under 2 years), HQ Comoros, FSC Mauritius dealer licence; forex/CFD firm with a futures arm.
+- Futures 1-Step: 6% target, 4% trailing max loss (3% on 100K/150K), no DLL, 40% consistency in eval.
+  Direct Account (no eval): 2.5% DLL, 20% consistency. Platforms Tradovate / NinjaTrader / WealthCharts.
+- Payout methods include Rise and bank transfer (good for India); claims 1-hour payouts.
+- Red flags: Trustpilot removed ~1,300 reviews (early 2025) for guideline breaches; payout denials/closures citing
+  discretionary "gambling", "2% risk rule", margin use - some reversed only after public escalation.
+- Bot/automation rules for futures not published. No official funnel stats like Topstep's.
