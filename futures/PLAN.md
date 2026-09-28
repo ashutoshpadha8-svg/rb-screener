@@ -76,8 +76,8 @@ Done:
 - rule_guard.py on RB's Mac at ~/RB_Screener/futures (demo works). Supports 50k/100k/150k Combine via --size,
   multiple accounts via --account (one Terminal window per account), `list` shows account names.
 - Screener actually lives at ~/RB_Screener (home), not Desktop. rbscan alias not set up on this Mac.
-Next step (waiting on RB): make free Topstep account, check (a) free Practice account without buying Combine,
-(b) can API subscription ($14.50/mo) be bought without a Combine.
+Next step (waiting on RB): Topstep account made (28 Sep). Practice account is NOT free - needs an active Combine.
+Full rules in futures/TOPSTEP_RULES.md. Before paying: email support (India eligibility + bot OK).
 After that: install requests, create topstep_login.txt, run guard live on Practice; then NOISE signal mode.
 Not done yet: Express Funded rules in guard (40% payout consistency, scaling plan) - verify then add.
 
