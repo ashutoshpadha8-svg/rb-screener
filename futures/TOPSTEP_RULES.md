@@ -83,3 +83,19 @@ MNQ / MES $1.22 round turn. NQ / ES $3.78 round turn. (Our backtests assumed $1.
 3. First XFA payout: take small (e.g. $500-1,000), leave buffer - MLL goes to $0 after payout.
 4. Before paying: email support: (a) India eligible for XFA + Live and SWIFT payouts? (b) rule-based Python bot via
    ProjectX API from own Mac OK under "unfair technology" clause? Keep the written replies.
+
+## Official 2025 funnel stats (Topstep blog "The truth about prop firm payouts")
+- 16.8% of all Combines started were passed.
+- 51.8% of people who tried at least one Combine reached XFA at least once (many attempts).
+- 33.3% of people at Funded level received at least one payout.
+- 0.71% of XFA traders were called up to Live.
+- 99.26% of payout requests that qualified were approved.
+- Profit split conflict: help center says 100% of first $10K for new dashboard users; other sources say flat 90/10
+  for accounts created after 12 Jan 2026. Asked support (Gmail draft, 28 Sep 2026).
+
+## What "top traders" do - what can actually be verified
+- Topstep does not publish trade logs of top traders. Spotlights/"biggest payout" posts are marketing and survivorship.
+- Only verifiable behaviour: what Topstep rewards (stops on every trade, small size vs limits, no revenge trading,
+  consistency) and what it punishes (maxing size, stacking accounts, trading into news).
+- Research: Chague, De-Losso, Giovannetti (2019/2020), Brazil mini-index futures day traders, 1,551 who traded 300+ days:
+  97% lost money, 1.1% earned more than minimum wage; no evidence of learning.
