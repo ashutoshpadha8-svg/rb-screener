@@ -347,6 +347,22 @@ NIFTY 50 index (price only) + 145 b173 SURVIVOR stocks (bias favours buying dips
 - Single stocks: median 14.6% but worst 10% of stocks 4.2% (FULL) and about -4% in each half; survivors only.
 - VERDICT: if SIP, plain monthly on a Nifty ETF; the broker's own SIP runs even with the Mac off. Dip/up rules rejected.
 
+## EMA 9/21 cross (ema_backtest.py, 29 Sep 2026) - RB's idea, pre-registered, same honest setup
+Buy next open after EMA9 crosses above EMA21; exit X1 = EMA9 back below EMA21, X2 = close < 50DMA. 7 filters x 2 exits.
+| Variant (X1 exit) | trades | win% | avg% | median% | beat univ% | 13-19 post | 20-26 post | FULL post | maxDD | trades/yr |
+|---|---|---|---|---|---|---|---|---|---|---|
+| plain cross | 16622 | 29.8 | +1.1 | -3.0 | 32 | 2.9 | 11.0 | 7.5 | -34 | 194 |
+| + RS>=70 | 4438 | 31.1 | +1.4 | -3.1 | 33 | 5.8 | 14.7 | 10.6 | -34 | 160 |
+| + Trend Template | 2870 | 31.7 | +1.4 | -3.2 | 34 | 2.2 | 14.3 | 8.4 | -29 | 134 |
+| + momentum top40 (best) | 2208 | 34.4 | +2.2 | -2.8 | 36 | 5.5 | 16.4 | 11.2 | -28 | 135 |
+| W+TT investing (baseline) | 1765 | 46.6 | +16.9 | -2.8 | 39 | 9.6 | 16.9 | 13.3 | -38 | 20 |
+| RAMOM top20 (baseline) | - | - | - | - | - | 11.6 | 26.1 | 18.7 | -43 | 43 |
+| Nifty 50 | - | - | - | - | - | 10.3 | 9.8 | 9.8 | -38 | - |
+- X2 (50DMA exit) worse than X1 in every filter. Every EMA variant < Nifty in 2013-19; hold ~3 weeks, 130-240 trades/yr
+  -> costs + STCG eat it. No filter combo got win% above 35% or beat-universe above 36%.
+- VERDICT: EMA 9/21 rejected as an entry system. Adding it to momentum/W+TT not tested; as a stand-alone it only adds
+  trading. 'Most accurate' stock finders remain W+TT (39% beat univ, +5.2% excess/trade) and RAMOM rank.
+
 ## Fundamental layer (research done)
 Order of checks: 1) red flags (promoter pledge > 20% = out, auditor resignation/qualification, SEBI/forensic action)
 2) quality (ROE/ROCE >= 15% investing, >= 10-12% swing; D/E <= 1 non-financials; CFO/PAT >= 0.7-0.8 over 3-5 yrs; no loss year in 5-6 yrs)
