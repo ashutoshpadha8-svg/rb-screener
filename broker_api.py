@@ -527,6 +527,41 @@ def get_live_price(symbol, broker=None, token=None, sess=None):
     return live_prices(sess, [symbol]).get(str(symbol).upper())
 
 
+# Broker bars fetched today are kept on disk, so the 2nd screen of the same
+# scan (momentum after W+TT) does not ask the broker for all 500 stocks again.
+_FILL = {"path": None, "bars": {}, "dirty": False}
+
+
+def _fill_cache_open(sess, want):
+    tag = "%s_%s_%s_%s" % (sess.broker, want, ds.now_ist().date(),
+                           "open" if ds.market_open() else "closed")
+    path = os.path.join(ds.DATA, "_broker_fill", tag + ".pkl")
+    if _FILL["path"] == path:
+        return
+    _FILL.update(path=path, bars={}, dirty=False)
+    try:
+        _FILL["bars"] = pd.read_pickle(path)
+    except Exception:
+        pass
+    d = os.path.dirname(path)                 # keep only today's caches
+    try:
+        for f in os.listdir(d):
+            if f.endswith(".pkl") and str(ds.now_ist().date()) not in f:
+                os.remove(os.path.join(d, f))
+    except OSError:
+        pass
+
+
+def _fill_cache_save():
+    if _FILL["path"] and _FILL["dirty"]:
+        try:
+            os.makedirs(os.path.dirname(_FILL["path"]), exist_ok=True)
+            pd.to_pickle(_FILL["bars"], _FILL["path"])
+            _FILL["dirty"] = False
+        except Exception:
+            pass
+
+
 def gap_fill(df, sess, symbol, want, warns, name):
     """Append sessions missing from the free history. Skips if a split /
     bonus is suspected (broker candles are unadjusted)."""
@@ -535,8 +570,14 @@ def gap_fill(df, sess, symbol, want, warns, name):
         return df
     frm = last + dt.timedelta(days=1)
     to = ds.now_ist().date() + dt.timedelta(days=1)
-    add = daily_bars(sess, symbol, frm, to)
-    time.sleep(0.25 if sess.broker == "DHAN" else 0.35)
+    key = (symbol, frm.isoformat())
+    if key in _FILL["bars"]:              # fetched earlier today (other scan)
+        add = _FILL["bars"][key]
+    else:
+        add = daily_bars(sess, symbol, frm, to)
+        time.sleep(0.25 if sess.broker == "DHAN" else 0.35)
+        _FILL["bars"][key] = add
+        _FILL["dirty"] = True
     if add is None or add.empty:
         return df
     add = add[add.index > df.index[-1]]
@@ -566,6 +607,7 @@ def refresh(sess, frames, bm=None, want=None, warns=None, every=10):
         if behind or (bm is not None and bm.index[-1].date() < want):
             print("  source is behind -- filling missing days from %s ..."
                   % sess.label)
+            _fill_cache_open(sess, want)
             try:
                 if bm is not None:
                     bm = gap_fill(bm, sess, INDEX, want, warns, "NIFTY")
@@ -592,6 +634,7 @@ def refresh(sess, frames, bm=None, want=None, warns=None, every=10):
                             break
                         time.sleep(5)
                 print()
+                _fill_cache_save()
                 if fails:
                     print("  ! %d stock(s) could not be filled from %s: %s"
                           % (len(fails), sess.label, ", ".join(
