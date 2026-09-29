@@ -247,12 +247,42 @@ def _json(r):
         return {"raw": r.text[:300]}
 
 
+# Angel historical API: 3 requests/sec and 180/min (SmartAPI rate limits).
+# Going over returns HTTP 403 "exceeding access rate" -- NOT a bad token.
+_RATE = {"getCandleData": (0.36, 170)}          # min gap s, max per 60 s
+_hits = {}
+
+
+def _throttle(path):
+    for key, (gap, per_min) in _RATE.items():
+        if key in path:
+            h = _hits.setdefault(key, [])
+            now = time.time()
+            h[:] = [t for t in h if now - t < 60]
+            if len(h) >= per_min:
+                time.sleep(60 - (now - h[0]) + 0.5)
+            if h and time.time() - h[-1] < gap:
+                time.sleep(gap - (time.time() - h[-1]))
+            h.append(time.time())
+
+
+def _rate_limited(r):
+    try:
+        t = r.text.lower()
+    except Exception:
+        t = ""
+    return r.status_code == 429 or (r.status_code == 403 and (
+        "access rate" in t or "exceeding" in t or "rate limit" in t))
+
+
 def _call(sess, method, path, body=None, params=None, form=None, retries=2):
     """HTTP to the session's broker. Returns the useful 'data' part.
     Raises AuthError (401/403, bad token) or BrokerError (anything else)."""
     base = {"DHAN": DHAN_BASE, "ANGEL": ANGEL_BASE,
             "ZERODHA": KITE_BASE}[sess.broker]
+    retries = max(retries, 5)
     for attempt in range(retries + 1):
+        _throttle(path)
         try:
             r = requests.request(method, base + path, headers=sess.headers(),
                                  json=body, params=params, data=form,
@@ -262,10 +292,13 @@ def _call(sess, method, path, body=None, params=None, form=None, retries=2):
                 time.sleep(2 * (attempt + 1))
                 continue
             raise BrokerError("network error: %s" % e)
-        if r.status_code == 429 and attempt < retries:
-            time.sleep(3 * (attempt + 1))
+        if _rate_limited(r) and attempt < retries:     # too fast, not a bad
+            time.sleep(min(30, 2 ** (attempt + 1)))      # token: wait, retry
             continue
         break
+    if _rate_limited(r):
+        raise BrokerError("rate limit (%s): too many requests, try again in a "
+                          "minute" % getattr(sess, "label", sess.broker))
     j = _json(r)
     if r.status_code in (401, 403):
         raise AuthError("HTTP %d -- token expired/invalid or API access not "
