@@ -320,6 +320,20 @@ Rank strategies = monthly top-N equal weight, keep while rank < 2N. Post-tax CAG
 (BASE moves +/-0.4 between runs as the data cache refreshes.) Sector map: NSE Nifty Total Market list
 (data/_nse_industry.csv, weekly refresh); ~4 of the top 20 are usually outside it ("?", not capped).
 
+## Momentum lab (momentum_lab.py, 29 Sep 2026) - 4 pre-registered research ideas vs the LIVE strategy
+| Variant | 2013-19 post | 2020-26 post | FULL post | maxDD | worst 12m | trades/yr |
+|---|---|---|---|---|---|---|
+| BASE RAMOM top20 + sector cap 4 (live) | 11.8 | 27.9 | 20.5 | -34.3 | -30.8 | 43 |
+| 1 BLEND 50% BASE + 50% low-vol top20 | 13.3 | 20.8 | 17.2 | -29.8 | -23.2 | 54 |
+| 2 SMOOTH (frog in the pan) | 7.9 | 27.1 | 17.3 | -37.6 | -31.0 | 44 |
+| 3 RESIDUAL momentum | 10.8 | 30.7 | 20.0 | -32.8 | -29.4 | 38 |
+| 4 VOLMGD (vol target 18%, approx) | 11.7 | 23.6 | 16.9 | -33.5 | -20.8 | 43 |
+| low-vol top20 alone | 14.6 | 10.3 | 12.1 | -27.6 | -21.4 | 11 |
+| Nifty 50 | 10.3 | 9.8 | 9.8 | -38.4 | -31.9 | - |
+- NONE beats BASE in both halves -> BASE stays. SMOOTH worse in both. RESIDUAL = same overall (worse IS, better OOS).
+- BLEND / VOLMGD = risk reducers: -3 to -4 pts/yr return for a milder worst year (-23/-21% vs -31%). Only if RB
+  prefers a smoother ride; not adopted (27 Sep live setup unchanged). Industry list: niftyindices.com fallback URL.
+
 ## MTF leverage check (26 Sep 2026, momentum top 20 + sector cap, pre-tax, Dhan MTF 12.49%/yr on the funded part)
 | Leverage | CAGR | maxDD | worst month | Rs 2L -> |
 |---|---|---|---|---|
