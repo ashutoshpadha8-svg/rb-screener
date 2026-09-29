@@ -63,6 +63,8 @@ RANKS_FILE = os.path.join(ds.DATA, "momentum_ranks_latest.csv")
 INDUSTRY_FILE = os.path.join(ds.DATA, "_nse_industry.csv")
 INDUSTRY_URL = ("https://nsearchives.nseindia.com/content/indices/"
                 "ind_niftytotalmarket_list.csv")
+INDUSTRY_URL2 = ("https://niftyindices.com/IndexConstituent/"
+                 "ind_niftytotalmarket_list.csv")
 SPLIT_FILE = os.path.join(ds.HERE, "split.csv")
 RED = "High Risk - Market Red"
 # Action dropdown in Strategy_Comparison (rbtrack acts on the first four)
@@ -83,12 +85,14 @@ def industry_map():
     fresh = os.path.exists(INDUSTRY_FILE) and \
         (dt.datetime.now().timestamp() - os.path.getmtime(INDUSTRY_FILE)) < 7 * 86400
     if not fresh:
-        try:
-            r = requests.get(INDUSTRY_URL, headers=ds.NSE_HDRS, timeout=30)
-            if r.status_code == 200 and b"Industry" in r.content[:200]:
-                open(INDUSTRY_FILE, "wb").write(r.content)
-        except requests.RequestException:
-            pass
+        for url in (INDUSTRY_URL, INDUSTRY_URL2):     # NSE sometimes 403s
+            try:
+                r = requests.get(url, headers=ds.NSE_HDRS, timeout=30)
+                if r.status_code == 200 and b"Industry" in r.content[:200]:
+                    open(INDUSTRY_FILE, "wb").write(r.content)
+                    break
+            except requests.RequestException:
+                pass
     if not os.path.exists(INDUSTRY_FILE):
         return {}
     d = pd.read_csv(INDUSTRY_FILE)
