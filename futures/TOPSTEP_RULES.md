@@ -47,7 +47,7 @@ Topstep changes rules often. Re-check the help center before buying anything.
   - Standard: 5 winning days of $150+ (non-consecutive), up to 50% of balance, cap $2,000 (50K) / $3,000 / $5,000.
   - Consistency: 3 trading days, best day <= 40% of profit, cap $3,000 / $4,000 / $6,000.
   - DLL chosen at purchase -> caps doubled.
-- Split: 100% of first $10,000 lifetime profit (new dashboard), then 90/10.
+- Split: 90/10 from the first dollar for accounts joined on/after 12 Jan 2026 (support confirmed 28 Sep 2026).
 - India payout: Wire/SWIFT, $30 fee, 5-10 business days. (Rise/Wise not offered for India.)
 - Back2Funded: lost XFA before any payout -> reactivate for $599/$699/$829 (max 2 times, 30-day window).
 
@@ -99,3 +99,14 @@ MNQ / MES $1.22 round turn. NQ / ES $3.78 round turn. (Our backtests assumed $1.
   consistency) and what it punishes (maxing size, stacking accounts, trading into news).
 - Research: Chague, De-Losso, Giovannetti (2019/2020), Brazil mini-index futures day traders, 1,551 who traded 300+ days:
   97% lost money, 1.1% earned more than minimum wage; no evidence of learning.
+
+## Support reply (28 Sep 2026, looks like the AI assistant "Windy" - came 2 min after sending)
+Confirmed in writing:
+- Profit split: accounts joined on/after 12 Jan 2026 = 90/10 from the first dollar (the "100% of first $10K" line is old).
+- International payouts: Wire/SWIFT only, 5-10 business days, $30 fee. Wise only for China/Canada/UK. W-8BEN at payout.
+- Cards: Visa/Mastercard/Amex/Discover, Apple Pay, Google Wallet. Sales tax may be added at checkout.
+- API $14.50/month with code "topstep". Automation must run from own device; VPS/VPN/remote servers banned;
+  private server only for research/logging/read-only dashboards.
+NOT answered (follow-up drafted asking for a human): India eligibility, bot OK under "unfair technology" rule,
+read-only API on XFA/Live, DLL double caps on Standard path, full scaling table, MLL $0 after payout,
+US withholding, 14-day guarantee for India, GST.
