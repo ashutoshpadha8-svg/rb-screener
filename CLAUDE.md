@@ -53,7 +53,8 @@
                         #   push() after rbscan/rbport; pull() before rbport/rbtrack takes a copy edited in Sheets
                         #   (mtime > our copy time, data/_drive_copy.json) over the local file (*.before_drive.xlsx
                         #   kept). Secrets/split.csv/data never copied. Tested with a fake Drive folder only.
-                        #   rbport also writes reports/Watchlist_<TAG>.txt for TradingView 'Import list'.
+                        #   rbport also writes reports/Watchlist_<TAG>.txt for TradingView 'Import list' (29 Sep: sections
+                        #   ###Holdings / Super-Buy / Momentum Top 20 / W+TT BUY-FIT / My Watch, no duplicates).
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.
@@ -356,6 +357,9 @@ Data: Screener.in watchlist with columns ROCE, ROE, Debt to equity, Pledged perc
 YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backtests use result broadcast dates (NSE/BSE filings), not quarter-end.
 
 ## Known gotchas
+- 29 Sep: Angel getCandleData rate limit (3/s, 180/min) -> HTTP 403 'exceeding access rate' was read as a bad token,
+  the fill stopped after ~50 big caps and momentum ranked ONLY those (liq needed the last bar). Fixed: throttle,
+  rate-limit = retry, per-stock failures skip, loud 'N stocks not filled' warning, liq min_periods=50.
 - NEVER put the token inside a .py file or print it. It once got pasted into position_tracker.py docstring (fixed).
 - Copying a terminal command overwrites the clipboard - don't use `pbpaste` right after copying a command.
 - Dhan may not publish today's daily candle until later in the evening; prices are still live.

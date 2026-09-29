@@ -1579,11 +1579,34 @@ def main():
           "Fundamentals")
     if drive_copy:
         drive_copy.push(path)
-    if watch_rows:              # for TradingView "Import list" (one click)
-        wl = os.path.join(REPORTS, "Watchlist_%s.txt" % (TAG or "account"))
+    # TradingView "Import list": sections (###) with today's candidates
+    top_syms = []
+    if len(rk) and "symbol" in rk:
+        tt = rk[rk["in_top"] == True] if "in_top" in rk else rk  # noqa: E712
+        top_syms = [str(x).upper() for x in
+                    tt.sort_values("rank")["symbol"].head(ms.SLOTS)]
+    wtt_buy = [str(x).upper() for x, v in zip(sw.get("Symbol", []),
+                                               sw.get("Action", []))
+               if str(v).upper() in ("BUY", "FIT")] if len(sw) else []
+    sections = [
+        ("Holdings", [h["Symbol"] for h in hold if h["Mode"] != "WATCH"]),
+        ("Super-Buy", [x for x in top_syms if x in wtt_buy]),
+        ("Momentum Top 20", top_syms),
+        ("W+TT BUY-FIT", wtt_buy),
+        ("My Watch", [h["Symbol"] for h in watch_rows])]
+    wl = os.path.join(REPORTS, "Watchlist_%s.txt" % (TAG or "account"))
+    seen, lines = set(), []
+    for title, xs in sections:
+        xs = [x for x in dict.fromkeys(xs) if x and x not in seen]
+        seen.update(xs)
+        if xs:
+            lines.append("###%s,%s" % (title, ",".join("NSE:" + x
+                                                         for x in xs)))
+    if lines:
         with open(wl, "w") as f:
-            f.write(",".join("NSE:" + h["Symbol"] for h in watch_rows) + "\n")
-        print("Watchlist for TradingView import: %s" % wl)
+            f.write(",".join(lines) + "\n")
+        print("Watchlist for TradingView import (%d stocks, %s): %s" % (
+            len(seen), " / ".join(ln.split(",")[0][3:] for ln in lines), wl))
         if drive_copy:
             drive_copy.push(wl, quiet=True)
     if old_actions:

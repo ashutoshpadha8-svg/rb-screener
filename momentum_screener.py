@@ -234,7 +234,9 @@ def compute(P):
     """Scores exactly as strategy_lab.scores() RAMOM + helper columns."""
     C = P["Close"].ffill(limit=5)
     V = P["Volume"]
-    liq = (C * V).rolling(60).median() > 5e7
+    # min_periods: one missing latest bar (source behind, broker fill failed)
+    # must not silently drop a stock from the ranking
+    liq = (C * V).rolling(60, min_periods=50).median() > 5e7
     r = C.pct_change().clip(-0.5, 0.5)
     vol = r.rolling(252, min_periods=200).std() * np.sqrt(252)
     m6 = C / C.shift(126) - 1

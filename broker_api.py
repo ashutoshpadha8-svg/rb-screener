@@ -570,6 +570,7 @@ def refresh(sess, frames, bm=None, want=None, warns=None, every=10):
                 if bm is not None:
                     bm = gap_fill(bm, sess, INDEX, want, warns, "NIFTY")
                 m = symbol_map(sess)
+                fails = []
                 for i, s in enumerate(behind, 1):
                     if i % every == 0 or i == len(behind):
                         sys.stdout.write("\r    %3d/%d" % (i, len(behind)))
@@ -578,14 +579,35 @@ def refresh(sess, frames, bm=None, want=None, warns=None, every=10):
                         warns.append("%s: not in the %s symbol list, not "
                                      "filled" % (s, sess.label))
                         continue
-                    frames[s] = gap_fill(frames[s], sess, s.upper(), want,
-                                         warns, s)
+                    try:                  # one stock failing (rate limit,
+                        frames[s] = gap_fill(frames[s], sess, s.upper(),
+                                             want, warns, s)
+                    except AuthError:     # bad data) never stops the rest
+                        raise
+                    except BrokerError as e:
+                        fails.append(s)
+                        if len(fails) >= 40 and len(fails) > i // 2:
+                            print("\n  ! too many %s errors (%s) -- stopping "
+                                  "the fill." % (sess.label, e))
+                            break
+                        time.sleep(5)
                 print()
+                if fails:
+                    print("  ! %d stock(s) could not be filled from %s: %s"
+                          % (len(fails), sess.label, ", ".join(
+                              f.upper() for f in fails[:15])))
             except AuthError:
                 raise
             except BrokerError as e:
                 print("\n  ! %s history fill failed (%s) -- continuing with "
                       "the free source." % (sess.label, e))
+        still = [s for s, f in frames.items() if f.index[-1].date() < want]
+        if still:
+            msg = ("%d of %d stocks still end before %s (not filled) -- their "
+                   "signals / momentum ranks can be WRONG. Run again later."
+                   % (len(still), len(frames), want))
+            print("  !!! " + msg)
+            warns.append(msg)
         print("  fetching today's prices from %s ..." % sess.label)
         ltp = live_prices(sess, list(frames))
         live = {s: ltp[s.upper()] for s in frames if s.upper() in ltp}
