@@ -418,5 +418,11 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
        RSS feeds in news_feed.py if RB wants.
     e) Research to do before building a): per-user token storage, SEBI retail-algo rules for API orders
        (static IP / registration) before any unattended orders, Telegram rate limits, launchd + sleep/wake.
+    f) ORDER FLOW (29 Sep, RB: "abhi nahi"): use only as an ENTRY TIMING filter on W+TT/momentum picks (delta, VWAP,
+       book imbalance -> 'BUY OK / WAIT' column), never a stock picker, never overrides exit rules. Tick history is
+       quote-only/expensive (TickData.com NSE since 2012 ~Rs 2.5-8 L+ guess; NSE D&A; TrueData tick = 5-20 days only)
+       -> not worth it on Rs 2 L. Plan if revived: 1) free daily proxies first (close location / A-D line, NSE
+       delivery %) as entry filters, pre-registered, both halves; 2) only if they help, self-record Dhan/Angel feed
+       (needs 2-3+ yrs, ~300 trades per group, incl. a bear phase).
 13. DONE: PAPER mode + news, Dhan AMO buy bridge (untested against the real Dhan API from the cloud -- first live use:
     ONE row, ONE share, then check the Dhan order book), Rebalance_Dashboard sheet (SELL/BUY/HOLD per LIVE/PAPER).
