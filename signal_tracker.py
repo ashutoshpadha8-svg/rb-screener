@@ -252,6 +252,7 @@ def evaluate(log, frames, bm, live, today):
                     **{"First status": f.first_status,
                        "Found on": f.first_found, "Price then": p0,
                        "Both lists": f.both_lists,
+                       "Rank then": _num(f.rank_found),
                        "Days listed": _num(f.days_listed),
                        "Last in list": f.last_seen})
         if df is None or not p0:
@@ -314,6 +315,13 @@ def summary(t):
               ("W+TT LATE (not tested)",
                (t.Source == "W+TT") & (t["First status"] == "LATE")),
               ("Momentum Top 20", t.Source == "MOMENTUM"),
+              ("  momentum rank 1-5 when found",
+               (t.Source == "MOMENTUM") & (t["Rank then"] <= 5)),
+              ("  momentum rank 6-10",
+               (t.Source == "MOMENTUM") & (t["Rank then"] > 5) &
+               (t["Rank then"] <= 10)),
+              ("  momentum rank 11-20",
+               (t.Source == "MOMENTUM") & (t["Rank then"] > 10)),
               ("In BOTH lists (Super-Buy)",
                (t["Both lists"] == "YES") & (t.Source == "W+TT")),
               ("ALL finds", t.Source.notna())]
@@ -358,7 +366,8 @@ def write_sheet(path, summ, t, note, today):
         "Grey = younger than 30 days: TOO EARLY, a few days of prices say "
         "nothing. Backtest (2013-26) expects W+TT ~39% winners, avg +11.8% "
         "per trade over months; momentum picks beat the universe by ~6% in "
-        "6 months. Info only -- no orders.")).font = Font(italic=True,
+        "6 months. Rank then = momentum rank (MOMENTUM rows) or RS rank "
+        "0-100 (W+TT rows). Info only -- no orders.")).font = Font(italic=True,
                                                           size=10)
 
     def table(df, r0):
@@ -411,7 +420,8 @@ def main():
     syms = sorted(set(log.symbol))
     frames, bm, live, note = prices(syms)
     t = evaluate(log, frames, bm, live, today)
-    cols = ["Symbol", "Source", "First status", "Found on", "Days since found",
+    cols = ["Symbol", "Source", "First status", "Rank then", "Found on",
+            "Days since found",
             "Price then", "Price now", "Return %", "Nifty same days %",
             "vs Nifty %", "Best since %", "Worst since %", "Both lists",
             "Days listed", "Last in list", "Status"]

@@ -342,6 +342,23 @@ Rank strategies = monthly top-N equal weight, keep while rank < 2N. Post-tax CAG
 - BLEND / VOLMGD = risk reducers: -3 to -4 pts/yr return for a milder worst year (-23/-21% vs -31%). Only if RB
   prefers a smoother ride; not adopted (27 Sep live setup unchanged). Industry list: niftyindices.com fallback URL.
 
+## Rank study (rank_study.py, 30 Sep 2026) - is the momentum rank right? (no costs, raw rank, no sector cap)
+Monthly 2013-01..2026-09, bought at the rebalance-day open. MOM = live RAMOM rank.
+| MOM rank | picks | 3m avg | 3m median | 3m >=15% | 3m <=-10% | 6m avg | 6m median | 6m >=15% | 6m <=-10% | 6m beat univ |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 160 | 10.4 | 4.8 | 31% | 26% | 27.1 | 14.5 | 49% | 31% | 53% |
+| 2-5 | 640 | 6.1 | 3.7 | 28% | 23% | 12.4 | 7.0 | 40% | 26% | 49% |
+| 6-10 | 800 | 5.9 | 3.2 | 26% | 21% | 12.3 | 7.5 | 37% | 22% | 51% |
+| 11-20 | 1600 | 4.1 | 2.3 | 24% | 22% | 9.4 | 6.0 | 36% | 24% | 48% |
+| 21-40 | 3200 | 4.5 | 2.9 | 25% | 21% | 9.3 | 6.0 | 35% | 24% | 48% |
+| 41-100 | 9372 | 4.2 | 2.2 | 24% | 21% | 8.4 | 4.5 | 35% | 26% | 45% |
+| 101+ | 23173 | 3.1 | 1.1 | 22% | 23% | 5.7 | 2.1 | 30% | 29% | 41% |
+- Rank works as an ORDER (top 20 > 41-100 > 101+; big gap only vs the bottom) but per stock it is ~a coin flip vs the
+  universe (48-53% beat). Averages come from a few big winners (avg >> median). Rank 1 = lottery: 6m avg 27% but
+  median 14.5%, 31% lose >10%; 2013-19 rank 1 3m median 5.9%, 2020-26 0.7%. RS6m rank gives almost the same table.
+- '15-20% per stock in 3 months' happens for ~1 in 4-5 top-20 picks, not as a rule -> RB's target is unrealistic per pick.
+- Signal tracker now shows 'Rank then' + live groups momentum rank 1-5 / 6-10 / 11-20.
+
 ## MTF leverage check (26 Sep 2026, momentum top 20 + sector cap, pre-tax, Dhan MTF 12.49%/yr on the funded part)
 | Leverage | CAGR | maxDD | worst month | Rs 2L -> |
 |---|---|---|---|---|
