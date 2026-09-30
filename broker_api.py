@@ -856,6 +856,25 @@ def holdings(sess):
     return out
 
 
+def account_value(sess):
+    """(demat value at LTP + free cash, note) -- the base for the per-stock
+    slot (sizing A, 30 Sep 2026: slot = account value / 20, like the
+    backtest). (None, reason) when the broker cannot say."""
+    try:
+        cash, err = available_funds(sess)
+        if cash is None:
+            return None, "funds not read (%s)" % err
+        hold = holdings(sess)
+        ltp = live_prices(sess, [h["symbol"] for h in hold]) if hold else {}
+        val = sum(float(h["qty"]) * float(ltp.get(h["symbol"]) or
+                                          h.get("avg_price") or 0)
+                  for h in hold)
+        return float(cash) + val, "cash Rs %s + holdings Rs %s" % (
+            format(int(cash), ","), format(int(val), ","))
+    except Exception as e:
+        return None, "%s" % type(e).__name__
+
+
 def available_funds(sess):
     """(rupees available for new buys, error text)."""
     try:
@@ -1159,14 +1178,14 @@ def check_order_status(order_id, broker=None, token=None, sess=None):
 
 def new_tag(side="BUY"):
     """A NEW id for every order intent (<= 20 chars, letters/digits):
-    RB + yymmdd + B|S + 6 random. Two orders for the same stock on the same
+    RB + yymmdd + B|S + 8 random (17 chars). Two orders for the same stock on the same
     day (CNC + MTF, a replacement) never share a tag; the SAME intent keeps
     its tag for any recovery lookup."""
     import secrets
     abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     return "RB%s%s%s" % (dt.date.today().strftime("%y%m%d"),
                          str(side).upper()[:1],
-                         "".join(secrets.choice(abc) for _ in range(6)))
+                         "".join(secrets.choice(abc) for _ in range(8)))
 
 
 def find_order_by_tag(sess, tag):

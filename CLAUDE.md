@@ -456,7 +456,7 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   20% is NOT a max loss; close-based stop 12.6% avg but 29 tails. Live policy kept (a resting SL/GTT = new feature, RB decides).
   MILESTONE 1 (execution, 30 Sep) v2 after Codex's check: INTENT LEDGER accounts/<..>/data/order_intents.csv
   (tag, date, symbol, side, qty, product, state INTENT/UNKNOWN/ACCEPTED/REJECTED/CLOSED/NOT_PLACED, order_id).
-  Every order: new_intent() saved BEFORE the POST with a NEW random tag (RB+yymmdd+B|S+6 chars, <= 20; Dhan
+  Every order: new_intent() saved BEFORE the POST with a NEW random tag (RB+yymmdd+B|S+8 chars = 17; Dhan
   correlationId / Angel ordertag / Kite tag) -> send -> update_intent. Lost reply -> book lookup by tag: found =
   ACCEPTED, else UNKNOWN (an empty/day-only book is NEVER proof of 'not placed'). INTENT/UNKNOWN rows block that
   stock+side on EVERY later day until the book shows the order or RB runs `rbtrack --resolve TAG placed|not-placed`;
@@ -484,6 +484,14 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   Codex UI asks (prototype xlsx on RB's Mac, not seen): page 1 exits / pending orders / cash + free slots / data
   freshness; compact shortlist; signal date + last complete bar + LTP time per stock; 4 '?' sectors; tracker 5/10
   session returns with costs + sample size.
+  SIZING A (RB 30 Sep 2026): per-stock slot = ACCOUNT VALUE / 20 (broker_api.account_value = free cash + demat qty
+  x LTP; momentum_screener.slot_for; no value/no token -> CAPITAL/SLOTS = Rs 10k). rbtrack prints the slot and plan()
+  uses it; Portfolio: Actions 'Qty (auto)', Rebalance shares, Dashboard line 'Per-stock slot'. Amount column still
+  overrides. Master scan Momentum_Top20 'Shares to Buy' stays per Rs 10k (shared file, no account). Tests 46/46.
+  Codex prototype RB_Daily_Review_Prototype.xlsx (uploaded 30 Sep): tabs Daily_Review, Shortlist (13 cols),
+  Backtest_Comparison, All_Results (64 rows), Data_Quality, Output_Changes (8-item checklist), Methods, Equity_Data.
+  Codex NAV/20 numbers (535-stock cache): est-hist 22.1% same open / 22.7% +1 session refreshed, DD ~-37;
+  today-survivors ~29-31% (look-ahead). Data_Quality also flags the DHAN Portfolio file as stale (27 Sep).
   30 Sep: RB installed the full code zip (MANIFEST.txt sizes) in ~/RB_Screener AND ~/Downloads/codex/RB_Screener
   (Codex review copy); both "check done", no duplicate files; tests 26/26 on the Mac (Python 3.9, LibreSSL warning harmless).
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.

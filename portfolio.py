@@ -62,7 +62,9 @@ REPORTS = os.path.join(ds.HERE, "reports")     # routed to the account folder
 TAG = ""                                       # e.g. DHAN_Ashutosh (routed)
 WATCH_FILE = os.path.join(ds.DATA, "watchlist.csv")   # routed per account
 KEEP_RANK = ms.BUFFER * ms.SLOTS
-SLOT_RS = int(ms.CAPITAL / ms.SLOTS)   # default own money per stock (Rs 10,000)
+SLOT_RS = int(ms.CAPITAL / ms.SLOTS)   # own money per stock; main() sets it
+SLOT_NOTE = "default Rs %s (no broker value)" % format(SLOT_RS, ",")  # to
+# account value / 20 (sizing A, RB 30 Sep 2026 -- same as the backtest)
 MTF_X = 4                              # = auto_tracker_update.MTF_LEVERAGE
 LEG_ORDER = {"EXIT": 0, "SELL@REBAL": 1, "SELL": 1, "WATCH": 2, "WEAK": 2,
              "HOLD": 3, "KEEP": 3, "AVOID": 4, "STRONG": 4, "SIP": 5}
@@ -1253,7 +1255,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
 def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
                    sw, warns, jrep=None):
     names = lambda xs: ", ".join(xs) if xs else "-"
-    money = []
+    money = [("Per-stock slot", "Rs %s = %s" % (format(SLOT_RS, ","),
+                                                 SLOT_NOTE))]
     for m, r in (jrep or {}).items():
         c = dict((k, v) for k, v, _ in r["cards"])
         v = c.get("Net profit (fees + tax ke baad)", 0)
@@ -1348,6 +1351,17 @@ def main():
     if sess:
         print("Fetching holdings from %s ..." % sess.label)
         broker = pt.get_holdings(sess)
+        global SLOT_RS, SLOT_NOTE
+        import broker_api as bapi
+        val, how = bapi.account_value(sess)
+        if val:
+            SLOT_RS = int(ms.slot_for(val))
+            SLOT_NOTE = "account value Rs %s / %d (%s)" % (
+                format(int(val), ","), ms.SLOTS, how)
+        else:
+            SLOT_NOTE = "default Rs %s (%s)" % (format(SLOT_RS, ","), how)
+        print("  per-stock slot Rs %s = %s" % (format(SLOT_RS, ","),
+                                               SLOT_NOTE))
     else:
         warns.append("token missing/expired -> demat holdings NOT read, only "
                      "the PAPER portfolio")
@@ -1454,7 +1468,7 @@ def main():
     full = rk.rename(columns={})
     top = rk[rk.get("in_top", False) == True] if "in_top" in rk else \
         rk[rk["rank"] <= ms.SLOTS]                                  # noqa
-    rebal = ms.rebalance_plan(top, full) if len(top) else []
+    rebal = ms.rebalance_plan(top, full, SLOT_RS) if len(top) else []
     demat = {h["symbol"] for h in broker}
     for x in rebal:        # already owned, just not tagged Momentum in split.csv
         if x["Section"] == "BUY" and x["Mode"] == "LIVE" and x["Symbol"] in demat:

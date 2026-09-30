@@ -107,6 +107,15 @@ def slot_amount(atr_pct, median_atr):
     return base
 
 
+def slot_for(account_value=None):
+    """Own money per stock = account value / SLOTS (sizing A, RB 30 Sep 2026:
+    same as the backtest, so the slot grows with the account). No value
+    (no token) -> CAPITAL / SLOTS."""
+    if account_value and account_value > 0:
+        return float(account_value) / SLOTS
+    return CAPITAL / SLOTS
+
+
 def shares_for(amount, price):
     return int(math.floor(amount / price)) if price and price > 0 else 0
 
@@ -135,7 +144,7 @@ def momentum_holdings(mode="LIVE"):
     return set(p.loc[p["mode"] == mode, "symbol"])
 
 
-def rebalance_plan(top, full):
+def rebalance_plan(top, full, slot=None):
     """SELL / BUY / HOLD per mode, exactly the backtest's monthly rule:
     sell holdings ranked > BUFFER x SLOTS, keep the rest, then fill ONLY the
     free slots from the full ranking, sector cap counting kept holdings
@@ -191,8 +200,8 @@ def rebalance_plan(top, full):
             px = x.get("price", np.nan)
             sh = tops.loc[x["symbol"], "shares"] if tops is not None and \
                 x["symbol"] in tops.index and "shares" in tops else np.nan
-            if not (sh == sh):
-                sh = shares_for(CAPITAL / SLOTS, px)
+            if slot or not (sh == sh):       # account slot (sizing A)
+                sh = shares_for(slot or CAPITAL / SLOTS, px)
             n += 1
             count[sec] = count.get(sec, 0) + 1
             rows.append({"Section": "BUY", "Mode": mode, "Symbol": x["symbol"],

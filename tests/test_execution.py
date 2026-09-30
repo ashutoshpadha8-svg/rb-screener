@@ -411,6 +411,26 @@ def main():
     except Exception as e:
         check("journal sync ran", False, "%s: %s" % (type(e).__name__, e))
 
+    print("16) sizing A: slot = account value / 20")
+    import momentum_screener as ms3
+    at.ba.ordered_today = lambda *a, **k: False
+    at._sectors = lambda: {}
+    rows = pd.DataFrame([{"Ticker": "XYZ", "act": "BUY",
+                          "Strategy Overlap": "W+TT only", "Amount (Rs)": ""}])
+    empty = store["sp"].iloc[0:0]
+    new, _ = at.plan(rows, {"XYZ": (100.0, "x")}, empty,
+                     slot=ms3.slot_for(350000))
+    check("Rs 3.5 L account -> Rs 17,500 slot -> 175 shares @ 100",
+          len(new) == 1 and new[0]["shares"] == 175, new)
+    new, _ = at.plan(rows, {"XYZ": (100.0, "x")}, empty)
+    check("no account value -> Rs 10,000 default -> 100 shares",
+          len(new) == 1 and new[0]["shares"] == 100, new)
+    rows2 = rows.assign(**{"Amount (Rs)": "5000"})
+    new, _ = at.plan(rows2, {"XYZ": (100.0, "x")}, empty,
+                     slot=ms3.slot_for(350000))
+    check("Amount column still wins (Rs 5,000 -> 50)", new and
+          new[0]["shares"] == 50, new)
+
     bad = [n for n, ok in RESULTS if not ok]
     print("\n%d / %d passed%s" % (len(RESULTS) - len(bad), len(RESULTS),
                                   "" if not bad else " -- FAILED: " +

@@ -226,7 +226,7 @@ def _mom_book(sp, mode, sess):
     return book
 
 
-def plan(rows, px, sp, sess=None):
+def plan(rows, px, sp, sess=None, slot=None):
     """Turn Excel rows into split.csv rows (not written yet). Momentum buys
     are refused past 20 positions or 4 per industry (holdings + this run),
     the backtest's limits (Codex review 30 Sep)."""
@@ -264,18 +264,18 @@ def plan(rows, px, sp, sess=None):
                 skip.append("%s (momentum: already %d in %s, cap %d)"
                             % (s, nsec, sec, ms.SECTOR_CAP))
                 continue
-        slot = ms.CAPITAL / ms.SLOTS              # your own money per slot
+        slot_rs = slot or ms.CAPITAL / ms.SLOTS   # account value / 20
         amt = pd.to_numeric(str(r.get("Amount (Rs)", "")).replace(",", ""),
                             errors="coerce")        # Actions sheet, optional
         if amt == amt and amt > 0:
-            slot = float(amt)
+            slot_rs = float(amt)
         lev, lev_note = 1.0, ""
         if product == "MTF":
             lev, lev_note = ba.mtf_leverage(sess, s, price)
             if lev is None:
                 lev, lev_note = float(MTF_LEVERAGE), \
                     "MTF %gx ASSUMED (%s)" % (MTF_LEVERAGE, lev_note)
-        exposure = slot * lev
+        exposure = slot_rs * lev
         shares = ms.shares_for(exposure, price)
         if shares < 1:
             skip.append("%s (price %.0f > Rs %d)" % (s, price, exposure))
@@ -289,7 +289,7 @@ def plan(rows, px, sp, sess=None):
                     "product": product, "order_id": "", "shares": shares,
                     "lev": lev,
                     "note": "%s | own Rs %s | %s%s" % (overlap,
-                                                        format(int(slot), ","),
+                                                        format(int(slot_rs), ","),
                                                         src,
                                            " | " + lev_note
                                            if product == "MTF" else "")})
@@ -791,7 +791,15 @@ def main():
     sp = read_split()
     px = prices(sess, sorted({str(t).upper().strip() for t in rows["Ticker"]}
                              | {x["symbol"] for x in sdue}))
-    new, skip = plan(rows, px, sp, sess) if len(rows) else ([], [])
+    slot = None
+    if sess and len(rows):
+        val, how = ba.account_value(sess)
+        slot = ms.slot_for(val)
+        print("Per-stock slot: Rs %s = account value %s / %d%s" % (
+            format(int(slot), ","), "Rs " + format(int(val), ",") if val
+            else "unknown", ms.SLOTS, " (%s)" % how if val else
+            " -> Rs %s default (%s)" % (format(int(slot), ","), how)))
+    new, skip = plan(rows, px, sp, sess, slot) if len(rows) else ([], [])
 
     def lev_of(sym, price):
         lev, note = ba.mtf_leverage(sess, sym, price)
