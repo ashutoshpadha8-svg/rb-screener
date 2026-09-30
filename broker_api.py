@@ -1009,13 +1009,17 @@ def mtf_leverage(sess, symbol, price):
 
 # ================================================================== orders
 def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
-                    sess=None, order_type="MARKET", price=0.0, side="BUY"):
+                    sess=None, order_type="MARKET", price=0.0, side="BUY",
+                    tag=None):
     """BUY, NSE cash, After Market Order for the next open.
     is_mtf=False -> delivery (Dhan CNC / Angel DELIVERY / Kite CNC)
     is_mtf=True  -> margin trading (Dhan MTF / Angel MARGIN / Kite MTF)
     side="SELL" only from rbtrack's Sell sheet (AUTO SELL ON + typed
     "YES SELL"); selling from the demat needs DDPI/POA at the broker.
-    Returns (ok, order_id or error text, status)."""
+    tag = the intent's own id (new_intent) -> sent as Dhan correlationId /
+    Angel ordertag / Kite tag, so a lost reply can be found in the book.
+    Returns (ok, order_id or error text, status); status UNKNOWN = the reply
+    was lost and the book did not show the order (it may still be placed)."""
     try:
         sess = _resolve(broker, token, sess)
     except BrokerError as e:
@@ -1023,6 +1027,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
     sym = str(symbol).upper()
     qty = int(quantity)
     side = str(side).upper()
+    tag = tag or new_tag(side)
     if side not in ("BUY", "SELL"):
         return False, "side %s not allowed" % side, "ERROR"
     if qty < 1:
@@ -1042,7 +1047,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
     try:
         if sess.broker == "DHAN":
             body = {"dhanClientId": sess.client_id,
-                    "correlationId": order_tag(sym, side),
+                    "correlationId": tag,
                     "transactionType": side, "exchangeSegment": "NSE_EQ",
                     "productType": "MTF" if is_mtf else "CNC",
                     "orderType": order_type, "validity": "DAY",
@@ -1064,7 +1069,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
                     "producttype": "MARGIN" if is_mtf else "DELIVERY",
                     "duration": "DAY", "price": "%.2f" % lim, "squareoff": "0",
                     "stoploss": "0", "quantity": str(qty),
-                    "ordertag": order_tag(sym, side)}
+                    "ordertag": tag}
             d = _call(sess, "POST",
                       "/rest/secure/angelbroking/order/v1/placeOrder", body=body,
                       once=True)
@@ -1074,7 +1079,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
         form = {"tradingsymbol": x["tsym"], "exchange": "NSE",
                 "transaction_type": side, "order_type": order_type,
                 "quantity": qty, "product": "MTF" if is_mtf else "CNC",
-                "validity": "DAY", "tag": order_tag(sym, side)}
+                "validity": "DAY", "tag": tag}
         if order_type == "LIMIT":
             form["price"] = lim
         d = _call(sess, "POST", "/orders/amo", form=form, once=True)
@@ -1084,13 +1089,12 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
     except BrokerError as e:
         if "STATUS UNKNOWN" in str(e):          # reply lost: ask the book
             time.sleep(3)
-            found, oid, st = find_order_by_tag(sess, order_tag(sym, side))
+            found, oid, st = find_order_by_tag(sess, tag)
             if found:
                 return True, oid, st or "AMO"
-            if found is False:
-                return False, "not placed (order book checked, no order " \
-                    "with tag %s) -- safe to run rbtrack again" \
-                    % order_tag(sym, side), "ERROR"
+            # not in the book (yet) is NOT proof it was never placed (the
+            # book can lag; Kite's book is per day) -> stays UNKNOWN
+            return False, str(e), "UNKNOWN"
         return False, str(e), "ERROR"
 
 
@@ -1136,14 +1140,16 @@ def check_order_status(order_id, broker=None, token=None, sess=None):
     return out
 
 
-def order_tag(symbol, side="BUY", day=None):
-    """Our own id on every order (Dhan correlationId / Angel ordertag / Kite
-    tag, <= 20 chars): RB + yymmdd + B|S + symbol. Same stock + side + day =
-    same tag, so a lost reply can be looked up in the broker's order book."""
-    day = day or dt.date.today()
-    s = re.sub(r"[^A-Z0-9]", "", str(symbol).upper())
-    return ("RB%s%s%s" % (day.strftime("%y%m%d"), str(side).upper()[:1],
-                          s))[:20]
+def new_tag(side="BUY"):
+    """A NEW id for every order intent (<= 20 chars, letters/digits):
+    RB + yymmdd + B|S + 6 random. Two orders for the same stock on the same
+    day (CNC + MTF, a replacement) never share a tag; the SAME intent keeps
+    its tag for any recovery lookup."""
+    import secrets
+    abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "RB%s%s%s" % (dt.date.today().strftime("%y%m%d"),
+                         str(side).upper()[:1],
+                         "".join(secrets.choice(abc) for _ in range(6)))
 
 
 def find_order_by_tag(sess, tag):
@@ -1180,22 +1186,129 @@ def find_order_by_tag(sess, tag):
         return None, "", ""
 
 
-def log_intent(symbol, side, qty, product, sess):
-    """Written BEFORE the order is sent: if rbtrack dies mid-send, the next
-    run sees this row (no result after it) and checks the broker first."""
-    log_order({"date": dt.date.today().isoformat(), "broker": sess.broker,
-               "client_id": sess.client_id,
-               "time": ds.now_ist().strftime("%H:%M:%S"),
-               "symbol": symbol, "qty": qty, "side": side,
-               "product": product, "type": "", "ok": False, "order_id": "",
-               "status": "INTENT", "error": "INTENT tag=%s"
-               % order_tag(symbol, side)})
+# ------------------------------------------------------------ intent ledger
+# data/order_intents.csv (per account, next to orders_log.csv): one row per
+# order we MEANT to send, written BEFORE the POST. States:
+#   INTENT    written, no result saved (crash / save failed) -> unresolved
+#   UNKNOWN   reply lost, book did not show it                -> unresolved
+#   ACCEPTED  broker gave an order id
+#   REJECTED  broker said no (nothing placed)
+#   CLOSED    broker later reported REJECTED / CANCELLED / EXPIRED
+#   NOT_PLACED  RB checked the broker app and cleared it (rbtrack --resolve)
+# Unresolved rows block that stock+side on EVERY later day until the book
+# shows the order or RB resolves it by hand -- an empty book never clears it.
+INTENT_COLS = ["tag", "created", "date", "symbol", "side", "qty", "product",
+               "state", "order_id", "status", "note"]
+UNRESOLVED = ("INTENT", "UNKNOWN")
+
+
+def _intents_file():
+    return os.path.join(os.path.dirname(ORDER_LOG), "order_intents.csv")
+
+
+def load_intents():
+    p = _intents_file()
+    if not os.path.exists(p):
+        return pd.DataFrame(columns=INTENT_COLS)
+    d = pd.read_csv(p, dtype=str).fillna("")
+    for c in INTENT_COLS:
+        if c not in d:
+            d[c] = ""
+    return d[INTENT_COLS]
+
+
+def _save_intents(d):
+    p = _intents_file()
+    tmp = p + ".tmp"
+    d.to_csv(tmp, index=False)
+    os.replace(tmp, p)
+
+
+def new_intent(symbol, side, qty, product):
+    """Save the intent (state INTENT) and return its tag. Call BEFORE the
+    order is sent, inside rbtrack's lock."""
+    d = load_intents()
+    tag = new_tag(side)
+    while tag in set(d["tag"]):
+        tag = new_tag(side)
+    row = {"tag": tag, "created": ds.now_ist().strftime("%Y-%m-%d %H:%M:%S"),
+           "date": dt.date.today().isoformat(), "symbol": str(symbol).upper(),
+           "side": str(side).upper(), "qty": str(int(qty)),
+           "product": product, "state": "INTENT", "order_id": "",
+           "status": "", "note": ""}
+    _save_intents(pd.concat([d, pd.DataFrame([row])], ignore_index=True))
+    return tag
+
+
+def update_intent(tag, **kw):
+    d = load_intents()
+    m = d["tag"] == tag
+    for k, v in kw.items():
+        d.loc[m, k] = str(v)
+    _save_intents(d)
+
+
+def resolve_intent(tag, placed, order_id=""):
+    """rbtrack --resolve TAG placed|not-placed [ORDER_ID]: RB looked in the
+    broker app. Only way an unresolved intent is cleared without the book."""
+    d = load_intents()
+    if not (d["tag"] == tag).any():
+        return False
+    update_intent(tag, state="ACCEPTED" if placed else "NOT_PLACED",
+                  order_id=order_id, note="resolved by hand %s"
+                  % dt.date.today())
+    return True
+
+
+def open_intents():
+    d = load_intents()
+    return d[d["state"].isin(UNRESOLVED)]
+
+
+def intent_blocks(symbol, side="BUY", days=0, sess=None):
+    """True if the ledger says an order for symbol+side may be live:
+    - any UNRESOLVED intent, any date (the book is asked first when sess is
+      given; found -> ACCEPTED; not found -> still unresolved = block)
+    - an ACCEPTED intent from the last `days` days (0 = today) unless the
+      broker now reports it REJECTED / CANCELLED / EXPIRED."""
+    d = load_intents()
+    m = (d["symbol"] == str(symbol).upper()) & (d["side"] == side.upper())
+    since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+    block = False
+    for _, r in d[m].iterrows():
+        st = r["state"]
+        if st in UNRESOLVED:
+            found = None
+            if sess is not None:
+                found, oid, bst = find_order_by_tag(sess, r["tag"])
+                if found:
+                    update_intent(r["tag"], state="ACCEPTED", order_id=oid,
+                                  status=bst, note="found in the book")
+                    st, r = "ACCEPTED", dict(r, order_id=oid, date=r["date"])
+            if st in UNRESOLVED:
+                block = True
+                continue
+        if st == "ACCEPTED" and str(r["date"]) >= since:
+            if sess is not None and r["order_id"]:
+                bst = check_order_status(r["order_id"], sess=sess) \
+                    .get("status")
+                if bst in ("REJECTED", "CANCELLED", "EXPIRED"):
+                    update_intent(r["tag"], state="CLOSED", status=bst)
+                    continue
+            block = True
+    return block
 
 
 def log_order(row):
     exists = os.path.exists(ORDER_LOG)
-    pd.DataFrame([row]).to_csv(ORDER_LOG, mode="a", header=not exists,
-                               index=False)
+    df = pd.DataFrame([row])
+    if exists:                    # keep the file's own column order (an
+        try:                      # extra/missing field would break the csv)
+            cols = list(pd.read_csv(ORDER_LOG, nrows=0).columns)
+            df = df.reindex(columns=cols)
+        except Exception:
+            pass
+    df.to_csv(ORDER_LOG, mode="a", header=not exists, index=False)
 
 
 def _log_side(d):
@@ -1204,82 +1317,51 @@ def _log_side(d):
 
 
 def _still_live(rows, sess):
-    """Rows of the order log that still count as 'placed'. With a broker
-    session, an accepted order the broker now reports as REJECTED /
-    CANCELLED / EXPIRED no longer blocks a replacement (Codex review). Any
-    doubt (no order id = status unknown, status check failed) keeps it
-    blocking -- a missed order is safer than a double one."""
-    if not len(rows):
-        return False
-    if sess is None:
-        return True
+    """orders_log rows (history, also from before the intent ledger) that
+    still count as placed: accepted ones unless the broker now says REJECTED
+    / CANCELLED / EXPIRED; a lost-reply row (no order id) always counts."""
     for _, r in rows.iterrows():
         oid = str(r.get("order_id", "") or "").split(".")[0]
-        if not oid or oid == "nan":              # unknown / orphan intent:
-            try:                                 # look for our tag
-                day = dt.date.fromisoformat(str(r.get("date")))
-            except ValueError:
-                return True
-            found, oid, st = find_order_by_tag(
-                sess, order_tag(r["symbol"], _log_side(rows.loc[[r.name]])
-                                .iloc[0], day))
-            if found is False:
-                continue                         # broker: never placed
-            if found is None or st not in ("REJECTED", "CANCELLED",
-                                           "EXPIRED"):
-                return True
-            continue
+        if not oid or oid == "nan" or sess is None:
+            return True
         st = check_order_status(oid, sess=sess).get("status")
         if st not in ("REJECTED", "CANCELLED", "EXPIRED"):
-            return True                          # pending / traded / unknown
+            return True
     return False
 
 
-def ordered_today(symbol, side="BUY", sess=None):
-    """True if an order (BUY by default) for this symbol was placed today
-    and (when sess is given) the broker has not rejected/cancelled it."""
-    if not os.path.exists(ORDER_LOG):
-        return False
-    d = pd.read_csv(ORDER_LOG)
-    today = dt.date.today().isoformat()
-    m = (d["symbol"] == symbol) & (d["date"] == today) & _placed(d) & \
-        (_log_side(d) == side)
-    return _still_live(d[m], sess)
-
-
 def _placed(d):
-    """Accepted, OR status unknown after a network error, OR an INTENT row
-    with no result row after it (rbtrack stopped mid-send) -> may be placed,
-    never send it again blindly."""
-    if "error" not in d:
-        return d["ok"] == True                                  # noqa
-    err = d["error"].astype(str)
-    unknown = err.str.contains("STATUS UNKNOWN")
-    intent = err.str.startswith("INTENT")
-    side = _log_side(d)
-    orphan = pd.Series(False, index=d.index)
-    for i in d.index[intent]:
-        later = d.loc[d.index > i]
-        done = (later["symbol"] == d.at[i, "symbol"]) & \
-            (later["date"].astype(str) == str(d.at[i, "date"])) & \
-            (side[later.index] == side[i]) & \
-            ~later["error"].astype(str).str.startswith("INTENT")
-        orphan[i] = not done.any()
-    return (d["ok"] == True) | unknown | orphan                 # noqa
+    """Accepted rows. Lost replies are handled by the intent ledger (it stays
+    blocked until the book or RB resolves it -- also on later days)."""
+    return d["ok"] == True                                      # noqa
+
+
+def _log_rows(symbol, side, since):
+    if not os.path.exists(ORDER_LOG):
+        return pd.DataFrame()
+    d = pd.read_csv(ORDER_LOG)
+    return d[(d["symbol"] == symbol) & (d["date"].astype(str) >= since) &
+             _placed(d) & (_log_side(d) == side)]
+
+
+def ordered_today(symbol, side="BUY", sess=None):
+    """True if an order for symbol+side may be live: an unresolved intent
+    (any day) or an order placed today that the broker has not rejected /
+    cancelled (sess given -> broker asked)."""
+    if intent_blocks(symbol, side, 0, sess):
+        return True
+    today = dt.date.today().isoformat()
+    return _still_live(_log_rows(symbol, side, today), sess)
 
 
 def sold_recently(symbol, days=4, sess=None):
-    """True if a SELL order for this symbol was placed in the last days (the
-    demat can still show the shares until settlement) and, when sess is
-    given, the broker did not reject/cancel it (then the exit is re-sent
-    instead of being blocked for 4 days)."""
-    if not os.path.exists(ORDER_LOG):
-        return False
-    d = pd.read_csv(ORDER_LOG)
+    """True if a SELL may be live: unresolved intent, or placed in the last
+    days (demat still shows the shares until settlement) and not rejected /
+    cancelled by the broker."""
+    if intent_blocks(symbol, "SELL", days, sess):
+        return True
     since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
-    m = (d["symbol"] == symbol) & (d["date"].astype(str) >= since) & \
-        _placed(d) & (_log_side(d) == "SELL")
-    return _still_live(d[m], sess)
+    return _still_live(_log_rows(symbol, "SELL", since), sess)
 
 
 # ================================================================== CLI

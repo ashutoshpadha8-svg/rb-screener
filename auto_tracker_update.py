@@ -289,6 +289,57 @@ def plan(rows, px, sp, sess=None):
 
 
 # ================================================================== orders
+_LOCK = None
+
+
+def take_lock():
+    """One rbtrack per account at a time: a second copy started while the
+    first is sending orders stops here (no two processes, one order)."""
+    global _LOCK
+    import fcntl
+    p = os.path.join(os.path.dirname(ba.ORDER_LOG), "rbtrack.lock")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    f = open(p, "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, OSError):
+        f.close()
+        return False
+    _LOCK = f
+    return True
+
+
+def send_one(sess, sym, qty, product, side, otype="MARKET", price=0.0):
+    """intent saved -> order sent with the intent's tag -> result saved.
+    If saving the result fails after the broker accepted, the intent stays
+    unresolved and the next run finds the order by its tag (never re-sent)."""
+    tag = ba.new_intent(sym, side, qty, product)
+    ok, res, status = ba.place_amo_order(sym, qty, product == "MTF",
+                                         sess=sess, order_type=otype,
+                                         price=price, side=side, tag=tag)
+    try:
+        ba.update_intent(tag, state="ACCEPTED" if ok else
+                         ("UNKNOWN" if status == "UNKNOWN" else "REJECTED"),
+                         order_id=res if ok else "", status=status,
+                         note="" if ok else str(res)[:120])
+        ba.log_order({"date": dt.date.today().isoformat(),
+                      "broker": sess.broker, "client_id": sess.client_id,
+                      "time": ds.now_ist().strftime("%H:%M:%S"),
+                      "symbol": sym, "qty": qty, "side": side,
+                      "product": product, "type": otype, "ok": ok,
+                      "order_id": res if ok else "", "status": status,
+                      "error": "" if ok else res})
+    except Exception as e:
+        print("  !!! %s %s: result NOT saved (%s). Intent %s stays open -> "
+              "the next rbtrack checks the broker before anything else."
+              % (side, sym, type(e).__name__, tag))
+    if status == "UNKNOWN":
+        print("  ?? %s %s: reply lost, not in the order book yet. Check the "
+              "broker app, then: rbtrack --resolve %s placed|not-placed"
+              % (side, sym, tag))
+    return ok, res, status
+
+
 def place_orders(sess, live, use_limit, dry):
     """Returns the rows whose AMO the broker accepted (order_id filled in)."""
     if not live:
@@ -368,17 +419,9 @@ def place_orders(sess, live, use_limit, dry):
     accepted = []
     for x in live:
         lim = round(round(x["entry_price"] * (1 + LIMIT_BUFFER) / 0.05) * 0.05, 2)
-        ba.log_intent(x["symbol"], "BUY", x["shares"], x["product"], sess)
-        ok, res, status = ba.place_amo_order(
-            x["symbol"], x["shares"], x["product"] == "MTF", sess=sess,
-            order_type=otype, price=lim if use_limit else 0.0)
-        ba.log_order({"date": dt.date.today().isoformat(),
-                      "broker": sess.broker, "client_id": sess.client_id,
-                      "time": ds.now_ist().strftime("%H:%M:%S"),
-                      "symbol": x["symbol"], "qty": x["shares"], "side": "BUY",
-                      "product": x["product"],
-                      "type": otype, "ok": ok, "order_id": res if ok else "",
-                      "status": status, "error": "" if ok else res})
+        ok, res, status = send_one(sess, x["symbol"], x["shares"],
+                                   x["product"], "BUY", otype,
+                                   lim if use_limit else 0.0)
         if ok:
             print("  OK   %-12s %s order %s (%s)" % (x["symbol"], x["product"],
                                                    res, status))
@@ -505,17 +548,8 @@ def place_sells(sess, sells, dry):
     sp = read_split()
     sp["note"] = sp["note"].fillna("").astype(object).astype(str)
     for x in todo:
-        ba.log_intent(x["symbol"], "SELL", x["qty"], x["product"], sess)
-        ok, res, status = ba.place_amo_order(
-            x["symbol"], x["qty"], x["product"] == "MTF", sess=sess,
-            order_type="MARKET", side="SELL")
-        ba.log_order({"date": dt.date.today().isoformat(),
-                      "broker": sess.broker, "client_id": sess.client_id,
-                      "time": ds.now_ist().strftime("%H:%M:%S"),
-                      "symbol": x["symbol"], "qty": x["qty"], "side": "SELL",
-                      "product": x["product"], "type": "MARKET", "ok": ok,
-                      "order_id": res if ok else "", "status": status,
-                      "error": "" if ok else res})
+        ok, res, status = send_one(sess, x["symbol"], x["qty"],
+                                   x["product"], "SELL")
         if ok:
             print("  OK   SELL %-12s order %s (%s)" % (x["symbol"], res, status))
             m = (sp["symbol"] == x["symbol"]) & (sp["mode"] == "LIVE")
@@ -547,6 +581,31 @@ def main():
                 a[a.index("--unwatch") + 1].split(",") if x.strip()]
         print("Removed %d from the watchlist." % unwatch(syms))
         return
+    if not take_lock():
+        print("! Another rbtrack is running for this account -- wait for it "
+              "to finish (nothing sent).")
+        sys.exit(1)
+    if "--resolve" in a:
+        k = a.index("--resolve")
+        tag = a[k + 1] if k + 1 < len(a) else ""
+        how = a[k + 2].lower() if k + 2 < len(a) else ""
+        if how not in ("placed", "not-placed"):
+            print("Use: rbtrack --resolve TAG placed|not-placed [ORDER_ID]")
+            sys.exit(1)
+        oid = a[k + 3] if k + 3 < len(a) else ""
+        print("Resolved %s as %s." % (tag, how) if ba.resolve_intent(
+            tag, how == "placed", oid) else "No intent with tag %s." % tag)
+        return
+    op = ba.open_intents()
+    if len(op):
+        print("!! %d order(s) with UNKNOWN status (these stocks are blocked "
+              "until resolved):" % len(op))
+        for _, r in op.iterrows():
+            print("   %s %s %s x%s  tag %s  (%s)" % (r["date"], r["side"],
+                                                   r["symbol"], r["qty"],
+                                                   r["tag"], r["state"]))
+        print("   Check the broker app, then: rbtrack --resolve TAG "
+              "placed|not-placed")
     sess = ms.get_session()
     if "--clear-paper" in a:                # PAPER mode removed 27 Sep
         sp = read_split()
