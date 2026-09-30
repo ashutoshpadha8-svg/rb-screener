@@ -438,6 +438,13 @@ Data: Screener.in watchlist with columns ROCE, ROE, Debt to equity, Pledged perc
 YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backtests use result broadcast dates (NSE/BSE filings), not quarter-end.
 
 ## Known gotchas
+- 30 Sep Codex review (REVIEW.md from RB): FIXED (1) rebalance_plan now fills ONLY the free slots from the FULL
+  ranking with the sector cap counting kept holdings = strategy_lab.run_rank (old: ignored held sectors, listed BUY
+  rows beyond free slots); (7) order POSTs use _call(once=True): an ambiguous network error is NOT retried (was up to
+  6 tries = duplicate-order risk) -> 'ORDER STATUS UNKNOWN', logged, and ordered_today/sold_recently treat it as
+  placed. OPEN (minor): rebal_window uses weekdays not NSE holidays; '?' sectors uncapped (same in backtest);
+  live slot = Rs 10k fixed vs backtest equity/20 (Amount column is RB's choice). Codex's RAMOM 23.9% used only 535
+  cached stocks (fewer delisted names) -> more survivorship than our 1300-stock run (20.3%); today-universe 30% = look-ahead.
 - 29 Sep: Angel getCandleData rate limit (3/s, 180/min) -> HTTP 403 'exceeding access rate' was read as a bad token,
   the fill stopped after ~50 big caps and momentum ranked ONLY those (liq needed the last bar). Fixed: throttle,
   rate-limit = retry, per-stock failures skip, loud 'N stocks not filled' warning, liq min_periods=50.

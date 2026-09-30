@@ -275,9 +275,14 @@ def _rate_limited(r):
         "access rate" in t or "exceeding" in t or "rate limit" in t))
 
 
-def _call(sess, method, path, body=None, params=None, form=None, retries=2):
+def _call(sess, method, path, body=None, params=None, form=None, retries=2,
+          once=False):
     """HTTP to the session's broker. Returns the useful 'data' part.
-    Raises AuthError (401/403, bad token) or BrokerError (anything else)."""
+    Raises AuthError (401/403, bad token) or BrokerError (anything else).
+    once=True (ORDER placement): a network error after the request may have
+    reached the broker is NOT retried -- a retry could place the order twice
+    (Codex review 30 Sep). Only 'could not connect' and an explicit
+    rate-limit reply (= broker refused it) are retried."""
     base = {"DHAN": DHAN_BASE, "ANGEL": ANGEL_BASE,
             "ZERODHA": KITE_BASE}[sess.broker]
     retries = max(retries, 5)
@@ -288,6 +293,11 @@ def _call(sess, method, path, body=None, params=None, form=None, retries=2):
                                  json=body, params=params, data=form,
                                  timeout=30)
         except requests.RequestException as e:
+            if once and not isinstance(e, requests.ConnectTimeout):
+                raise BrokerError(
+                    "ORDER STATUS UNKNOWN (%s) -- the broker may have received "
+                    "it. Check the order book in the app before trying again; "
+                    "rbtrack will not re-send it today." % type(e).__name__)
             if attempt < retries:
                 time.sleep(2 * (attempt + 1))
                 continue
@@ -1040,7 +1050,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
                     "securityId": str(x["id"]), "quantity": qty,
                     "disclosedQuantity": 0, "price": lim, "triggerPrice": 0.0,
                     "afterMarketOrder": True, "amoTime": "OPEN"}
-            d = _call(sess, "POST", "/orders", body=body)
+            d = _call(sess, "POST", "/orders", body=body, once=True)
             status = str(d.get("orderStatus", "")).upper()
             oid = str(d.get("orderId", ""))
             if status == "REJECTED" or not oid:
@@ -1056,7 +1066,8 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
                     "duration": "DAY", "price": "%.2f" % lim, "squareoff": "0",
                     "stoploss": "0", "quantity": str(qty)}
             d = _call(sess, "POST",
-                      "/rest/secure/angelbroking/order/v1/placeOrder", body=body)
+                      "/rest/secure/angelbroking/order/v1/placeOrder", body=body,
+                      once=True)
             oid = str((d or {}).get("orderid") or "")
             return (True, oid, "AMO") if oid else \
                 (False, "no order id in reply", "ERROR")
@@ -1066,7 +1077,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
                 "validity": "DAY"}
         if order_type == "LIMIT":
             form["price"] = lim
-        d = _call(sess, "POST", "/orders/amo", form=form)
+        d = _call(sess, "POST", "/orders/amo", form=form, once=True)
         oid = str((d or {}).get("order_id") or "")
         return (True, oid, "AMO") if oid else \
             (False, "no order id in reply", "ERROR")
@@ -1134,7 +1145,15 @@ def ordered_today(symbol, side="BUY"):
     d = pd.read_csv(ORDER_LOG)
     today = dt.date.today().isoformat()
     return bool(((d["symbol"] == symbol) & (d["date"] == today) &
-                 (d["ok"] == True) & (_log_side(d) == side)).any())  # noqa
+                 _placed(d) & (_log_side(d) == side)).any())
+
+
+def _placed(d):
+    """Accepted, OR status unknown after a network error (may be placed ->
+    never send it again the same day / window)."""
+    unknown = d["error"].astype(str).str.contains("STATUS UNKNOWN") \
+        if "error" in d else False
+    return (d["ok"] == True) | unknown                         # noqa
 
 
 def sold_recently(symbol, days=4):
@@ -1145,7 +1164,7 @@ def sold_recently(symbol, days=4):
     d = pd.read_csv(ORDER_LOG)
     since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
     return bool(((d["symbol"] == symbol) & (d["date"].astype(str) >= since) &
-                 (d["ok"] == True) & (_log_side(d) == "SELL")).any())  # noqa
+                 _placed(d) & (_log_side(d) == "SELL")).any())
 
 
 # ================================================================== CLI

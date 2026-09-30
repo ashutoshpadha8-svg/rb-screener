@@ -137,8 +137,10 @@ def momentum_holdings(mode="LIVE"):
 
 def rebalance_plan(top, full):
     """SELL / BUY / HOLD per mode, exactly the backtest's monthly rule:
-    sell holdings ranked > BUFFER x SLOTS, keep the rest, then fill the free
-    slots with the best-ranked top-N names not held."""
+    sell holdings ranked > BUFFER x SLOTS, keep the rest, then fill ONLY the
+    free slots from the full ranking, sector cap counting kept holdings
+    (Codex review 30 Sep: the old plan ignored held sectors and listed BUY
+    rows beyond the free slots)."""
     pos = momentum_positions()
     by = full.set_index("symbol")
     rows = []
@@ -165,19 +167,42 @@ def rebalance_plan(top, full):
                          else "rank <= %d -> keep" % (BUFFER * SLOTS)})
         free = SLOTS - keep
         heldset = set(mine["symbol"])
+        # fill exactly like the backtest (strategy_lab.run_rank): go down the
+        # FULL ranking, skip held names, max SECTOR_CAP per industry COUNTING
+        # the holdings we keep, stop when the free slots are full
+        count = {}
+        for r in rows:
+            if r["Mode"] == mode and r["Section"] == "HOLD" and \
+                    r["Sector"] not in ("?", None, ""):
+                count[r["Sector"]] = count.get(r["Sector"], 0) + 1
+        cand = full[pd.to_numeric(full["rank"], errors="coerce").notna()] \
+            .sort_values("rank")
+        tops = top.set_index("symbol") if len(top) else None
         n = 0
-        for _, x in top.iterrows():
+        for _, x in cand.iterrows():
+            if n >= free:
+                break
             if x["symbol"] in heldset:
                 continue
+            sec = x.get("sector", "?")
+            sec = sec if isinstance(sec, str) and sec else "?"
+            if SECTOR_CAP and sec != "?" and count.get(sec, 0) >= SECTOR_CAP:
+                continue
+            px = x.get("price", np.nan)
+            sh = tops.loc[x["symbol"], "shares"] if tops is not None and \
+                x["symbol"] in tops.index and "shares" in tops else np.nan
+            if not (sh == sh):
+                sh = shares_for(CAPITAL / SLOTS, px)
             n += 1
+            count[sec] = count.get(sec, 0) + 1
             rows.append({"Section": "BUY", "Mode": mode, "Symbol": x["symbol"],
-                         "Mom Rank": x["rank"], "Momentum Score": x["score"],
-                         "Sector": x["sector"], "Qty Held": 0, "Entry": np.nan,
-                         "LTP": x["price"], "P&L %": np.nan,
-                         "Shares to Buy": x["shares"], "Amount (Rs)": x["amount"],
-                         "Note": "fills slot %d of %d free" % (n, free)
-                         if n <= free else "no free slot (all %d slots kept)"
-                         % SLOTS})
+                         "Mom Rank": x["rank"],
+                         "Momentum Score": x.get("score", np.nan),
+                         "Sector": sec, "Qty Held": 0, "Entry": np.nan,
+                         "LTP": px, "P&L %": np.nan,
+                         "Shares to Buy": sh,
+                         "Amount (Rs)": sh * px if px == px else np.nan,
+                         "Note": "fills slot %d of %d free" % (n, free)})
     order = {"SELL": 0, "BUY": 1, "HOLD": 2}
     return sorted(rows, key=lambda r: (r["Mode"] != "LIVE", order[r["Section"]],
                                        r["Mom Rank"] if r["Mom Rank"] ==
