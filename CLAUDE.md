@@ -99,6 +99,14 @@
                         #   SIP next due, LIVE rebalance (next 1st weekday), NSE red flags, regime, TRADING. rb also
                         #   alerts when the token is expired/rejected. SEND-ONLY: no commands, no orders.
                         #   Mock-tested only (fake _api), never hit the real Telegram API from the cloud.
+  signal_tracker.py     # (30 Sep, RB) every stock the screener EVER found: reads ALL reports/RB_Screener_*.xlsx
+                        #   (plain file wins over *_fund copy) -> data/signals_log.csv (append/merge only; a deleted xlsx
+                        #   keeps its rows; momentum stretch = out of top 20 > 20 days -> new find; W+TT = one per signal
+                        #   date). Per find: scan price, now (broker fill + live if token), return, Nifty same days,
+                        #   best/worst since (daily H/L), 20% stop hit, SWING EXIT (close<40w MA) / momentum rank>40.
+                        #   < 30 days = TOO EARLY (grey). Sheet Signal_Tracker in the master scan (copied into Portfolio)
+                        #   + data/signal_tracker_latest.csv. rb_scan runs it after every scan (never stops the scan)
+                        #   and once if today's scan lacks the sheet. Mock-tested only.
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note
   data/orders_log.csv   # every AMO attempt (ok / error) -> blocks a second order for the same stock that day
   FUNDAMENTALS.md       # research + thresholds behind fundamentals.py

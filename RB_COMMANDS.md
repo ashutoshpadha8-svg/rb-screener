@@ -285,3 +285,9 @@ python3 ~/RB_Screener/telegram_alert.py link     # test message aana chahiye
 Phir har `rb` ke baad us account ka summary: value/P&L, EXIT/HOLD, SIP due, rebalance list, NSE red flags,
 market RED/GREEN, TRADING ON/OFF. Token expire/reject hua to bhi alert.
 `python3 ~/RB_Screener/telegram_alert.py test` = test message, `unlink` = band.
+
+## 13. Signal Tracker (screener ke stocks ka asli result)
+`rb` apne aap chalata hai: jitne bhi stocks screener ne aaj tak dhoondhe (W+TT BUY/FIT/LATE, Momentum Top 20),
+har ek ka "mila tab price -> aaj", Nifty se tulna, sabse upar / sabse neeche, aur rule status.
+File mein tab **Signal_Tracker** (upar summary, neeche har stock). 30 din se kam purane = grey = abhi kuch mat samjho.
+Alag se chalana ho: `python3 ~/RB_Screener/signal_tracker.py`

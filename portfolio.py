@@ -430,7 +430,8 @@ REC_FILL = {"EXIT": "F8CBAD", "SELL": "F8CBAD", "SELL@REBAL": "FCE4D6",
             "AVOID": "F8CBAD", "SIP": "DDEBF7"}
 
 
-SCAN_SHEETS = ["Swing", "Investing", "Momentum_Top20", "Fundamentals"]
+SCAN_SHEETS = ["Swing", "Investing", "Momentum_Top20", "Fundamentals",
+               "Signal_Tracker"]
 SHEET_INFO = [
     ("Dashboard", "this page: summary + what to do today"),
     ("Holdings", "your stocks as cards: ACTION, why, P&L, how far the exit is"),
@@ -449,7 +450,9 @@ SHEET_INFO = [
     ("Swing", "master scan: W+TT signals (BUY / FIT / LATE) + fundamentals"),
     ("Investing", "master scan: same signals, Stage-4 exit"),
     ("Momentum_Top20", "master scan: RAMOM top 20 (sector cap 4)"),
-    ("Fundamentals", "master scan: Screener.in detail per stock (info only)")]
+    ("Fundamentals", "master scan: Screener.in detail per stock (info only)"),
+    ("Signal_Tracker", "every stock the screener ever found: return since, "
+                       "vs Nifty, best / worst dip, rule status")]
 TAB = {"Dashboard": "1F4E78", "Holdings": "548235", "Journal": "7030A0",
        "Sell": "C00000",
        "Actions": "FFC000", "SIP": "FFC000", "Super-Buy": "00B050", "Rebalance": "2E75B6",
@@ -1576,7 +1579,7 @@ def main():
     print("\nExcel (the ONE file to open): %s" % path)
     print("  Dashboard | Holdings | Sell | Journal | Actions | SIP | Super-Buy | Rebalance | "
           "Watchlist | Holdings_Table | Swing | Investing | Momentum_Top20 | "
-          "Fundamentals")
+          "Fundamentals | Signal_Tracker")
     if drive_copy:
         drive_copy.push(path)
     # TradingView "Import list": sections (###) with today's candidates

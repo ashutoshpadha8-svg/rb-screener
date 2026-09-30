@@ -9,6 +9,7 @@ one file a day, reports/RB_Screener_YYYY-MM-DD.xlsx, with the sheets
   Momentum_Top20,           momentum_screener.py (RAMOM top 20, ranking)
   Strategy_Comparison
   Fundamentals + columns    fundamentals.py     (Screener.in, info only)
+  Signal_Tracker            signal_tracker.py   (every earlier find: how it did)
 
 Runs the three steps in order (each only if the previous one worked).
 Already scanned today -> it does NOT scan again, except:
@@ -55,6 +56,23 @@ def made_in_market_hours(path):
             (9, 15) <= (t.hour, t.minute) < (15, 30))
 
 
+def has_tracker(path):
+    try:
+        from openpyxl import load_workbook
+        return "Signal_Tracker" in load_workbook(path, read_only=True).sheetnames
+    except Exception:
+        return False
+
+
+def track():
+    """Signal tracker = information only: a failure never stops the scan."""
+    print("\n" + "#" * 70 + "\n# signal_tracker.py\n" + "#" * 70)
+    r = subprocess.call([sys.executable, os.path.join(HERE,
+                                                      "signal_tracker.py")])
+    if r != 0:
+        print("! signal tracker failed (exit %d) -- scan itself is fine." % r)
+
+
 def main():
     force = "--force" in sys.argv[1:]
     path = master_path()
@@ -63,6 +81,8 @@ def main():
             print("Today's scan was made during market hours -- re-scanning "
                   "once for the closing prices.")
         else:
+            if not has_tracker(path):          # scan made before the
+                track()                          # tracker existed
             print("Today's master scan is already done:\n  %s" % path)
             print("Nothing to scan again (same strategy, same stocks).")
             print("  Your portfolio:  rbport      Re-scan anyway:  rbscan --force")
@@ -73,6 +93,7 @@ def main():
         if r != 0:
             print("\n! %s stopped (exit %d) -- scan not complete." % (step, r))
             sys.exit(r)
+    track()                         # how every earlier find did (info)
     print("\nMASTER SCAN DONE: %s" % path)
     try:                            # copy in Google Drive (Sheets)
         import drive_copy
