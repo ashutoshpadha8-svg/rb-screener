@@ -406,6 +406,10 @@ LIVE momentum top20+cap 12.2 / 28.0 / 20.3 / -35.9; Nifty 10.3 / 9.7 / 9.8 / -38
   sessions; Investing got that column) / Momentum_Top20 (new 'Days in Top 20' col C, calendar days from
   signals_log.csv via momentum_screener.days_in_top) / Signal_Tracker; today's days cell darker green A9D08E + bold;
   LATE orange + fundamentals colours kept. Tracker pushes the master to the Drive copy after writing (rbsig).
+  Momentum_Top20 also 'In Top 20 since' (date, col D; scans started 26 Sep 2026 -> nothing earlier).
+  xl_fit.py (30 Sep, RB: "columns fit karo sab jagah"): width from header words (header <= 2 lines) + shown values
+  (cap 45, in-table long text = 45 + keeps wrap), short cells unwrapped (no tall rows). Run on the master by
+  signal_tracker (last step of every scan / rbsig) and on the Portfolio file before save (Dashboard, Holdings cards skipped).
 
 ## EMA 9/21 cross (ema_backtest.py, 29 Sep 2026) - RB's idea, pre-registered, same honest setup
 Buy next open after EMA9 crosses above EMA21; exit X1 = EMA9 back below EMA21, X2 = close < 50DMA. 7 filters x 2 exits.

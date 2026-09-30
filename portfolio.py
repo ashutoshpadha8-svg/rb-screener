@@ -1235,6 +1235,11 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         x.sheet_view.tabSelected = False
     wb.active = 0
     wb.worksheets[0].sheet_view.tabSelected = True
+    try:                               # columns fit their content (layout)
+        import xl_fit
+        xl_fit.fit_workbook(wb, skip=("Dashboard", "Holdings"))
+    except ImportError:
+        pass
     try:
         wb.save(path)
         return path

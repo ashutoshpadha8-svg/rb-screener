@@ -499,6 +499,11 @@ def write_sheet(path, summ, t, note, today):
         table(wsum, summ, 3, {"Group": 34})
         wsum.freeze_panes = "B4"
     paint_ages(wb)
+    try:                               # columns fit their content (layout)
+        import xl_fit
+        xl_fit.fit_workbook(wb)
+    except ImportError:
+        pass
     wb.save(path)
 
 
