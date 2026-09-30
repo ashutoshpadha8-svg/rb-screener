@@ -16,10 +16,11 @@ Shortcuts ek baar set karo (purane rb* hata ke naye 2):
 sed -i '' '/^alias rb/d' ~/.zshrc && cat >> ~/.zshrc <<'X'
 alias rb='python3 ~/RB_Screener/rb.py'
 alias rbtrack='python3 ~/RB_Screener/auto_tracker_update.py'
+alias rbsig='python3 ~/RB_Screener/signal_tracker.py'
 X
 source ~/.zshrc
 ```
-Check: `alias | grep rb` -> 2 lines.
+Check: `alias | grep rb` -> 3 lines (rb, rbsig, rbtrack).
 
 Options (kabhi kabhi):
 ```
@@ -290,4 +291,4 @@ market RED/GREEN, TRADING ON/OFF. Token expire/reject hua to bhi alert.
 `rb` apne aap chalata hai: jitne bhi stocks screener ne aaj tak dhoondhe (W+TT BUY/FIT/LATE, Momentum Top 20),
 har ek ka "mila tab price -> aaj", Nifty se tulna, sabse upar / sabse neeche, aur rule status.
 File mein tab **Signal_Tracker** (upar summary, neeche har stock). 30 din se kam purane = grey = abhi kuch mat samjho.
-Alag se chalana ho: `python3 ~/RB_Screener/signal_tracker.py`
+Alag se chalana ho: `rbsig` (= `python3 ~/RB_Screener/signal_tracker.py`)
