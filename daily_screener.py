@@ -391,27 +391,28 @@ def write_excel(stamp, swing, inv, banner):
     # ---------------------------------------------------------- Investing
     wi = wb.create_sheet("Investing")
     setup(wi, ["Symbol", "Action", "RS Rank", "Mcap (Rs Cr)", "Signal Date",
-               "Signal Price", "Price", "% vs Signal", "30w MA",
-               "% above 30w MA"],
-          [13, 8, 8, 12, 12, 11, 11, 10, 11, 11])
+               "Days Since Signal", "Signal Price", "Price", "% vs Signal",
+               "30w MA", "% above 30w MA"],
+          [13, 8, 8, 12, 12, 10, 11, 11, 10, 11, 11])
     for n, (_, r) in enumerate(ranked(inv).iterrows(), start=2):
         wi.append([r["symbol"], r["act"], int(r["rs_rank"]), r["mcap_cr"],
-                   r["signal_date"], float(r["signal_px"]), float(r["price"]),
-                   "=G%d/F%d-1" % (n, n), float(r["ma30w"]),
-                   "=G%d/I%d-1" % (n, n)])
+                   r["signal_date"], int(r["bars_ago"]),
+                   float(r["signal_px"]), float(r["price"]),
+                   "=H%d/G%d-1" % (n, n), float(r["ma30w"]),
+                   "=H%d/J%d-1" % (n, n)])
         for c in wi[n]:
             c.font = body
         wi["E%d" % n].number_format = "yyyy-mm-dd"
         wi["D%d" % n].number_format = "#,##0"
-        for col in "FGI":
+        for col in "GHJ":
             wi["%s%d" % (col, n)].number_format = "#,##0.0"
-        for col in "HJ":
+        for col in "IK":
             wi["%s%d" % (col, n)].number_format = "0.0%"
         if r["act"] in fills:
-            for c in wi[n][:10]:
+            for c in wi[n][:11]:
                 c.fill = fills[r["act"]]
     last = wi.max_row
-    wi.auto_filter.ref = "A1:J%d" % max(last, 2)
+    wi.auto_filter.ref = "A1:K%d" % max(last, 2)
     add_notes(wi, last + 2, [
         banner,
         "Same entry signal as Swing, but held for the long term.",

@@ -402,6 +402,10 @@ LIVE momentum top20+cap 12.2 / 28.0 / 20.3 / -35.9; Nifty 10.3 / 9.7 / 9.8 / -38
 - As a portfolio it does NOT beat W+TT (too few signals, cash waits) and loses to live momentum in both halves.
 - VERDICT: keep Super-Buy as a highlight on W+TT picks, not a separate strategy. Tracker: Age column (TODAY /
   1-5 / 6-29 / 30+ days) with soft row colours (green / blue / beige / white), freeze C4.
+  signal_tracker.paint_ages (30 Sep, RB: "har sheet main"): same colours on Swing / Investing ('Days Since Signal',
+  sessions; Investing got that column) / Momentum_Top20 (new 'Days in Top 20' col C, calendar days from
+  signals_log.csv via momentum_screener.days_in_top) / Signal_Tracker; today's days cell darker green A9D08E + bold;
+  LATE orange + fundamentals colours kept. Tracker pushes the master to the Drive copy after writing (rbsig).
 
 ## EMA 9/21 cross (ema_backtest.py, 29 Sep 2026) - RB's idea, pre-registered, same honest setup
 Buy next open after EMA9 crosses above EMA21; exit X1 = EMA9 back below EMA21, X2 = close < 50DMA. 7 filters x 2 exits.

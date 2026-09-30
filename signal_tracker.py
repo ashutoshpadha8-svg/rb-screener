@@ -369,6 +369,65 @@ def age_label(d):
     return "30+ days"
 
 
+TODAY_CELL = "A9D08E"          # the days cell of today's finds: a bit stronger
+OLD_FILLS = ("C6EFCE", "EDEDED")   # screener's old BUY green / tracker grey
+DAY_COLS = {"Swing": "Days Since Signal", "Investing": "Days Since Signal",
+            "Momentum_Top20": "Days in Top 20",
+            SHEET: "Days since found"}
+
+
+def _rgb(cell):
+    f = cell.fill
+    if f is None or f.fill_type != "solid":
+        return ""
+    return str(f.fgColor.rgb or "")[-6:].upper()
+
+
+def paint_ages(wb):
+    """Same soft age colours on every sheet with a days column: the whole
+    row by age (cells that carry another colour -- LATE orange, fundamentals
+    columns -- keep theirs) and the days cell of today's finds a bit darker
+    + bold. Safe to run again (rbsig) -- it only re-paints."""
+    from openpyxl.styles import Font, PatternFill
+    ages = {lab: PatternFill("solid", fgColor=col) for lab, col in AGE_FILL}
+    none = PatternFill(fill_type=None)
+    strong = PatternFill("solid", fgColor=TODAY_CELL)
+    ours = set(OLD_FILLS) | {c for _, c in AGE_FILL} | {TODAY_CELL}
+    for name, col in DAY_COLS.items():
+        if name not in wb.sheetnames:
+            continue
+        ws = wb[name]
+        hrow = dcol = None
+        for r in range(1, 6):
+            for c in range(1, ws.max_column + 1):
+                if ws.cell(row=r, column=c).value == col:
+                    hrow, dcol = r, c
+            if dcol:
+                break
+        if not dcol:
+            continue
+        ncol = 0
+        for c in range(1, ws.max_column + 1):
+            if ws.cell(row=hrow, column=c).value not in (None, ""):
+                ncol = c
+        r = hrow + 1
+        while ws.cell(row=r, column=1).value not in (None, ""):
+            try:
+                lab = age_label(ws.cell(row=r, column=dcol).value)
+            except Exception:
+                lab = ""
+            if lab:
+                for c in range(1, ncol + 1):
+                    cell = ws.cell(row=r, column=c)
+                    if _rgb(cell) in ours or _rgb(cell) == "":
+                        cell.fill = ages.get(lab, none)
+                d = ws.cell(row=r, column=dcol)
+                if lab == "TODAY":
+                    d.fill = strong
+                    d.font = Font(name=d.font.name, bold=True)
+            r += 1
+
+
 def write_sheet(path, summ, t, note, today):
     """Two tabs: Signal_Tracker = every find (header + Symbol frozen, filter
     on, so sorting always moves whole rows); Signal_Summary = the groups."""
@@ -382,8 +441,10 @@ def write_sheet(path, summ, t, note, today):
     head = Font(bold=True, color="FFFFFF")
     navy = PatternFill("solid", fgColor="1F4E78")
     ages = {lab: PatternFill("solid", fgColor=col) for lab, col in AGE_FILL}
-    note_txt = ("Row colour = Age: green = found TODAY, blue = 1-5 days, "
-                "beige = 6-29 days (TOO EARLY to judge), white = 30+ days. "
+    note_txt = ("Row colour = Age: green = found TODAY (days cell darker), "
+                "blue = 1-5 days, beige = 6-29 days (TOO EARLY to judge), "
+                "white = 30+ days. Same colours on Swing / Investing / "
+                "Momentum_Top20. "
                 "Rank then = momentum rank (MOMENTUM rows) or RS "
                 "rank 0-100 (W+TT rows). Sort ONLY with the header arrows "
                 "(filter) -- sorting one selected column mixes the rows. "
@@ -437,6 +498,7 @@ def write_sheet(path, summ, t, note, today):
     if len(summ):
         table(wsum, summ, 3, {"Group": 34})
         wsum.freeze_panes = "B4"
+    paint_ages(wb)
     wb.save(path)
 
 
@@ -466,6 +528,11 @@ def main():
     try:
         write_sheet(latest, summ, t, note, today)
         print("  sheet '%s' written into %s" % (SHEET, os.path.basename(latest)))
+        try:                        # fresh copy in Google Drive (Sheets)
+            import drive_copy
+            drive_copy.push(latest, quiet=True)
+        except Exception:
+            pass
     except Exception as e:
         print("  ! could not write the sheet (%s) -- CSV: %s"
               % (type(e).__name__, OUT))

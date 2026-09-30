@@ -301,6 +301,31 @@ def _read_sheet(path, name):
         return pd.DataFrame()
 
 
+def days_in_top(symbols):
+    """Calendar days since each stock entered the top 20 (this stretch), from
+    the signal tracker's log (data/signals_log.csv, updated after every scan).
+    Not in the log, or out of the list > 20 days -> new today = 0."""
+    today = pd.Timestamp(ds.now_ist().date())
+    out = {s: 0 for s in symbols}
+    try:
+        import signal_tracker as st
+        log = st.load_log()
+        log = log[log.source == "MOMENTUM"]
+        for s in symbols:
+            g = log[log.symbol == str(s).upper()]
+            if not len(g):
+                continue
+            r = g.sort_values("first_found").iloc[-1]
+            last = pd.to_datetime(r["last_seen"], errors="coerce")
+            first = pd.to_datetime(r["first_found"], errors="coerce")
+            if pd.notna(first) and pd.notna(last) and \
+                    (today - last).days <= st.MOM_GAP_DAYS:
+                out[s] = max(0, (today - first).days)
+    except Exception:
+        pass
+    return out
+
+
 def write_sheets(path, top, allrank, swing, fund_status, regime_red, banner):
     from openpyxl import load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -345,19 +370,22 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red, banner):
 
     # ---------------------------------------------------- Momentum_Top20
     ws = wb.create_sheet("Momentum_Top20")
-    cols = [("Symbol", 13), ("Mom Rank", 7), ("Momentum Score", 9),
+    cols = [("Symbol", 13), ("Mom Rank", 7), ("Days in Top 20", 8),
+            ("Momentum Score", 9),
             ("RS Rank", 7), ("Sector / Industry", 22), ("Last Close", 10),
             ("LTP", 10), ("Price Source", 8), ("ATR %", 7), ("Slot (Rs)", 9),
             ("Shares to Buy", 8), ("Amount (Rs)", 10), ("6m Ret %", 8),
             ("12m Ret %", 8), ("1y Vol %", 8), ("Dist 52W High %", 8),
             ("Regime", 20)]
     header(ws, cols)
+    age = days_in_top(list(top["symbol"]))
     for n, (_, x) in enumerate(top.iterrows(), start=2):
-        vals = [x["symbol"], int(x["rank"]), x["score"], x["rs_rank"],
+        vals = [x["symbol"], int(x["rank"]), age.get(x["symbol"], 0),
+                x["score"], x["rs_rank"],
                 x["sector"], x["close"], x["price"], x["px_src"], x["atr_pct"],
                 x["slot"], int(x["shares"]), x["amount"], x["ret6"], x["ret12"],
                 x["vol"], x["dist52"], RED if regime_red else "OK"]
-        fmts = [None, "0", "0.00", "0", None, "#,##0.0", "#,##0.0", None,
+        fmts = [None, "0", "0", "0.00", "0", None, "#,##0.0", "#,##0.0", None,
                 "0.0", "#,##0", "0", "#,##0", "0.0", "0.0", "0.0", "0.0",
                 None]
         for i, (v, f) in enumerate(zip(vals, fmts), 1):
