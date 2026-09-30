@@ -104,7 +104,8 @@
                         #   keeps its rows; momentum stretch = out of top 20 > 20 days -> new find; W+TT = one per signal
                         #   date). Per find: scan price, now (broker fill + live if token), return, Nifty same days,
                         #   best/worst since (daily H/L), 20% stop hit, SWING EXIT (close<40w MA) / momentum rank>40.
-                        #   < 30 days = TOO EARLY (grey). Sheet Signal_Tracker in the master scan (copied into Portfolio)
+                        #   < 30 days = TOO EARLY (grey). Tabs Signal_Tracker (every find, header+Symbol frozen, filter) +
+                        #   Signal_Summary (groups incl. momentum rank 1-5/6-10/11-20) in the master scan (copied into Portfolio)
                         #   + data/signal_tracker_latest.csv. rb_scan runs it after every scan (never stops the scan)
                         #   and once if today's scan lacks the sheet. Mock-tested only.
   split.csv             # symbol,swing_qty,investing_qty,momentum_qty,entry_price,entry_date,strategy,mode,product,order_id,note

@@ -431,7 +431,7 @@ REC_FILL = {"EXIT": "F8CBAD", "SELL": "F8CBAD", "SELL@REBAL": "FCE4D6",
 
 
 SCAN_SHEETS = ["Swing", "Investing", "Momentum_Top20", "Fundamentals",
-               "Signal_Tracker"]
+               "Signal_Summary", "Signal_Tracker"]
 SHEET_INFO = [
     ("Dashboard", "this page: summary + what to do today"),
     ("Holdings", "your stocks as cards: ACTION, why, P&L, how far the exit is"),
@@ -451,6 +451,8 @@ SHEET_INFO = [
     ("Investing", "master scan: same signals, Stage-4 exit"),
     ("Momentum_Top20", "master scan: RAMOM top 20 (sector cap 4)"),
     ("Fundamentals", "master scan: Screener.in detail per stock (info only)"),
+    ("Signal_Summary", "how the screener's finds did, group by group "
+                       "(W+TT, momentum rank 1-5 / 6-10 / 11-20, both)"),
     ("Signal_Tracker", "every stock the screener ever found: return since, "
                        "vs Nifty, best / worst dip, rule status")]
 TAB = {"Dashboard": "1F4E78", "Holdings": "548235", "Journal": "7030A0",
@@ -1579,7 +1581,7 @@ def main():
     print("\nExcel (the ONE file to open): %s" % path)
     print("  Dashboard | Holdings | Sell | Journal | Actions | SIP | Super-Buy | Rebalance | "
           "Watchlist | Holdings_Table | Swing | Investing | Momentum_Top20 | "
-          "Fundamentals | Signal_Tracker")
+          "Fundamentals | Signal_Summary | Signal_Tracker")
     if drive_copy:
         drive_copy.push(path)
     # TradingView "Import list": sections (###) with today's candidates

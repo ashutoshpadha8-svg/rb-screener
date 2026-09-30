@@ -59,7 +59,8 @@ def made_in_market_hours(path):
 def has_tracker(path):
     try:
         from openpyxl import load_workbook
-        return "Signal_Tracker" in load_workbook(path, read_only=True).sheetnames
+        names = load_workbook(path, read_only=True).sheetnames
+        return "Signal_Tracker" in names and "Signal_Summary" in names
     except Exception:
         return False
 

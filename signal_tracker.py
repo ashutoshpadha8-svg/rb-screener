@@ -45,6 +45,7 @@ LOG = os.path.join(ds.DATA, "signals_log.csv")
 OUT = os.path.join(ds.DATA, "signal_tracker_latest.csv")
 REPORTS = os.path.join(ds.HERE, "reports")
 SHEET = "Signal_Tracker"
+SUMMARY_SHEET = "Signal_Summary"
 MOM_GAP_DAYS = 20          # out of the top 20 longer than this = new find
 TOO_EARLY = 30             # calendar days
 STOP = 0.20
@@ -350,31 +351,34 @@ def summary(t):
 
 # ================================================================== output
 def write_sheet(path, summ, t, note, today):
+    """Two tabs: Signal_Tracker = every find (header + Symbol frozen, filter
+    on, so sorting always moves whole rows); Signal_Summary = the groups."""
     from openpyxl import load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter as L
     wb = load_workbook(path)
-    if SHEET in wb.sheetnames:
-        del wb[SHEET]
-    ws = wb.create_sheet(SHEET)
+    for n in (SHEET, SUMMARY_SHEET):
+        if n in wb.sheetnames:
+            del wb[n]
     head = Font(bold=True, color="FFFFFF")
     navy = PatternFill("solid", fgColor="1F4E78")
     grey = PatternFill("solid", fgColor="EDEDED")
-    ws.cell(row=1, column=1, value="SIGNAL TRACKER | %s | prices: %s"
-            % (today, note)).font = Font(bold=True, size=13)
-    ws.cell(row=2, column=1, value=(
-        "Every stock the screener ever found, from the day it was found. "
-        "Grey = younger than 30 days: TOO EARLY, a few days of prices say "
-        "nothing. Backtest (2013-26) expects W+TT ~39% winners, avg +11.8% "
-        "per trade over months; momentum picks beat the universe by ~6% in "
-        "6 months. Rank then = momentum rank (MOMENTUM rows) or RS rank "
-        "0-100 (W+TT rows). Info only -- no orders.")).font = Font(italic=True,
-                                                          size=10)
+    note_txt = ("Grey = younger than 30 days: TOO EARLY, a few days of prices "
+                "say nothing. Rank then = momentum rank (MOMENTUM rows) or RS "
+                "rank 0-100 (W+TT rows). Sort ONLY with the header arrows "
+                "(filter) -- sorting one selected column mixes the rows. "
+                "Backtest (2013-26): W+TT ~39% winners, avg +11.8% per trade "
+                "over months; momentum top 20 beat the universe by ~6% in 6 "
+                "months. Info only -- no orders.")
 
-    def table(df, r0):
+    def table(ws, df, r0, widths):
         for j, h in enumerate(df.columns, 1):
             c = ws.cell(row=r0, column=j, value=h)
             c.font, c.fill = head, navy
-            c.alignment = Alignment(wrap_text=True, vertical="center")
+            c.alignment = Alignment(wrap_text=True, vertical="center",
+                                    horizontal="center")
+            ws.column_dimensions[L(j)].width = widths.get(h, 12)
+        ws.row_dimensions[r0].height = 32
         for i, row in enumerate(df.itertuples(index=False), r0 + 1):
             young = False
             for j, v in enumerate(row, 1):
@@ -391,20 +395,27 @@ def write_sheet(path, summ, t, note, today):
             if young:
                 for j in range(1, len(df.columns) + 1):
                     ws.cell(row=i, column=j).fill = grey
-        return r0 + len(df) + 2
+        return r0 + len(df)
 
-    r = 4
+    ws = wb.create_sheet(SHEET)
+    ws.cell(row=1, column=1, value="SIGNAL TRACKER | %s | prices: %s | "
+            "summary: tab %s" % (today, note, SUMMARY_SHEET)).font = \
+        Font(bold=True, size=13)
+    ws.cell(row=2, column=1, value=note_txt).font = Font(italic=True, size=10)
+    last = table(ws, t, 3, {"Symbol": 14, "Source": 11, "Status": 40,
+                            "Found on": 11, "Last in list": 11})
+    ws.freeze_panes = "B4"                 # header row + Symbol always seen
+    if len(t):
+        ws.auto_filter.ref = "A3:%s%d" % (L(len(t.columns)), last)
+
+    wsum = wb.create_sheet(SUMMARY_SHEET)
+    wsum.cell(row=1, column=1, value="SIGNAL SUMMARY | %s | every stock: tab "
+              "%s" % (today, SHEET)).font = Font(bold=True, size=13)
+    wsum.cell(row=2, column=1, value=note_txt).font = Font(italic=True,
+                                                           size=10)
     if len(summ):
-        ws.cell(row=r, column=1, value="SUMMARY").font = Font(bold=True)
-        r = table(summ, r + 1)
-    ws.cell(row=r, column=1, value="EVERY FIND (newest first)").font = \
-        Font(bold=True)
-    table(t, r + 1)
-    for j in range(1, 20):
-        ws.column_dimensions[chr(64 + j)].width = 13
-    ws.column_dimensions["A"].width = 30
-    ws.column_dimensions["P"].width = 34
-    ws.freeze_panes = "B6"
+        table(wsum, summ, 3, {"Group": 34})
+        wsum.freeze_panes = "B4"
     wb.save(path)
 
 
