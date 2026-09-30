@@ -462,6 +462,8 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   rbtrack lists open ones at start. fcntl lock data/rbtrack.lock = one rbtrack per account. orders_log only counts
   ok rows (column order kept on append). sync(): cumulative broker fills set the qty (3,3,6 -> no double count).
   tests/test_execution.py = 26 mocked checks incl. delayed book, next day, save-fail after accept, 2 processes.
+  30 Sep: RB installed the full code zip (MANIFEST.txt sizes) in ~/RB_Screener AND ~/Downloads/codex/RB_Screener
+  (Codex review copy); both "check done", no duplicate files; tests 26/26 on the Mac (Python 3.9, LibreSSL warning harmless).
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);
