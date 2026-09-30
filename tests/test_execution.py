@@ -66,6 +66,9 @@ class FakeDhan(object):
                     "orderId": oid, "orderStatus": "PENDING"}
             if self.post.startswith("lost"):
                 raise requests.ReadTimeout("reply lost")
+            if self.post == "http500":
+                return Resp(500, {"errorType": "Server", "errorMessage":
+                                  "internal error"})
             return Resp(200, {"orderId": oid, "orderStatus": "PENDING"})
         if method == "GET" and path.startswith("/orders/external/"):
             if self.book_down:
@@ -261,8 +264,8 @@ def main():
     new, skip = at.plan(rows, {t: (100.0, "x") for t in
                                ("NF", "A", "B", "C")}, sp)
     got = [n["symbol"] for n in new]
-    check("5th Fin refused, max 20 (SELL-sent frees 1)", got == ["A", "B"],
-          "%s | %s" % (got, skip))
+    check("5th Fin refused, max 20 (a SENT sell still holds its slot)",
+          got == ["A"], "%s | %s" % (got, skip))
     at.ba.sold_recently, at.ba.ordered_today = sold, ordered
 
     print("11) rebalance plan counts kept holdings per industry")
@@ -283,6 +286,71 @@ def main():
               r["Sector"] == "Fin")
     check("16 BUY for 16 free slots, Fin stays 4", len(buys) == 16 and
           fin == 4, "%d buys, %d Fin" % (len(buys), fin))
+
+    print("12) yesterday's UNKNOWN is PENDING in today's book")
+    f = FakeDhan("lost_after_accept", show=False)
+    s = fresh(f)
+    run(s)
+    age_ledger(1)
+    f.show = True                               # book shows it, PENDING
+    check("next day: found PENDING -> blocked, 1 POST",
+          run(s) == "BLOCKED" and f.posts == 1, "posts=%d" % f.posts)
+    age_ledger(3)
+    check("3 days later still PENDING -> still blocked", run(s) == "BLOCKED")
+    f.orders[list(f.orders)[0]]["orderStatus"] = "TRADED"
+    check("TRADED long ago -> no longer blocks (holding guards it)",
+          run(s) != "BLOCKED")
+
+    print("13) broker accepted but answered HTTP 500")
+    f = FakeDhan("http500")
+    s = fresh(f)
+    r1 = run(s)
+    check("500 -> looked up by tag -> OK", r1 == "OK", r1)
+    check("re-run blocked, 1 POST", run(s) == "BLOCKED" and f.posts == 1,
+          "posts=%d" % f.posts)
+    f = FakeDhan("http500", show=False)
+    s = fresh(f)
+    check("500 + book empty -> UNKNOWN", run(s) == "UNKNOWN")
+    check("re-run blocked", run(s) == "BLOCKED" and f.posts == 1)
+
+    print("14) Dhan: order says 3 filled, trade book still empty")
+    f = FakeDhan("ok")
+    s = fresh(f)
+    f.orders["x"] = {"orderId": "7770", "orderStatus": "CANCELLED",
+                     "filledQty": 3, "averageTradedPrice": 101.5}
+    o = ba.check_order_status("7770", sess=s)
+    check("filled_qty 3 from the order itself", o["filled_qty"] == 3 and
+          abs((o["avg_price"] or 0) - 101.5) < 1e-9, o)
+    store["sp"] = store["sp"].assign(swing_qty=10, note="AMO pending",
+                                     order_id="7770")
+    at.sync(s)
+    check("sync keeps 3 shares (not 0)",
+          int(store["sp"].iloc[0]["swing_qty"]) == 3,
+          store["sp"].iloc[0].to_dict())
+
+    print("15) journal follows more fills (3 -> 6)")
+    import journal
+    import momentum_screener as ms2
+    jd = tempfile.mkdtemp()
+    ms2.SPLIT_FILE = os.path.join(jd, "split.csv")
+    journal.dividends_of = lambda sym: []
+    row = {"symbol": "ABC", "swing_qty": 3, "investing_qty": 0,
+           "momentum_qty": 0, "entry_price": 100.0,
+           "entry_date": "2026-09-30", "strategy": "W+TT", "mode": "LIVE",
+           "product": "CNC", "order_id": "1", "note": ""}
+    try:
+        jj, _ = journal.sync(pd.DataFrame([row]), [{"symbol": "ABC",
+                                                    "qty": 3}], {}, {},
+                             quiet=True)
+        journal.save(jj)
+        row["swing_qty"] = 6
+        jj, _ = journal.sync(pd.DataFrame([row]), [{"symbol": "ABC",
+                                                    "qty": 6}], {}, {},
+                             quiet=True)
+        q = [float(x) for x in jj.loc[jj["status"] == "OPEN", "qty"]]
+        check("one open row, qty 6", q == [6.0], q)
+    except Exception as e:
+        check("journal sync ran", False, "%s: %s" % (type(e).__name__, e))
 
     bad = [n for n, ok in RESULTS if not ok]
     print("\n%d / %d passed%s" % (len(RESULTS) - len(bad), len(RESULTS),

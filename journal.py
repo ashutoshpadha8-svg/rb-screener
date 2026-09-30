@@ -259,6 +259,14 @@ def sync(sp, demat, recs, last_px, sess=None, broker="DHAN", today=None,
             continue
         if rid in have:
             i = j.index[j["id"] == rid][0]
+            if j.at[i, "status"] == "OPEN" and abs(_f(j.at[i, "qty"]) - q) > 1e-9:
+                j.at[i, "qty"] = "%g" % q             # more fills (3 -> 6)
+                fee, stt = fees(j.at[i, "broker"], "BUY",
+                                q * _f(j.at[i, "buy_price"]))
+                j.at[i, "buy_fees"], j.at[i, "buy_stt"] = \
+                    "%.2f" % fee, "%.2f" % stt
+                msgs.append("journal: %s %s qty now %g" % (r["mode"],
+                                                           r["symbol"], q))
             if j.at[i, "status"] == "OPEN" and _f(r["entry_price"]) > 0 and \
                     abs(_f(j.at[i, "buy_price"]) - _f(r["entry_price"])) > 0.001:
                 fee, stt = fees(j.at[i, "broker"], "BUY",

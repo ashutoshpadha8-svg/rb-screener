@@ -309,6 +309,9 @@ def _call(sess, method, path, body=None, params=None, form=None, retries=2,
     if _rate_limited(r):
         raise BrokerError("rate limit (%s): too many requests, try again in a "
                           "minute" % getattr(sess, "label", sess.broker))
+    if once and r.status_code >= 500:            # server error AFTER it got
+        raise BrokerError("ORDER STATUS UNKNOWN (HTTP %d) -- the broker may "   # the order
+                          "have accepted it." % r.status_code)
     j = _json(r)
     if r.status_code in (401, 403):
         raise AuthError("HTTP %d -- token expired/invalid or API access not "
@@ -1057,10 +1060,12 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
             d = _call(sess, "POST", "/orders", body=body, once=True)
             status = str(d.get("orderStatus", "")).upper()
             oid = str(d.get("orderId", ""))
-            if status == "REJECTED" or not oid:
+            if status == "REJECTED":
                 return False, "order rejected (%s)" % (
-                    d.get("omsErrorDescription") or _err(d)), \
-                    status or "REJECTED"
+                    d.get("omsErrorDescription") or _err(d)), "REJECTED"
+            if not oid:
+                raise BrokerError("ORDER STATUS UNKNOWN (reply without an "
+                                  "order id)")
             return True, oid, status
         if sess.broker == "ANGEL":
             body = {"variety": "AMO", "tradingsymbol": x["tsym"],
@@ -1074,8 +1079,10 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
                       "/rest/secure/angelbroking/order/v1/placeOrder", body=body,
                       once=True)
             oid = str((d or {}).get("orderid") or "")
-            return (True, oid, "AMO") if oid else \
-                (False, "no order id in reply", "ERROR")
+            if not oid:
+                raise BrokerError("ORDER STATUS UNKNOWN (reply without an "
+                                  "order id)")
+            return True, oid, "AMO"
         form = {"tradingsymbol": x["tsym"], "exchange": "NSE",
                 "transaction_type": side, "order_type": order_type,
                 "quantity": qty, "product": "MTF" if is_mtf else "CNC",
@@ -1084,8 +1091,10 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
             form["price"] = lim
         d = _call(sess, "POST", "/orders/amo", form=form, once=True)
         oid = str((d or {}).get("order_id") or "")
-        return (True, oid, "AMO") if oid else \
-            (False, "no order id in reply", "ERROR")
+        if not oid:
+            raise BrokerError("ORDER STATUS UNKNOWN (reply without an "
+                              "order id)")
+        return True, oid, "AMO"
     except BrokerError as e:
         if "STATUS UNKNOWN" in str(e):          # reply lost: ask the book
             time.sleep(3)
@@ -1113,12 +1122,20 @@ def check_order_status(order_id, broker=None, token=None, sess=None):
             d = _call(sess, "GET", "/orders/%s" % oid)
             d = (d[0] if d else {}) if isinstance(d, list) else d
             raw = str(d.get("orderStatus", "")).upper()
-            t = _call(sess, "GET", "/trades/%s" % oid)
-            rows = t if isinstance(t, list) else [t]
-            q = sum(int(r.get("tradedQuantity") or 0) for r in rows)
-            v = sum(int(r.get("tradedQuantity") or 0) *
-                    float(r.get("tradedPrice") or 0) for r in rows)
-            avg = v / q if q else None
+            q, avg = 0, None
+            try:
+                t = _call(sess, "GET", "/trades/%s" % oid)
+                rows = t if isinstance(t, list) else [t]
+                q = sum(int(r.get("tradedQuantity") or 0) for r in rows if r)
+                v = sum(int(r.get("tradedQuantity") or 0) *
+                        float(r.get("tradedPrice") or 0) for r in rows if r)
+                avg = v / q if q else None
+            except BrokerError:
+                pass
+            oq = int(float(d.get("filledQty") or 0))  # the order's own count
+            if oq > q:                               # (trade book can lag)
+                q = oq
+                avg = float(d.get("averageTradedPrice") or 0) or avg
         elif sess.broker == "ANGEL":
             book = _call(sess, "GET",
                          "/rest/secure/angelbroking/order/v1/getOrderBook")
@@ -1194,6 +1211,7 @@ def find_order_by_tag(sess, tag):
 #   ACCEPTED  broker gave an order id
 #   REJECTED  broker said no (nothing placed)
 #   CLOSED    broker later reported REJECTED / CANCELLED / EXPIRED
+#   DONE      TRADED and older than the guard window
 #   NOT_PLACED  RB checked the broker app and cleared it (rbtrack --resolve)
 # Unresolved rows block that stock+side on EVERY later day until the book
 # shows the order or RB resolves it by hand -- an empty book never clears it.
@@ -1288,14 +1306,21 @@ def intent_blocks(symbol, side="BUY", days=0, sess=None):
             if st in UNRESOLVED:
                 block = True
                 continue
-        if st == "ACCEPTED" and str(r["date"]) >= since:
-            if sess is not None and r["order_id"]:
-                bst = check_order_status(r["order_id"], sess=sess) \
-                    .get("status")
-                if bst in ("REJECTED", "CANCELLED", "EXPIRED"):
-                    update_intent(r["tag"], state="CLOSED", status=bst)
-                    continue
-            block = True
+        if st == "ACCEPTED":
+            recent = str(r["date"]) >= since
+            if sess is None or not r["order_id"]:
+                block = block or recent
+                continue
+            bst = check_order_status(r["order_id"], sess=sess).get("status")
+            if bst in ("REJECTED", "CANCELLED", "EXPIRED"):
+                update_intent(r["tag"], state="CLOSED", status=bst)
+                continue
+            if bst == "TRADED":
+                if not recent:
+                    update_intent(r["tag"], state="DONE", status=bst)
+                block = block or recent
+                continue
+            block = True          # PENDING / unknown: live on any day
     return block
 
 

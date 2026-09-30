@@ -209,13 +209,15 @@ def _sectors():
 
 
 def _mom_book(sp, mode, sess):
-    """Momentum holdings of one mode that still take a slot: split.csv
-    Momentum rows minus those with a SELL already sent (the rebalance sells
-    and buys at the same open, like the backtest)."""
+    """Momentum holdings of one mode that take a slot: every split.csv
+    Momentum row. A SELL that is only SENT still holds its slot (it may be
+    rejected) -- the slot frees once the sale is confirmed and the row
+    leaves split.csv (Codex check 30 Sep). Cost: rebalance buys go one
+    session after the sells; the backtest found rebalance day 1/6/11/16
+    all ~same (18.7-20.8%), so one day later does not matter."""
     m = (sp["strategy"].astype(str).str.lower() == "momentum") & \
         (sp["momentum_qty"] > 0) & (sp["mode"] == mode)
-    return [s for s in sp.loc[m, "symbol"]
-            if not (mode == "LIVE" and ba.sold_recently(s, sess=sess))]
+    return list(sp.loc[m, "symbol"])
 
 
 def plan(rows, px, sp, sess=None):
@@ -451,12 +453,15 @@ def sync(sess):
         q, avg, st = o["filled_qty"], o["avg_price"], o["status"] or o["raw"] or "?"
         leg = next((c for c in ("momentum_qty", "investing_qty", "swing_qty")
                     if r[c] > 0), "swing_qty")       # SIP rows: investing_qty
-        if q > 0 and avg and st == "PENDING":    # partly filled, rest open
+        final = st in ("TRADED", "REJECTED", "CANCELLED", "EXPIRED")
+        if q > 0 and not final:                 # partly filled / not final
             sp.at[i, leg] = q
-            sp.at[i, "entry_price"] = round(avg, 2)
+            sp.at[i, "entry_price"] = round(avg or r["entry_price"], 2)
             print("  %-12s PARTLY filled %d @ %.2f (order still open -- "
-                  "rbtrack --sync again later)" % (r["symbol"], q, avg))
-        elif q > 0 and avg:
+                  "rbtrack --sync again later)" % (r["symbol"], q,
+                                                   avg or r["entry_price"]))
+        elif q > 0:
+            avg = avg or r["entry_price"]        # fill price not out yet
             ordered = r[leg]
             sp.at[i, leg] = q
             sp.at[i, "entry_price"] = round(avg, 2)
