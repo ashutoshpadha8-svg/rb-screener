@@ -199,10 +199,33 @@ def today_str():
     return ds.now_ist().date().isoformat()
 
 
+def _sectors():
+    try:
+        r = pd.read_csv(ms.RANKS_FILE)
+        return dict(zip(r["symbol"].astype(str).str.upper(),
+                        r["sector"].fillna("?").astype(str)))
+    except Exception:
+        return {}
+
+
+def _mom_book(sp, mode, sess):
+    """Momentum holdings of one mode that still take a slot: split.csv
+    Momentum rows minus those with a SELL already sent (the rebalance sells
+    and buys at the same open, like the backtest)."""
+    m = (sp["strategy"].astype(str).str.lower() == "momentum") & \
+        (sp["momentum_qty"] > 0) & (sp["mode"] == mode)
+    return [s for s in sp.loc[m, "symbol"]
+            if not (mode == "LIVE" and ba.sold_recently(s, sess=sess))]
+
+
 def plan(rows, px, sp, sess=None):
-    """Turn Excel rows into split.csv rows (not written yet)."""
+    """Turn Excel rows into split.csv rows (not written yet). Momentum buys
+    are refused past 20 positions or 4 per industry (holdings + this run),
+    the backtest's limits (Codex review 30 Sep)."""
     new, skip = [], []
     today = ds.now_ist().date().isoformat()
+    secmap = _sectors()
+    book = {}
     for _, r in rows.iterrows():
         s = str(r["Ticker"]).upper().strip()
         mode, product = ACTIONS[r["act"]]
@@ -210,7 +233,7 @@ def plan(rows, px, sp, sess=None):
                                       for x in new):
             skip.append("%s (%s already in split.csv)" % (s, mode))
             continue
-        if mode == "LIVE" and ba.ordered_today(s):
+        if mode == "LIVE" and ba.ordered_today(s, sess=sess):
             skip.append("%s (order already placed today)" % s)
             continue
         if s not in px:
@@ -219,6 +242,20 @@ def plan(rows, px, sp, sess=None):
         price, src = px[s]
         overlap = str(r.get("Strategy Overlap", ""))
         mom = overlap in ("Momentum only", "Super-Buy")
+        if mom:
+            if mode not in book:
+                book[mode] = _mom_book(sp, mode, sess)
+            cur = book[mode]
+            sec = secmap.get(s, "?")
+            nsec = sum(1 for x in cur if secmap.get(x, "?") == sec)
+            if len(cur) >= ms.SLOTS:
+                skip.append("%s (momentum full: %d of %d slots used)"
+                            % (s, len(cur), ms.SLOTS))
+                continue
+            if ms.SECTOR_CAP and sec != "?" and nsec >= ms.SECTOR_CAP:
+                skip.append("%s (momentum: already %d in %s, cap %d)"
+                            % (s, nsec, sec, ms.SECTOR_CAP))
+                continue
         slot = ms.CAPITAL / ms.SLOTS              # your own money per slot
         amt = pd.to_numeric(str(r.get("Amount (Rs)", "")).replace(",", ""),
                             errors="coerce")        # Actions sheet, optional
@@ -235,6 +272,8 @@ def plan(rows, px, sp, sess=None):
         if shares < 1:
             skip.append("%s (price %.0f > Rs %d)" % (s, price, exposure))
             continue
+        if mom:
+            book[mode].append(s)
         new.append({"symbol": s, "swing_qty": 0 if mom else shares,
                     "investing_qty": 0, "momentum_qty": shares if mom else 0,
                     "entry_price": round(price, 2), "entry_date": today,
@@ -424,7 +463,8 @@ def place_sells(sess, sells, dry):
         have = dq.get(s, 0) - sum(t["qty"] for t in todo if t["symbol"] == s)
         if s not in known:
             skip.append("%s (not in the %s symbol list)" % (s, sess.label))
-        elif ba.sold_recently(s) or ba.ordered_today(s, "SELL"):
+        elif ba.sold_recently(s, sess=sess) or \
+                ba.ordered_today(s, "SELL", sess=sess):
             skip.append("%s (SELL already sent)" % s)
         elif have < 1:
             skip.append("%s (not in the demat)" % s)
@@ -607,10 +647,12 @@ def main():
                                         "MTF %gx ASSUMED (%s)"
                                         % (MTF_LEVERAGE, note))
     snew, sskip = sip.plan_orders(sdue, px, lev_of, today)
+    done = {x["symbol"] for x in snew
+            if ba.ordered_today(x["symbol"], sess=sess)}
     for x in snew:
-        if ba.ordered_today(x["symbol"]):
+        if x["symbol"] in done:
             sskip.append("SIP %s (order already placed today)" % x["symbol"])
-    snew = [x for x in snew if not ba.ordered_today(x["symbol"])]
+    snew = [x for x in snew if x["symbol"] not in done]
     if snew:
         print("SIP due today: " + ", ".join(
             "%s %s x%d (own Rs %s)" % (x["sip_id"], x["product"], x["shares"],

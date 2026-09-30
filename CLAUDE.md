@@ -93,6 +93,7 @@
                         #   rbtrack: TRADING ON -> sells first (fresh demat check, sold_recently/ordered_today guard,
                         #   typed "YES SELL", broker_api.place_amo_order(side="SELL"), orders_log side column) -> journal
                         #   closes after the fill. Needs DDPI/POA. Mock-tested only; never sent a real SELL.
+  nse_calendar.py       # NSE trading days/holidays (30 Sep): is_trading_day, next_trading_day, first_trading_day
   telegram_alert.py     # Telegram summary per account (27 Sep, RB): ONE bot (accounts/telegram_bot.txt, never printed),
                         #   each account linked to ONE chat (accounts/<..>/telegram.json via `telegram_alert.py link` =
                         #   /start of the last 15 min). rb/portfolio sends: value/P&L, EXIT/SELL@REBAL/WATCH/HOLD/SIP,
@@ -445,6 +446,13 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   placed. OPEN (minor): rebal_window uses weekdays not NSE holidays; '?' sectors uncapped (same in backtest);
   live slot = Rs 10k fixed vs backtest equity/20 (Amount column is RB's choice). Codex's RAMOM 23.9% used only 535
   cached stocks (fewer delisted names) -> more survivorship than our 1300-stock run (20.3%); today-universe 30% = look-ahead.
+  Codex note #2 (30 Sep) also FIXED: (3) rbtrack plan() refuses momentum BUYs past 20 slots / 4 per industry (split.csv
+  Momentum holdings minus SELL-sent + this run; sectors from momentum_ranks_latest.csv); (4) ordered_today/sold_recently(
+  sess=) ask the broker: REJECTED/CANCELLED/EXPIRED no longer block a re-send, unknown/no order id still blocks;
+  (5) nse_calendar.py (NSE holiday-master API 'CM', weekly cache data/_nse_holidays.json, fallback weekdays + warning)
+  -> portfolio.rebal_window uses trading days. (6) stop_policy_study.py: live stop (low hit -> next-open AMO) vs backtest
+  intraday fill: avg trade 12.1 vs 11.8% (same), but stop exits worse than -25%: 20 vs 10, worst -84 vs -63% ->
+  20% is NOT a max loss; close-based stop 12.6% avg but 29 tails. Live policy kept (a resting SL/GTT = new feature, RB decides).
 - 29 Sep: Angel getCandleData rate limit (3/s, 180/min) -> HTTP 403 'exceeding access rate' was read as a bad token,
   the fill stopped after ~50 big caps and momentum ranked ONLY those (liq needed the last bar). Fixed: throttle,
   rate-limit = retry, per-stock failures skip, loud 'N stocks not filled' warning, liq min_periods=50.

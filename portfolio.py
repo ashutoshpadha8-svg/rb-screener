@@ -578,16 +578,14 @@ def dashboard(ws, d, have):
 
 
 def rebal_window(today):
-    """Momentum sells go at the open of the 1st trading day of a month: an AMO
-    placed on the last weekday of the month (or catch-up on the 1st)."""
-    d = pd.Timestamp(today)
-    nxt = d + pd.Timedelta(days=1)
-    while nxt.weekday() >= 5:
-        nxt += pd.Timedelta(days=1)
-    first = pd.Timestamp(d.year, d.month, 1)
-    while first.weekday() >= 5:
-        first += pd.Timedelta(days=1)
-    return nxt.month != d.month or d.normalize() == first
+    """Momentum sells go at the open of the 1st TRADING day of a month: an AMO
+    placed on the last trading day of the month (or catch-up on the 1st).
+    NSE holidays via nse_calendar (Codex review 30 Sep; was weekdays only)."""
+    import nse_calendar as nc
+    d = pd.Timestamp(today).date()
+    nxt = nc.next_trading_day(d)
+    first = nc.first_trading_day(d.year, d.month)
+    return nxt.month != d.month or d == first
 
 
 SELL_COLS = ["Symbol", "Product", "Qty", "Sell?", "Rule", "Backtested?",

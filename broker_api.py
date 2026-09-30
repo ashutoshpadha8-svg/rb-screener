@@ -1138,14 +1138,36 @@ def _log_side(d):
         else pd.Series(["BUY"] * len(d), index=d.index)
 
 
-def ordered_today(symbol, side="BUY"):
-    """True if an order (BUY by default) for this symbol was accepted today."""
+def _still_live(rows, sess):
+    """Rows of the order log that still count as 'placed'. With a broker
+    session, an accepted order the broker now reports as REJECTED /
+    CANCELLED / EXPIRED no longer blocks a replacement (Codex review). Any
+    doubt (no order id = status unknown, status check failed) keeps it
+    blocking -- a missed order is safer than a double one."""
+    if not len(rows):
+        return False
+    if sess is None:
+        return True
+    for _, r in rows.iterrows():
+        oid = str(r.get("order_id", "") or "").split(".")[0]
+        if not oid or oid == "nan":
+            return True                          # status unknown -> block
+        st = check_order_status(oid, sess=sess).get("status")
+        if st not in ("REJECTED", "CANCELLED", "EXPIRED"):
+            return True                          # pending / traded / unknown
+    return False
+
+
+def ordered_today(symbol, side="BUY", sess=None):
+    """True if an order (BUY by default) for this symbol was placed today
+    and (when sess is given) the broker has not rejected/cancelled it."""
     if not os.path.exists(ORDER_LOG):
         return False
     d = pd.read_csv(ORDER_LOG)
     today = dt.date.today().isoformat()
-    return bool(((d["symbol"] == symbol) & (d["date"] == today) &
-                 _placed(d) & (_log_side(d) == side)).any())
+    m = (d["symbol"] == symbol) & (d["date"] == today) & _placed(d) & \
+        (_log_side(d) == side)
+    return _still_live(d[m], sess)
 
 
 def _placed(d):
@@ -1156,15 +1178,18 @@ def _placed(d):
     return (d["ok"] == True) | unknown                         # noqa
 
 
-def sold_recently(symbol, days=4):
-    """True if a SELL order for this symbol was accepted in the last days
-    (the demat can still show the shares until settlement)."""
+def sold_recently(symbol, days=4, sess=None):
+    """True if a SELL order for this symbol was placed in the last days (the
+    demat can still show the shares until settlement) and, when sess is
+    given, the broker did not reject/cancel it (then the exit is re-sent
+    instead of being blocked for 4 days)."""
     if not os.path.exists(ORDER_LOG):
         return False
     d = pd.read_csv(ORDER_LOG)
     since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
-    return bool(((d["symbol"] == symbol) & (d["date"].astype(str) >= since) &
-                 _placed(d) & (_log_side(d) == "SELL")).any())
+    m = (d["symbol"] == symbol) & (d["date"].astype(str) >= since) & \
+        _placed(d) & (_log_side(d) == "SELL")
+    return _still_live(d[m], sess)
 
 
 # ================================================================== CLI
