@@ -3,8 +3,8 @@
 MOMENTUM SCREENER (NSE-style, monthly)  --  cash market only
 ============================================================
 
-Strategy (strategy_lab.py "RAMOM", backtested 2013-2026 on the point-in-time
->= Rs 10,000 Cr universe, Rs 2 lakh, real Dhan costs + tax):
+Strategy (strategy_lab.py "RAMOM", researched 2013-2026 with estimated
+historical >= Rs 10,000 Cr membership, Rs 2 lakh, modeled costs + tax):
   score = 0.5 x z(6-month return / 1-year vol) + 0.5 x z(12-month return / 1-year vol)
           (z = cross-sectional z-score among eligible stocks)
   eligible = >= Rs 10,000 Cr today, 60-day median turnover > Rs 5 Cr,
@@ -52,6 +52,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import daily_screener as ds
 import broker_api as ba
+from position_sizing import slot_budget, whole_shares, NAV_DIV_SLOTS
 
 # ------------------------------------------------------------------ config
 CAPITAL = 200000          # Rs, total momentum capital
@@ -101,7 +102,7 @@ def industry_map():
 
 def slot_amount(atr_pct, median_atr):
     """Rupees for one slot. Equal by default; volatility-scaled if ATR_SIZING."""
-    base = CAPITAL / SLOTS
+    base = slot_budget(CAPITAL, SLOTS)
     if ATR_SIZING and atr_pct and median_atr and atr_pct > 0:
         base *= float(np.clip(median_atr / atr_pct, 0.5, 2.0))
     return base
@@ -112,12 +113,12 @@ def slot_for(account_value=None):
     same as the backtest, so the slot grows with the account). No value
     (no token) -> CAPITAL / SLOTS."""
     if account_value and account_value > 0:
-        return float(account_value) / SLOTS
-    return CAPITAL / SLOTS
+        return slot_budget(CAPITAL, SLOTS, NAV_DIV_SLOTS, nav=account_value)
+    return slot_budget(CAPITAL, SLOTS)
 
 
 def shares_for(amount, price):
-    return int(math.floor(amount / price)) if price and price > 0 else 0
+    return whole_shares(amount, price)
 
 
 def momentum_positions():
@@ -201,7 +202,7 @@ def rebalance_plan(top, full, slot=None):
             sh = tops.loc[x["symbol"], "shares"] if tops is not None and \
                 x["symbol"] in tops.index and "shares" in tops else np.nan
             if slot or not (sh == sh):       # account slot (sizing A)
-                sh = shares_for(slot or CAPITAL / SLOTS, px)
+                sh = shares_for(slot or slot_budget(CAPITAL, SLOTS), px)
             n += 1
             count[sec] = count.get(sec, 0) + 1
             rows.append({"Section": "BUY", "Mode": mode, "Symbol": x["symbol"],
@@ -444,8 +445,11 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red, banner):
         "below." % (BUFFER * SLOTS),
         "Shares to Buy = floor(slot / LTP), slot = Rs %s / %d%s." %
         (format(CAPITAL, ","), SLOTS, " x volatility factor" if ATR_SIZING else ""),
-        "Backtest 2013-26 (tax paid): ~18-20%/yr with sector cap vs Nifty ~10%, "
-        "max DD ~-37%. 2013-19 was only ~Nifty. Realistic: 13-16%.",
+        "Shares here = per Rs 10,000 (shared file, no account). Your own "
+        "orders: rbtrack / Portfolio use account value / 20 (sizing A, RB 30 Sep). "
+        "Backtest 2013-26 (tax paid from cash, NAV/20, 6% on idle cash): "
+        "~20-23%/yr, max DD ~-36%; 2013-19 was only ~Nifty. Survivor bias -> "
+        "realistic: lower.",
     ]
     if regime_red:
         lines.insert(1, "MARKET REGIME RED: Nifty < 200-DMA. New buys NOT "

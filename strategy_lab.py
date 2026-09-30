@@ -50,6 +50,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import backtest as bt
 import fusion_backtest as fb
+from position_sizing import slot_budget, whole_shares, NAV_DIV_SLOTS
 from fusion_backtest import (CAPITAL, CASH_RATE, START, SPLIT, CASH_BUY,
                              CASH_SELL, CASH_SLIP, DP_CHARGE, TaxBook,
                              _fy_end, perf, nifty_curve, periods, table)
@@ -104,14 +105,19 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
              offset=0, regime=None, tax=True, capital=CAPITAL,
              cash_rate=CASH_RATE, picks=None, sector=None, sector_cap=None,
              atr=None, atr_sizing=False, trail_atr=None, breakeven=None,
-             regime_blocks_buys_only=False, buy_delay=0):
+             regime_blocks_buys_only=False, buy_delay=0,
+             allocation_mode=NAV_DIV_SLOTS):
     """buy_delay: new buys N sessions after the rebalance sells (live
     rbtrack buys once sells are confirmed = 1).
     sector: array col -> sector label; sector_cap: max holdings per sector.
     atr_sizing: slot = equal slot x (median ATR% / stock ATR%), 0.5x..2x.
     trail_atr: stop = max(entry - k*ATR, highest close - k*ATR); breakeven:
     once close >= entry*(1+breakeven) the stop is at least the entry.
-    regime_blocks_buys_only: red market -> keep holdings, no new buys."""
+    regime_blocks_buys_only: red market -> keep holdings, no new buys.
+    Sizing (Codex fixes 1-3, 30 Sep): slot = portfolio value / N (NAV/N,
+    the research default = RB's live sizing A) or allocation_mode=FIXED_SLOT
+    (capital / N); whole shares incl. buy cost; accrued modeled tax is kept
+    back from buying power so the FY-end payment never borrows cash."""
     O = P["Open"].values
     C = P["Close"].ffill().values
     Lo = P["Low"].values
@@ -154,19 +160,24 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
             if sector_cap is not None and sector[j] != "?" and \
                     count.get(sector[j], 0) >= sector_cap:
                 continue
-            amt = mark / N
+            amt = slot_budget(capital, N, allocation_mode, nav=mark)
             if med is not None and A[t - 1, j] > 0:
                 amt *= float(np.clip(med / A[t - 1, j], 0.5, 2.0))
-            amt = min(amt, cash)
+            reserve = book.due() if tax else 0.0
+            amt = min(amt, max(0.0, cash - reserve))
             if amt < 1000:
                 continue
             a = A[t - 1, j] if A is not None and A[t - 1, j] > 0 else 0.0
-            pos[j] = {"sh": amt / (O[t, j] * (1 + CASH_BUY + CASH_SLIP)),
-                      "k": t, "basis": amt, "px": O[t, j],
+            sh = whole_shares(amt, O[t, j], CASH_BUY + CASH_SLIP)
+            if sh < 1:
+                continue
+            spent = sh * O[t, j] * (1 + CASH_BUY + CASH_SLIP)
+            pos[j] = {"sh": sh,
+                      "k": t, "basis": spent, "px": O[t, j],
                       "hi": O[t, j],
                       "stop": O[t, j] * (1 - (trail_atr or 0) * a)
                       if trail_atr else -1.0}
-            cash -= amt
+            cash -= spent
             if sector is not None:
                 count[sector[j]] = count.get(sector[j], 0) + 1
 
@@ -215,6 +226,8 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
                 sell(j, C[t, j], t)
         if tax and _fy_end(cal, t, n):
             cash -= book.settle()
+        if cash < -1e-6:
+            raise AssertionError("unfunded tax or trade: negative cash")
         eq[t] = cash + sum(p["sh"] * C[t, j] for j, p in pos.items())
     return pd.Series(eq[start_k:n], index=cal[start_k:n]), trades
 
@@ -382,7 +395,8 @@ def main():
     print("\nRunning %d strategies x 3 periods x pre/post tax ..."
           % (len(rank_strats) + len(event_strats) + len(timing) + 1))
     for name, key, N, freq, reg in rank_strats:
-        row = {"strategy": name}
+        row = {"strategy": name, "allocation_mode": NAV_DIV_SLOTS,
+               "whole_shares": True, "tax_funding": "cash_reserved"}
         for tag, a, b in periods(cal):
             pk = [] if tag == "FULL" else None
             pre, tr = run_rank(P, S[key], N, a, b, freq, regime=reg, tax=False,

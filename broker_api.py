@@ -1154,7 +1154,9 @@ def check_order_status(order_id, broker=None, token=None, sess=None):
             oq = int(float(d.get("filledQty") or 0))  # the order's own count
             if oq > q:                               # (trade book can lag)
                 q = oq
-                avg = float(d.get("averageTradedPrice") or 0) or avg
+                # A price for fewer trades cannot price the larger filledQty.
+                # Keep reconciliation pending until a full cumulative average arrives.
+                avg = float(d.get("averageTradedPrice") or 0) or None
         elif sess.broker == "ANGEL":
             book = _call(sess, "GET",
                          "/rest/secure/angelbroking/order/v1/getOrderBook")
@@ -1230,17 +1232,13 @@ def find_order_by_tag(sess, tag):
 #   ACCEPTED  broker gave an order id
 #   REJECTED  broker said no (nothing placed)
 #   CLOSED    broker later reported REJECTED / CANCELLED / EXPIRED
-#   DONE      TRADED and older than the guard window
+#   DONE      TRADED, position durably saved, older than the guard window
 #   NOT_PLACED  RB checked the broker app and cleared it (rbtrack --resolve)
 # Unresolved rows block that stock+side on EVERY later day until the book
 # shows the order or RB resolves it by hand -- an empty book never clears it.
 INTENT_COLS = ["tag", "created", "date", "symbol", "side", "qty", "product",
-               "state", "order_id", "status", "note", "strategy", "leg",
-               "price", "tracked"]
-# BUY intents also carry what is needed to rebuild the split.csv row if the
-# reply was lost (strategy, leg column, provisional price); tracked=1 once
-# that row exists. An untracked BUY that may be live keeps blocking the stock
-# AND keeps a portfolio slot (Codex recheck 30 Sep).
+               "state", "order_id", "status", "note", "position_data",
+               "position_saved", "filled_qty", "avg_price", "avg_qty"]
 UNRESOLVED = ("INTENT", "UNKNOWN")
 
 
@@ -1256,20 +1254,44 @@ def load_intents():
     for c in INTENT_COLS:
         if c not in d:
             d[c] = ""
+    if "tracked" in d and len(d):          # v5 ledger (strategy/leg/price/
+        d = d.apply(_from_v5, axis=1)      # tracked) -> position_data
     return d[INTENT_COLS]
+
+
+def _from_v5(r):
+    """One v5 intent row (30 Sep, before Codex fixes 1-3) in the new form:
+    tracked=1 -> position_saved=1; strategy/leg/price -> position_data, so a
+    lost-reply BUY from v5 can still be rebuilt. No strategy -> left empty
+    (recover_buys then keeps it blocked + reserved for a manual check)."""
+    if str(r.get("tracked", "")) == "1" and not r["position_saved"]:
+        r["position_saved"] = "1"
+    if r["side"] == "BUY" and not r["position_data"] and r.get("strategy"):
+        leg = r.get("leg") if r.get("leg") in (
+            "swing_qty", "investing_qty", "momentum_qty") else "swing_qty"
+        row = {"symbol": r["symbol"], "swing_qty": 0, "investing_qty": 0,
+               "momentum_qty": 0, "entry_price": float(r.get("price") or 0),
+               "entry_date": r["date"], "strategy": r["strategy"],
+               "mode": "LIVE", "product": r["product"] or "CNC",
+               "order_id": "", "note": "AMO pending (v5 intent %s)" % r["tag"]}
+        row[leg] = int(float(r["qty"] or 0))
+        r["position_data"] = json.dumps(row)
+    return r
 
 
 def _save_intents(d):
     p = _intents_file()
     tmp = p + ".tmp"
-    d.to_csv(tmp, index=False)
+    with open(tmp, "w", newline="") as f:
+        d.to_csv(f, index=False)
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp, p)
 
 
-def new_intent(symbol, side, qty, product, meta=None):
+def new_intent(symbol, side, qty, product, position=None):
     """Save the intent (state INTENT) and return its tag. Call BEFORE the
-    order is sent, inside rbtrack's lock. meta = strategy / leg / price."""
-    meta = meta or {}
+    order is sent, inside rbtrack's lock."""
     d = load_intents()
     tag = new_tag(side)
     while tag in set(d["tag"]):
@@ -1278,9 +1300,10 @@ def new_intent(symbol, side, qty, product, meta=None):
            "date": dt.date.today().isoformat(), "symbol": str(symbol).upper(),
            "side": str(side).upper(), "qty": str(int(qty)),
            "product": product, "state": "INTENT", "order_id": "",
-           "status": "", "note": "", "strategy": meta.get("strategy", ""),
-           "leg": meta.get("leg", ""), "price": str(meta.get("price", "")),
-           "tracked": ""}
+           "status": "", "note": "", "position_saved": "",
+           "filled_qty": "0", "avg_price": "", "avg_qty": "0", "position_data":
+           json.dumps(position, allow_nan=False, default=lambda x:
+                      x.item() if hasattr(x, "item") else str(x)) if position else ""}
     _save_intents(pd.concat([d, pd.DataFrame([row])], ignore_index=True))
     return tag
 
@@ -1305,34 +1328,55 @@ def resolve_intent(tag, placed, order_id=""):
     return True
 
 
-LIVE_STATES = ("INTENT", "UNKNOWN", "ACCEPTED")
-
-
-def untracked_buys():
-    """BUY intents that may be (or may become) a holding but have no
-    split.csv row yet."""
-    d = load_intents()
-    return d[(d["side"] == "BUY") & (d["tracked"] != "1") &
-             d["state"].isin(LIVE_STATES)]
-
-
 def open_intents():
     d = load_intents()
     return d[d["state"].isin(UNRESOLVED)]
+
+
+def buy_reservations(sp):
+    """Untracked BUY exposure, including legacy intents lacking strategy data.
+
+    Durable position_saved survives subsequent position closure. An order
+    matching a split row is already counted there, including a pending BUY.
+    """
+    orders = set(sp.get("order_id", pd.Series(dtype=str)).fillna("").astype(str))
+    out = []
+    for _, r in load_intents().iterrows():
+        if r["side"] != "BUY" or r["position_saved"] == "1":
+            continue
+        if r["order_id"] and r["order_id"] in orders:
+            continue
+        if r["state"] in ("NOT_PLACED", "REJECTED"):
+            continue
+        if r["state"] == "CLOSED" and r["filled_qty"] and float(r["filled_qty"]) <= 0:
+            continue
+        try:
+            data = json.loads(r["position_data"] or "{}")
+        except (ValueError, TypeError):
+            data = {}
+        if data.get("strategy", "Momentum").lower() == "momentum":
+            out.append(r["symbol"])
+    return list(dict.fromkeys(out))
 
 
 def intent_blocks(symbol, side="BUY", days=0, sess=None):
     """True if the ledger says an order for symbol+side may be live:
     - any UNRESOLVED intent, any date (the book is asked first when sess is
       given; found -> ACCEPTED; not found -> still unresolved = block)
-    - an ACCEPTED intent from the last `days` days (0 = today) unless the
-      broker now reports it REJECTED / CANCELLED / EXPIRED."""
+    - an ACCEPTED intent while pending on any date, or a recent completed
+      order inside `days` (0 = today)
+    - a filled BUY until its position has been durably recorded, including
+      partial fills on a cancelled order and legacy final records."""
     d = load_intents()
     m = (d["symbol"] == str(symbol).upper()) & (d["side"] == side.upper())
     since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
     block = False
     for _, r in d[m].iterrows():
         st = r["state"]
+        if st in ("DONE", "CLOSED") and r["side"] == "BUY" and r["position_saved"] != "1":
+            if st == "CLOSED" and r["filled_qty"] and float(r["filled_qty"]) == 0:
+                continue
+            st = "ACCEPTED"       # inspect legacy final records with untracked exposure
         if st in UNRESOLVED:
             found = None
             if sess is not None:
@@ -1344,29 +1388,28 @@ def intent_blocks(symbol, side="BUY", days=0, sess=None):
             if st in UNRESOLVED:
                 block = True
                 continue
-        if st == "ACCEPTED" and side.upper() == "BUY" and \
-                str(r.get("tracked", "")) != "1":
-            # executed or maybe executed, but not in split.csv yet: block
-            # until rbtrack rebuilds the row -- unless it died unfilled
-            if sess is not None and r["order_id"]:
-                o = check_order_status(r["order_id"], sess=sess)
-                if o.get("status") in ("REJECTED", "CANCELLED", "EXPIRED") \
-                        and not o.get("filled_qty"):
-                    update_intent(r["tag"], state="CLOSED",
-                                  status=o.get("status"))
-                    continue
-            block = True
-            continue
         if st == "ACCEPTED":
             recent = str(r["date"]) >= since
             if sess is None or not r["order_id"]:
-                block = block or recent
+                block = True
                 continue
-            bst = check_order_status(r["order_id"], sess=sess).get("status")
+            order = check_order_status(r["order_id"], sess=sess)
+            bst = order.get("status")
+            q = max(int(float(r["filled_qty"] or 0)), order.get("filled_qty", 0))
+            update_intent(r["tag"], filled_qty=q,
+                          avg_price=order.get("avg_price") or r["avg_price"],
+                          avg_qty=order.get("filled_qty", 0) if order.get("avg_price")
+                          else r["avg_qty"])
+            if r["side"] == "BUY" and q > 0 and r["position_saved"] != "1":
+                block = True      # fill exists, but recovery has not committed a position
+                continue
             if bst in ("REJECTED", "CANCELLED", "EXPIRED"):
                 update_intent(r["tag"], state="CLOSED", status=bst)
                 continue
             if bst == "TRADED":
+                if r["side"] == "BUY" and r["position_saved"] != "1":
+                    block = True
+                    continue
                 if not recent:
                     update_intent(r["tag"], state="DONE", status=bst)
                 block = block or recent

@@ -55,6 +55,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import os
+import copy
 import sys
 import datetime as dt
 
@@ -222,6 +223,10 @@ class TaxBook:
             self.lt += gain
         else:
             self.st += gain
+
+    def due(self):
+        """Tax reserve under this research model; does not settle or mutate it."""
+        return max(0.0, copy.deepcopy(self).settle())
 
     def settle(self):
         tax = 0.0

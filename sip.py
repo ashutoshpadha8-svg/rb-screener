@@ -393,6 +393,10 @@ def log_buys(rows, today):
             "status": "SENT" if x.get("order_id") else "MANUAL"}
            for x in rows if x.get("sip_id")]
     if add:
+        existing = set(log["order_id"].astype(str))
+        add = [r for r in add if not r["order_id"] or str(r["order_id"]) not in existing]
+        if not add:
+            return
         log = pd.concat([log, pd.DataFrame(add)], ignore_index=True)
         log.to_csv(log_path(), index=False)
 

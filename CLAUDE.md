@@ -494,6 +494,24 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   today-survivors ~29-31% (look-ahead). Data_Quality also flags the DHAN Portfolio file as stale (27 Sep).
   30 Sep: RB installed the full code zip (MANIFEST.txt sizes) in ~/RB_Screener AND ~/Downloads/codex/RB_Screener
   (Codex review copy); both "check done", no duplicate files; tests 26/26 on the Mac (Python 3.9, LibreSSL warning harmless).
+  CODEX FIXES 1-3 MERGED (30 Sep, zip RB_Screener_FIXES_1_3; built on our v3 = 36-test code, so it overlapped our
+  v4/v5): Codex's recovery REPLACES ours (recover()/tracked meta gone): intent ledger + position_data (full planned
+  split row as JSON, saved before the POST), position_saved, filled_qty, avg_price, avg_qty; auto_tracker_update
+  recover_buys() (runs before planning + in sync; crash before reply / before split write / before marker all safe;
+  legacy intent without data = blocked + reserved + warning), _fill_row (qty never goes down, price tied to the qty
+  it prices, ' | fill price pending' re-asked), split.csv extra cols intent_tag, ordered_qty, filled_qty_confirmed,
+  fill_avg_price, fill_avg_qty, price_pending; buy_reservations() = untracked BUYs hold momentum slots; atomic fsync
+  writes; SIP log dedups order ids; Dhan lagging trade book -> price pending. position_sizing.py (slot_budget,
+  whole_shares). Kept ours on top: sizing A (account value / 20, slot_for -> NAV mode), 8-char tags, account_value,
+  v5 ledger columns (strategy/leg/price/tracked) auto-read into position_data. DISAGREED + changed: (a) Codex made
+  FIXED Rs 10k the live AND strategy_lab default -> live stays sizing A (RB), run_rank default = NAV/N (all research
+  numbers above are NAV/N); (b) their sync crashed on pandas 3 (int column <- 101.5; Mac pandas 2 only warns) ->
+  sp.astype(object). run_rank now: whole shares incl. costs + accrued tax kept back from buying power (never
+  negative cash). Same data, RAMOM top20 cap4: old engine 20.9% post / 22.8 pre; new 22.2 / 22.9 -> pre same, post
+  +1.3 = path effect of funding tax (2013-19 -0.5, 2020-26 +2.2), NOT an edge. Delay study new engine: 0/1/2 =
+  22.2/21.2/21.4 post (Codex: +1 session not robust; 0% interest flips it) -> ~0.5-1 pt/yr cost, still accepted.
+  Tests: test_execution 37, reports/code_audit independent 6 + followup 3, test_recovery_tax 24, test_sizing_a 9.
+  Codex funded backtest (their 535-stock cache, 6% cash): fixed Rs 10k 14.1%, NAV/20 23.3% (+1 session 22.8), DD -36.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);

@@ -1,0 +1,1055 @@
+--- a/broker_api.py
++++ b/broker_api.py
+@@ -1135,7 +1135,9 @@
+             oq = int(float(d.get("filledQty") or 0))  # the order's own count
+             if oq > q:                               # (trade book can lag)
+                 q = oq
+-                avg = float(d.get("averageTradedPrice") or 0) or avg
++                # A price for fewer trades cannot price the larger filledQty.
++                # Keep reconciliation pending until a full cumulative average arrives.
++                avg = float(d.get("averageTradedPrice") or 0) or None
+         elif sess.broker == "ANGEL":
+             book = _call(sess, "GET",
+                          "/rest/secure/angelbroking/order/v1/getOrderBook")
+@@ -1211,12 +1213,13 @@
+ #   ACCEPTED  broker gave an order id
+ #   REJECTED  broker said no (nothing placed)
+ #   CLOSED    broker later reported REJECTED / CANCELLED / EXPIRED
+-#   DONE      TRADED and older than the guard window
++#   DONE      TRADED, position durably saved, older than the guard window
+ #   NOT_PLACED  RB checked the broker app and cleared it (rbtrack --resolve)
+ # Unresolved rows block that stock+side on EVERY later day until the book
+ # shows the order or RB resolves it by hand -- an empty book never clears it.
+ INTENT_COLS = ["tag", "created", "date", "symbol", "side", "qty", "product",
+-               "state", "order_id", "status", "note"]
++               "state", "order_id", "status", "note", "position_data",
++               "position_saved", "filled_qty", "avg_price", "avg_qty"]
+ UNRESOLVED = ("INTENT", "UNKNOWN")
+ 
+ 
+@@ -1238,11 +1241,14 @@
+ def _save_intents(d):
+     p = _intents_file()
+     tmp = p + ".tmp"
+-    d.to_csv(tmp, index=False)
++    with open(tmp, "w", newline="") as f:
++        d.to_csv(f, index=False)
++        f.flush()
++        os.fsync(f.fileno())
+     os.replace(tmp, p)
+ 
+ 
+-def new_intent(symbol, side, qty, product):
++def new_intent(symbol, side, qty, product, position=None):
+     """Save the intent (state INTENT) and return its tag. Call BEFORE the
+     order is sent, inside rbtrack's lock."""
+     d = load_intents()
+@@ -1253,7 +1259,10 @@
+            "date": dt.date.today().isoformat(), "symbol": str(symbol).upper(),
+            "side": str(side).upper(), "qty": str(int(qty)),
+            "product": product, "state": "INTENT", "order_id": "",
+-           "status": "", "note": ""}
++           "status": "", "note": "", "position_saved": "",
++           "filled_qty": "0", "avg_price": "", "avg_qty": "0", "position_data":
++           json.dumps(position, allow_nan=False, default=lambda x:
++                      x.item() if hasattr(x, "item") else str(x)) if position else ""}
+     _save_intents(pd.concat([d, pd.DataFrame([row])], ignore_index=True))
+     return tag
+ 
+@@ -1283,18 +1292,50 @@
+     return d[d["state"].isin(UNRESOLVED)]
+ 
+ 
++def buy_reservations(sp):
++    """Untracked BUY exposure, including legacy intents lacking strategy data.
++
++    Durable position_saved survives subsequent position closure. An order
++    matching a split row is already counted there, including a pending BUY.
++    """
++    orders = set(sp.get("order_id", pd.Series(dtype=str)).fillna("").astype(str))
++    out = []
++    for _, r in load_intents().iterrows():
++        if r["side"] != "BUY" or r["position_saved"] == "1":
++            continue
++        if r["order_id"] and r["order_id"] in orders:
++            continue
++        if r["state"] in ("NOT_PLACED", "REJECTED"):
++            continue
++        if r["state"] == "CLOSED" and r["filled_qty"] and float(r["filled_qty"]) <= 0:
++            continue
++        try:
++            data = json.loads(r["position_data"] or "{}")
++        except (ValueError, TypeError):
++            data = {}
++        if data.get("strategy", "Momentum").lower() == "momentum":
++            out.append(r["symbol"])
++    return list(dict.fromkeys(out))
++
++
+ def intent_blocks(symbol, side="BUY", days=0, sess=None):
+     """True if the ledger says an order for symbol+side may be live:
+     - any UNRESOLVED intent, any date (the book is asked first when sess is
+       given; found -> ACCEPTED; not found -> still unresolved = block)
+-    - an ACCEPTED intent from the last `days` days (0 = today) unless the
+-      broker now reports it REJECTED / CANCELLED / EXPIRED."""
++    - an ACCEPTED intent while pending on any date, or a recent completed
++      order inside `days` (0 = today)
++    - a filled BUY until its position has been durably recorded, including
++      partial fills on a cancelled order and legacy final records."""
+     d = load_intents()
+     m = (d["symbol"] == str(symbol).upper()) & (d["side"] == side.upper())
+     since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+     block = False
+     for _, r in d[m].iterrows():
+         st = r["state"]
++        if st in ("DONE", "CLOSED") and r["side"] == "BUY" and r["position_saved"] != "1":
++            if st == "CLOSED" and r["filled_qty"] and float(r["filled_qty"]) == 0:
++                continue
++            st = "ACCEPTED"       # inspect legacy final records with untracked exposure
+         if st in UNRESOLVED:
+             found = None
+             if sess is not None:
+@@ -1309,13 +1350,25 @@
+         if st == "ACCEPTED":
+             recent = str(r["date"]) >= since
+             if sess is None or not r["order_id"]:
+-                block = block or recent
++                block = True
+                 continue
+-            bst = check_order_status(r["order_id"], sess=sess).get("status")
++            order = check_order_status(r["order_id"], sess=sess)
++            bst = order.get("status")
++            q = max(int(float(r["filled_qty"] or 0)), order.get("filled_qty", 0))
++            update_intent(r["tag"], filled_qty=q,
++                          avg_price=order.get("avg_price") or r["avg_price"],
++                          avg_qty=order.get("filled_qty", 0) if order.get("avg_price")
++                          else r["avg_qty"])
++            if r["side"] == "BUY" and q > 0 and r["position_saved"] != "1":
++                block = True      # fill exists, but recovery has not committed a position
++                continue
+             if bst in ("REJECTED", "CANCELLED", "EXPIRED"):
+                 update_intent(r["tag"], state="CLOSED", status=bst)
+                 continue
+             if bst == "TRADED":
++                if r["side"] == "BUY" and r["position_saved"] != "1":
++                    block = True
++                    continue
+                 if not recent:
+                     update_intent(r["tag"], state="DONE", status=bst)
+                 block = block or recent
+--- a/auto_tracker_update.py
++++ b/auto_tracker_update.py
+@@ -31,8 +31,9 @@
+                 (you buy manually in the broker app)
+   --limit       LIMIT AMO at last price + LIMIT_BUFFER instead of MARKET
+   --sync        after the market opens: read fills from the broker and set the real
+-                entry_price / quantity for LIVE rows whose order is pending;
+-                rejected / cancelled orders are marked and set to 0 shares
++                entry_price / quantity; recover missing BUY rows by intent tag;
++                cancelled partial fills keep their actual shares; a missing
++                final average price remains pending for later reconciliation
+   --file PATH   use another report
+   --unwatch A,B remove symbols from the watchlist
+   --clear-paper remove all PAPER rows (PAPER mode is gone since 27 Sep)
+@@ -49,8 +50,8 @@
+   * The token must belong to the active Client ID (Dhan: signed in the token;
+     Angel/Zerodha: asked from the broker) or nothing is sent.
+   * Funds are checked before any order; not enough -> nothing.
+-  * A symbol already held (same mode) in split.csv, or already ordered today
+-    (data/orders_log.csv), is skipped -> running twice never double-buys.
++  * A symbol already held (same mode), or with an unresolved/pending BUY intent,
++    is skipped. Missing BUY positions are recovered before planning new orders.
+   * split.csv is backed up to split_backup.csv before every write.
+   * First time: test with ONE row / ONE share.
+ """
+@@ -61,6 +62,7 @@
+ import os
+ import sys
+ import shutil
++import json
+ import datetime as dt
+ 
+ import pandas as pd
+@@ -71,6 +73,7 @@
+ import momentum_screener as ms
+ import broker_api as ba
+ import portfolio as pf
++from position_sizing import slot_budget
+ 
+ SPLIT_FILE = ms.SPLIT_FILE
+ BACKUP = os.path.join(ds.HERE, "split_backup.csv")
+@@ -79,6 +82,8 @@
+            "entry_price", "entry_date", "strategy", "mode", "product",
+            "order_id", "note"]
+ QTY = ("swing_qty", "investing_qty", "momentum_qty")
++TRACKING_COLS = ["intent_tag", "ordered_qty", "filled_qty_confirmed",
++                 "fill_avg_price", "fill_avg_qty", "price_pending"]
+ LIMIT_BUFFER = 0.02        # --limit: pay at most 2% above the last price
+ MTF_LEVERAGE = 4           # BUY MTF fallback when the broker gives no leverage;
+                            # Dhan: real per-stock leverage (margin calculator)
+@@ -107,7 +112,10 @@
+     if os.path.exists(SPLIT_FILE):
+         shutil.copyfile(SPLIT_FILE, BACKUP)
+     tmp = SPLIT_FILE + ".tmp"
+-    sp.to_csv(tmp, index=False)
++    with open(tmp, "w", newline="") as f:
++        sp.to_csv(f, index=False)
++        f.flush()
++        os.fsync(f.fileno())
+     os.replace(tmp, SPLIT_FILE)
+ 
+ 
+@@ -212,12 +220,12 @@
+     """Momentum holdings of one mode that take a slot: every split.csv
+     Momentum row. A SELL that is only SENT still holds its slot (it may be
+     rejected) -- the slot frees once the sale is confirmed and the row
+-    leaves split.csv (Codex check 30 Sep). Cost: rebalance buys go one
+-    session after the sells; the backtest found rebalance day 1/6/11/16
+-    all ~same (18.7-20.8%), so one day later does not matter."""
++    leaves split.csv. Untracked BUY intents also reserve a slot until
++    reconciled. Replacement buys may therefore execute a session later."""
+     m = (sp["strategy"].astype(str).str.lower() == "momentum") & \
+         (sp["momentum_qty"] > 0) & (sp["mode"] == mode)
+-    return list(sp.loc[m, "symbol"])
++    reserved = ba.buy_reservations(sp) if mode == "LIVE" else []
++    return list(dict.fromkeys(list(sp.loc[m, "symbol"]) + reserved))
+ 
+ 
+ def plan(rows, px, sp, sess=None):
+@@ -258,7 +266,7 @@
+                 skip.append("%s (momentum: already %d in %s, cap %d)"
+                             % (s, nsec, sec, ms.SECTOR_CAP))
+                 continue
+-        slot = ms.CAPITAL / ms.SLOTS              # your own money per slot
++        slot = slot_budget(ms.CAPITAL, ms.SLOTS)
+         amt = pd.to_numeric(str(r.get("Amount (Rs)", "")).replace(",", ""),
+                             errors="coerce")        # Actions sheet, optional
+         if amt == amt and amt > 0:
+@@ -311,11 +319,19 @@
+     return True
+ 
+ 
+-def send_one(sess, sym, qty, product, side, otype="MARKET", price=0.0):
++def send_one(sess, sym, qty, product, side, otype="MARKET", price=0.0,
++             position=None):
+     """intent saved -> order sent with the intent's tag -> result saved.
+     If saving the result fails after the broker accepted, the intent stays
+     unresolved and the next run finds the order by its tag (never re-sent)."""
+-    tag = ba.new_intent(sym, side, qty, product)
++    tag = ba.new_intent(sym, side, qty, product, position=position)
++    if position is not None:
++        position["intent_tag"] = tag
++        position["ordered_qty"] = qty
++        position["filled_qty_confirmed"] = 0
++        position["fill_avg_price"] = 0
++        position["fill_avg_qty"] = 0
++        position["price_pending"] = 1
+     ok, res, status = ba.place_amo_order(sym, qty, product == "MTF",
+                                          sess=sess, order_type=otype,
+                                          price=price, side=side, tag=tag)
+@@ -423,7 +439,7 @@
+         lim = round(round(x["entry_price"] * (1 + LIMIT_BUFFER) / 0.05) * 0.05, 2)
+         ok, res, status = send_one(sess, x["symbol"], x["shares"],
+                                    x["product"], "BUY", otype,
+-                                   lim if use_limit else 0.0)
++                                   lim if use_limit else 0.0, position=x)
+         if ok:
+             print("  OK   %-12s %s order %s (%s)" % (x["symbol"], x["product"],
+                                                    res, status))
+@@ -439,10 +455,151 @@
+     return accepted
+ 
+ 
++def _number(value, default=0.0):
++    try:
++        n = float(value)
++        return default if pd.isna(n) else n
++    except (TypeError, ValueError):
++        return default
++
++
++def _fill_row(row, order):
++    """Keep cumulative fills and price reconciliation separate from finality."""
++    row = dict(row)
++    leg = next((c for c in QTY if _number(row.get(c)) > 0),
++               "momentum_qty" if row.get("strategy") == "Momentum" else
++               "investing_qty" if row.get("strategy") == "SIP" else "swing_qty")
++    last = int(_number(row.get("filled_qty_confirmed")))
++    reported = int(order.get("filled_qty") or 0)
++    q = max(last, reported)
++    previous_avg = _number(row.get("fill_avg_price"))
++    previous_avg_qty = int(_number(row.get("fill_avg_qty")))
++    avg = order.get("avg_price")
++    if reported < last or not avg:
++        avg = previous_avg if previous_avg_qty == q and previous_avg > 0 else None
++    st = order.get("status") or order.get("raw") or "?"
++    final = st in ("TRADED", "REJECTED", "CANCELLED", "EXPIRED")
++    ordered = int(_number(row.get("ordered_qty")) or _number(row.get(leg)))
++    note = str(row.get("note") or "AMO pending")
++    note = note.replace(" | fill price pending", "")
++    row.update(ordered_qty=ordered, filled_qty_confirmed=q)
++    if q > 0:
++        row[leg] = q
++        row["price_pending"] = int(not avg)
++        if avg:
++            row["entry_price"] = round(float(avg), 2)
++            row["fill_avg_price"] = float(avg)
++            row["fill_avg_qty"] = q
++        if final:
++            part = "" if q >= ordered else " (partial: %d of %d, rest %s)" % (
++                q, ordered, str(st).lower())
++            note = note.replace("pending", "filled" + part)
++        elif "pending" not in note:
++            note += " | order pending"
++        if not avg:
++            note += " | fill price pending"
++    elif st in ("REJECTED", "CANCELLED", "EXPIRED"):
++        row[leg] = 0
++        row["price_pending"] = 0
++        note = note.replace("pending", st.lower())
++    row["note"] = note
++    return row
++
++
++def _mark_saved(rows):
++    """Commit ledger markers only after the position file is durable."""
++    ledger = ba.load_intents()
++    for row in rows:
++        oid = str(row.get("order_id") or "")
++        if not oid or oid == "nan":
++            continue               # manual rows cannot reconcile an unrelated intent
++        found = ledger[(ledger["side"] == "BUY") & (ledger["order_id"] == oid)]
++        for _, intent in found.iterrows():
++            ba.update_intent(intent["tag"], position_saved="1",
++                             filled_qty=max(int(_number(row.get("filled_qty_confirmed"))),
++                                            int(_number(intent["filled_qty"]))),
++                             avg_price=_number(row.get("fill_avg_price")) or intent["avg_price"],
++                             avg_qty=int(_number(row.get("fill_avg_qty"))) or intent["avg_qty"])
++
++
++def recover_buys(sess, sp=None):
++    """Restore missing BUY rows by order ID using pre-POST position metadata.
++
++    Called under rbtrack's account lock. A crash after the split write is
++    harmless: the next recovery finds its order ID instead of appending it.
++    Legacy rows without metadata remain reserved/blocked for manual review.
++    """
++    sp = read_split() if sp is None else sp.copy()
++    recovered = []
++    orders = set(sp["order_id"].fillna("").astype(str))
++    for _, intent in ba.load_intents().iterrows():
++        if intent["side"] != "BUY" or intent["state"] in ("REJECTED", "NOT_PLACED"):
++            continue
++        oid = intent["order_id"]
++        if oid and oid in orders:
++            # Existing rows were already committed, even if their marker write crashed.
++            ba.update_intent(intent["tag"], position_saved="1")
++            continue
++        if intent["position_saved"] == "1":
++            continue                # may have been closed/sold after being recorded
++        try:
++            row = json.loads(intent["position_data"] or "{}")
++        except (TypeError, ValueError):
++            row = {}
++        if not row or row.get("strategy") not in ("Momentum", "W+TT", "SIP"):
++            print("! BUY %s tag %s has no recoverable position metadata; "
++                  "exposure stays blocked/reserved." % (intent["symbol"], intent["tag"]))
++            continue
++        if row.get("symbol") != intent["symbol"] or row.get("mode") != "LIVE":
++            raise ValueError("intent position metadata does not match the BUY")
++        if sess is None:
++            continue
++        if not oid:
++            found, oid, status = ba.find_order_by_tag(sess, intent["tag"])
++            if not found:
++                continue
++            ba.update_intent(intent["tag"], state="ACCEPTED", order_id=oid,
++                             status=status, note="recovered by tag")
++        order = ba.check_order_status(oid, sess=sess)
++        if order.get("status") is None:
++            continue               # reserve until fills/status can be established
++        row.update(order_id=oid, intent_tag=intent["tag"],
++                   ordered_qty=int(float(intent["qty"])),
++                   filled_qty_confirmed=int(_number(intent["filled_qty"])),
++                   fill_avg_price=_number(intent["avg_price"]),
++                   fill_avg_qty=int(_number(intent["avg_qty"])),
++                   note=str(row.get("note") or "") + " | recovered AMO pending")
++        row = _fill_row(row, order)
++        if order["status"] in ("REJECTED", "CANCELLED", "EXPIRED") and row["filled_qty_confirmed"] == 0:
++            ba.update_intent(intent["tag"], state="CLOSED", status=order["status"])
++            continue
++        recovered.append(row)
++        orders.add(oid)
++    if recovered:
++        additions = pd.DataFrame(recovered)
++        sp = additions if sp.empty else pd.concat([sp, additions], ignore_index=True)
++        write_split(sp)
++        _mark_saved(recovered)
++        print("Recovered %d BUY position(s); no new order submitted." % len(recovered))
++    # Retry SIP log commits after a crash too; log_buys deduplicates order IDs.
++    for _, intent in ba.load_intents().iterrows():
++        if intent["side"] != "BUY" or intent["position_saved"] != "1":
++            continue
++        try:
++            row = json.loads(intent["position_data"] or "{}")
++        except (TypeError, ValueError):
++            continue
++        if row.get("sip_id"):
++            row["order_id"] = intent["order_id"]
++            import sip
++            sip.log_buys([row], intent["date"])
++    return sp
++
++
+ def sync(sess):
+-    """Replace provisional entry prices with real fills."""
+-    sp = read_split()
+-    pend = sp[(sp["mode"] == "LIVE") & (sp["order_id"].astype(str).str.len() > 3)
++    """Recover missing BUYs, then reconcile quantities and actual fill prices."""
++    sp = recover_buys(sess)
++    pend = sp[(sp["mode"] == "LIVE") & (sp["order_id"].fillna("").astype(str).ne(""))
+               & sp["note"].astype(str).str.contains("pending")]
+     if pend.empty:
+         print("No pending AMO rows in split.csv.")
+@@ -450,35 +607,19 @@
+     for i, r in pend.iterrows():
+         oid = str(r["order_id"]).split(".")[0]
+         o = ba.check_order_status(oid, sess=sess)
+-        q, avg, st = o["filled_qty"], o["avg_price"], o["status"] or o["raw"] or "?"
+-        leg = next((c for c in ("momentum_qty", "investing_qty", "swing_qty")
+-                    if r[c] > 0), "swing_qty")       # SIP rows: investing_qty
+-        final = st in ("TRADED", "REJECTED", "CANCELLED", "EXPIRED")
+-        if q > 0 and not final:                 # partly filled / not final
+-            sp.at[i, leg] = q
+-            sp.at[i, "entry_price"] = round(avg or r["entry_price"], 2)
+-            print("  %-12s PARTLY filled %d @ %.2f (order still open -- "
+-                  "rbtrack --sync again later)" % (r["symbol"], q,
+-                                                   avg or r["entry_price"]))
+-        elif q > 0:
+-            avg = avg or r["entry_price"]        # fill price not out yet
+-            ordered = r[leg]
+-            sp.at[i, leg] = q
+-            sp.at[i, "entry_price"] = round(avg, 2)
+-            part = "" if q >= ordered else " (partial: %d of %d, rest %s)" \
+-                % (q, ordered, str(st).lower())
+-            sp.at[i, "note"] = str(r["note"]).replace("pending",
+-                                                      "filled" + part)
+-            print("  %-12s filled %d @ %.2f%s" % (r["symbol"], q, avg, part))
+-        elif st in ("REJECTED", "CANCELLED", "EXPIRED"):
+-            sp.at[i, leg] = 0
+-            sp.at[i, "note"] = str(r["note"]).replace("pending", st.lower())
++        updated = _fill_row(r, o)
++        for col, value in updated.items():
++            sp.at[i, col] = value
++        q = updated["filled_qty_confirmed"]
++        st = o["status"] or o["raw"] or "?"
++        if q == 0 and st in ("REJECTED", "CANCELLED", "EXPIRED"):
+             import sip
+-            sip.mark_rejected(oid)          # SIP: rejected buy doesn't count
+-            print("  %-12s %s -- set to 0 shares" % (r["symbol"], st))
+-        else:
+-            print("  %-12s still %s" % (r["symbol"], st))
++            sip.mark_rejected(oid)
++        print("  %-12s %s: confirmed %d, entry %.2f%s" % (
++            r["symbol"], st, q, _number(updated["entry_price"]),
++            " (price pending)" if updated.get("price_pending") else ""))
+     write_split(sp)
++    _mark_saved(sp.to_dict("records"))
+ 
+ 
+ # ================================================================== sells
+@@ -612,6 +753,8 @@
+         print("   Check the broker app, then: rbtrack --resolve TAG "
+               "placed|not-placed")
+     sess = ms.get_session()
++    if sess is not None and not dry:
++        recover_buys(sess)          # commit recovered exposure before any new planning
+     if "--clear-paper" in a:                # PAPER mode removed 27 Sep
+         sp = read_split()
+         n = int((sp["mode"] == "PAPER").sum())
+@@ -761,7 +904,9 @@
+     if dry:
+         print("\n(--dry-run: nothing written)")
+         return
+-    write_split(pd.concat([sp, show[COLUMNS]], ignore_index=True))
++    write_split(pd.concat([sp, show.reindex(columns=COLUMNS + TRACKING_COLS)],
++                          ignore_index=True))
++    _mark_saved(add)
+     sip.log_buys(add, today)
+     print("\nSaved %d row(s) (previous copy: split_backup.csv)." % len(add))
+     if any("free source" in x["note"] for x in add):
+--- /dev/null
++++ b/position_sizing.py
+@@ -0,0 +1,31 @@
++"""Shared position budgeting for live planning and research backtests.
++
++The live default is a fixed initial-capital/slots budget. NAV/slots is an
++explicit research option; it is never enabled implicitly by account growth.
++Fees and slippage are inputs because a live AMO's eventual fill is unknown.
++"""
++import math
++
++FIXED_SLOT = "fixed_Rs10000_live_default"
++NAV_DIV_SLOTS = "reinvest_NAV_div_20"
++DEFAULT_MODE = FIXED_SLOT
++
++
++def slot_budget(capital, slots, mode=DEFAULT_MODE, nav=None):
++    if slots <= 0 or capital <= 0:
++        raise ValueError("capital and slots must be positive")
++    if mode == FIXED_SLOT:
++        return float(capital) / slots
++    if mode == NAV_DIV_SLOTS:
++        if nav is None or not math.isfinite(float(nav)):
++            raise ValueError("NAV sizing requires a finite portfolio value")
++        return max(0.0, float(nav)) / slots
++    raise ValueError("unknown sizing mode: %s" % mode)
++
++
++def whole_shares(amount, price, buy_cost=0.0):
++    if not price or not math.isfinite(float(price)) or price <= 0:
++        return 0
++    if buy_cost < 0 or not math.isfinite(float(amount)):
++        raise ValueError("invalid amount or buy cost")
++    return max(0, int(math.floor(amount / (price * (1 + buy_cost)))))
+--- a/momentum_screener.py
++++ b/momentum_screener.py
+@@ -3,8 +3,8 @@
+ MOMENTUM SCREENER (NSE-style, monthly)  --  cash market only
+ ============================================================
+ 
+-Strategy (strategy_lab.py "RAMOM", backtested 2013-2026 on the point-in-time
+->= Rs 10,000 Cr universe, Rs 2 lakh, real Dhan costs + tax):
++Strategy (strategy_lab.py "RAMOM", researched 2013-2026 with estimated
++historical >= Rs 10,000 Cr membership, Rs 2 lakh, modeled costs + tax):
+   score = 0.5 x z(6-month return / 1-year vol) + 0.5 x z(12-month return / 1-year vol)
+           (z = cross-sectional z-score among eligible stocks)
+   eligible = >= Rs 10,000 Cr today, 60-day median turnover > Rs 5 Cr,
+@@ -52,6 +52,7 @@
+ sys.path.insert(0, HERE)
+ import daily_screener as ds
+ import broker_api as ba
++from position_sizing import slot_budget, whole_shares
+ 
+ # ------------------------------------------------------------------ config
+ CAPITAL = 200000          # Rs, total momentum capital
+@@ -101,14 +102,14 @@
+ 
+ def slot_amount(atr_pct, median_atr):
+     """Rupees for one slot. Equal by default; volatility-scaled if ATR_SIZING."""
+-    base = CAPITAL / SLOTS
++    base = slot_budget(CAPITAL, SLOTS)
+     if ATR_SIZING and atr_pct and median_atr and atr_pct > 0:
+         base *= float(np.clip(median_atr / atr_pct, 0.5, 2.0))
+     return base
+ 
+ 
+ def shares_for(amount, price):
+-    return int(math.floor(amount / price)) if price and price > 0 else 0
++    return whole_shares(amount, price)
+ 
+ 
+ def momentum_positions():
+@@ -192,7 +193,7 @@
+             sh = tops.loc[x["symbol"], "shares"] if tops is not None and \
+                 x["symbol"] in tops.index and "shares" in tops else np.nan
+             if not (sh == sh):
+-                sh = shares_for(CAPITAL / SLOTS, px)
++                sh = shares_for(slot_budget(CAPITAL, SLOTS), px)
+             n += 1
+             count[sec] = count.get(sec, 0) + 1
+             rows.append({"Section": "BUY", "Mode": mode, "Symbol": x["symbol"],
+@@ -435,8 +436,10 @@
+         "below." % (BUFFER * SLOTS),
+         "Shares to Buy = floor(slot / LTP), slot = Rs %s / %d%s." %
+         (format(CAPITAL, ","), SLOTS, " x volatility factor" if ATR_SIZING else ""),
+-        "Backtest 2013-26 (tax paid): ~18-20%/yr with sector cap vs Nifty ~10%, "
+-        "max DD ~-37%. 2013-19 was only ~Nifty. Realistic: 13-16%.",
++        "Sizing: fixed configured capital / slots (Rs 10,000 by default). "
++        "NAV/20 is a separate research option, not the live default. "
++        "Dated, tax-funded results: reports/code_audit/fixes_1_3/backtest/summary.csv; "
++        "historical-cap and survivor-data limitations apply.",
+     ]
+     if regime_red:
+         lines.insert(1, "MARKET REGIME RED: Nifty < 200-DMA. New buys NOT "
+--- a/strategy_lab.py
++++ b/strategy_lab.py
+@@ -50,6 +50,7 @@
+ sys.path.insert(0, HERE)
+ import backtest as bt
+ import fusion_backtest as fb
++from position_sizing import slot_budget, whole_shares, DEFAULT_MODE
+ from fusion_backtest import (CAPITAL, CASH_RATE, START, SPLIT, CASH_BUY,
+                              CASH_SELL, CASH_SLIP, DP_CHARGE, TaxBook,
+                              _fy_end, perf, nifty_curve, periods, table)
+@@ -104,12 +105,15 @@
+              offset=0, regime=None, tax=True, capital=CAPITAL,
+              cash_rate=CASH_RATE, picks=None, sector=None, sector_cap=None,
+              atr=None, atr_sizing=False, trail_atr=None, breakeven=None,
+-             regime_blocks_buys_only=False):
++             regime_blocks_buys_only=False, allocation_mode=DEFAULT_MODE):
+     """sector: array col -> sector label; sector_cap: max holdings per sector.
+     atr_sizing: slot = equal slot x (median ATR% / stock ATR%), 0.5x..2x.
+     trail_atr: stop = max(entry - k*ATR, highest close - k*ATR); breakeven:
+     once close >= entry*(1+breakeven) the stop is at least the entry.
+-    regime_blocks_buys_only: red market -> keep holdings, no new buys."""
++    regime_blocks_buys_only: red market -> keep holdings, no new buys.
++    Default sizing is fixed starting capital / N, using whole shares as in
++    the live planner. NAV/N is explicit. Accrued modeled tax is reserved
++    from buying power so annual settlement cannot borrow implicit cash."""
+     O = P["Open"].values
+     C = P["Close"].ffill().values
+     Lo = P["Low"].values
+@@ -182,19 +186,24 @@
+                     if sector_cap is not None and sector[j] != "?" and \
+                             count.get(sector[j], 0) >= sector_cap:
+                         continue
+-                    amt = mark / N
++                    amt = slot_budget(capital, N, allocation_mode, nav=mark)
+                     if med is not None and A[t - 1, j] > 0:
+                         amt *= float(np.clip(med / A[t - 1, j], 0.5, 2.0))
+-                    amt = min(amt, cash)
++                    reserve = book.due() if tax else 0.0
++                    amt = min(amt, max(0.0, cash - reserve))
+                     if amt < 1000:
+                         continue
+                     a = A[t - 1, j] if A is not None and A[t - 1, j] > 0 else 0.0
+-                    pos[j] = {"sh": amt / (O[t, j] * (1 + CASH_BUY + CASH_SLIP)),
+-                              "k": t, "basis": amt, "px": O[t, j],
++                    sh = whole_shares(amt, O[t, j], CASH_BUY + CASH_SLIP)
++                    if sh < 1:
++                        continue
++                    spent = sh * O[t, j] * (1 + CASH_BUY + CASH_SLIP)
++                    pos[j] = {"sh": sh,
++                              "k": t, "basis": spent, "px": O[t, j],
+                               "hi": O[t, j],
+                               "stop": O[t, j] * (1 - (trail_atr or 0) * a)
+                               if trail_atr else -1.0}
+-                    cash -= amt
++                    cash -= spent
+                     if sector is not None:
+                         count[sector[j]] = count.get(sector[j], 0) + 1
+         if t == n - 1:
+@@ -202,6 +211,8 @@
+                 sell(j, C[t, j], t)
+         if tax and _fy_end(cal, t, n):
+             cash -= book.settle()
++        if cash < -1e-6:
++            raise AssertionError("unfunded tax or trade: negative cash")
+         eq[t] = cash + sum(p["sh"] * C[t, j] for j, p in pos.items())
+     return pd.Series(eq[start_k:n], index=cal[start_k:n]), trades
+ 
+@@ -369,7 +380,8 @@
+     print("\nRunning %d strategies x 3 periods x pre/post tax ..."
+           % (len(rank_strats) + len(event_strats) + len(timing) + 1))
+     for name, key, N, freq, reg in rank_strats:
+-        row = {"strategy": name}
++        row = {"strategy": name, "allocation_mode": DEFAULT_MODE,
++               "whole_shares": True, "tax_funding": "cash_reserved"}
+         for tag, a, b in periods(cal):
+             pk = [] if tag == "FULL" else None
+             pre, tr = run_rank(P, S[key], N, a, b, freq, regime=reg, tax=False,
+--- a/fusion_backtest.py
++++ b/fusion_backtest.py
+@@ -55,6 +55,7 @@
+ warnings.filterwarnings("ignore")
+ 
+ import os
++import copy
+ import sys
+ import datetime as dt
+ 
+@@ -222,6 +223,10 @@
+             self.lt += gain
+         else:
+             self.st += gain
++
++    def due(self):
++        """Tax reserve under this research model; does not settle or mutate it."""
++        return max(0.0, copy.deepcopy(self).settle())
+ 
+     def settle(self):
+         tax = 0.0
+--- a/sip.py
++++ b/sip.py
+@@ -393,6 +393,10 @@
+             "status": "SENT" if x.get("order_id") else "MANUAL"}
+            for x in rows if x.get("sip_id")]
+     if add:
++        existing = set(log["order_id"].astype(str))
++        add = [r for r in add if not r["order_id"] or str(r["order_id"]) not in existing]
++        if not add:
++            return
+         log = pd.concat([log, pd.DataFrame(add)], ignore_index=True)
+         log.to_csv(log_path(), index=False)
+ 
+--- a/tests/test_execution.py
++++ b/tests/test_execution.py
+@@ -298,8 +298,13 @@
+     age_ledger(3)
+     check("3 days later still PENDING -> still blocked", run(s) == "BLOCKED")
+     f.orders[list(f.orders)[0]]["orderStatus"] = "TRADED"
+-    check("TRADED long ago -> no longer blocks (holding guards it)",
+-          run(s) != "BLOCKED")
++    check("TRADED long ago without a recorded position -> still blocked",
++          run(s) == "BLOCKED" and f.posts == 1)
++    oid = next(iter(f.orders.values()))["orderId"]
++    store["sp"] = store["sp"].assign(order_id=oid, swing_qty=1)
++    at.recover_buys(s)
++    check("recorded position -> old TRADED intent can release its date guard",
++          ba.ordered_today("ABC", sess=s) is False)
+ 
+     print("13) broker accepted but answered HTTP 500")
+     f = FakeDhan("http500")
+@@ -322,7 +327,9 @@
+     check("filled_qty 3 from the order itself", o["filled_qty"] == 3 and
+           abs((o["avg_price"] or 0) - 101.5) < 1e-9, o)
+     store["sp"] = store["sp"].assign(swing_qty=10, note="AMO pending",
+-                                     order_id="7770")
++                                     order_id="7770", ordered_qty=10,
++                                     filled_qty_confirmed=0, fill_avg_price=0,
++                                     fill_avg_qty=0, price_pending=1)
+     at.sync(s)
+     check("sync keeps 3 shares (not 0)",
+           int(store["sp"].iloc[0]["swing_qty"]) == 3,
+--- /dev/null
++++ b/tests/test_recovery_tax.py
+@@ -0,0 +1,338 @@
++"""Recovery, price and funding regressions. Fake HTTP/temp ledgers only.
++Run: python3 tests/test_recovery_tax.py
++"""
++import copy
++import datetime as dt
++import json
++from pathlib import Path
++import sys
++import tempfile
++import unittest
++
++import numpy as np
++import pandas as pd
++
++HERE = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(HERE))
++sys.path.insert(0, str(HERE / "tests"))
++import test_execution as tv
++import journal
++import sip
++import fusion_backtest as fb
++import strategy_lab as lab
++from position_sizing import slot_budget, whole_shares, FIXED_SLOT, NAV_DIV_SLOTS
++
++ba, at = tv.ba, tv.at
++
++
++def position(strategy="Momentum"):
++    leg = "momentum_qty" if strategy == "Momentum" else "investing_qty" if strategy == "SIP" else "swing_qty"
++    row = dict(symbol="ABC", swing_qty=0, investing_qty=0, momentum_qty=0,
++               entry_price=100., entry_date="2026-09-30", strategy=strategy,
++               mode="LIVE", product="CNC", order_id="", note="AMO pending",
++               shares=10, lev=1.)
++    row[leg] = 10
++    return row
++
++
++class RecoveryTests(unittest.TestCase):
++    def setUp(self):
++        self.tmp = tempfile.TemporaryDirectory()
++        self.saved = {"read": at.read_split, "write": at.write_split,
++                      "sectors": at._sectors, "status": ba.check_order_status,
++                      "update": ba.update_intent, "request": ba.requests.request,
++                      "split": tv.at.ms.SPLIT_FILE, "log": ba.ORDER_LOG,
++                      "dividends": journal.dividends_of}
++        self.f = tv.FakeDhan("ok")
++        self.s = tv.fresh(self.f)
++        ba.ORDER_LOG = str(Path(self.tmp.name) / "orders_log.csv")
++        tv.at.ms.SPLIT_FILE = str(Path(self.tmp.name) / "split.csv")
++        self.store = {"sp": pd.DataFrame(columns=at.COLUMNS)}
++        at.read_split = lambda: self.store["sp"].copy()
++        at.write_split = lambda d: self.store.__setitem__("sp", d.copy())
++        at._sectors = lambda: {"ABC": "Fin", "NEW": "Other", **{
++            "H%02d" % i: "S%d" % i for i in range(19)}}
++        journal.dividends_of = lambda sym: []
++
++    def tearDown(self):
++        at.read_split, at.write_split, at._sectors = self.saved["read"], self.saved["write"], self.saved["sectors"]
++        ba.check_order_status, ba.update_intent = self.saved["status"], self.saved["update"]
++        ba.requests.request, ba.ORDER_LOG = self.saved["request"], self.saved["log"]
++        tv.at.ms.SPLIT_FILE = self.saved["split"]
++        journal.dividends_of = self.saved["dividends"]
++        self.tmp.cleanup()
++
++    def send(self, lost=False, strategy="Momentum"):
++        self.f.post = "lost_after_accept" if lost else "ok"
++        self.f.show = not lost
++        row = position(strategy)
++        if strategy == "SIP":
++            row.update(sip_id="P1", sip_period="2026-09", own=1000.)
++        result = at.send_one(self.s, "ABC", 10, "CNC", "BUY", position=row)
++        return row, result
++
++    def broker_fill(self, qty=3, avg=101., status="TRADED"):
++        self.f.show = True
++        for row in self.f.orders.values():
++            row.update(orderStatus=status, filledQty=qty, averageTradedPrice=avg)
++
++    def test_metadata_exists_before_post(self):
++        fake = self.f
++        def request(method, url, **kwargs):
++            if method == "POST":
++                data = json.loads(ba.load_intents().iloc[0].position_data)
++                self.assertEqual(data["strategy"], "Momentum")
++                self.assertEqual(data["momentum_qty"], 10)
++            return fake(method, url, **kwargs)
++        ba.requests.request = request
++        self.send()
++        self.assertEqual(self.f.posts, 1)
++
++    def test_lost_reply_recovers_completed_position_once(self):
++        _, result = self.send(lost=True)
++        self.assertEqual(result[2], "UNKNOWN")
++        tv.age_ledger(1)
++        self.broker_fill()
++        at.recover_buys(self.s)
++        at.recover_buys(self.s)
++        self.assertEqual(len(self.store["sp"]), 1)
++        self.assertEqual(self.store["sp"].iloc[0].momentum_qty, 3)
++        self.assertEqual(self.store["sp"].iloc[0].entry_price, 101.)
++        self.assertEqual(ba.load_intents().iloc[0].position_saved, "1")
++        self.assertEqual(self.f.posts, 1)
++
++    def test_lagging_dhan_trades_do_not_price_larger_order_fill(self):
++        self.send()
++        self.broker_fill(qty=6, avg=0., status="TRADED")
++        fake = self.f
++        def request(method, url, **kwargs):
++            if method == "GET" and "/trades/" in url:
++                return tv.Resp(200, [{"tradedQuantity": 3, "tradedPrice": 101.}])
++            return fake(method, url, **kwargs)
++        ba.requests.request = request
++        oid = ba.load_intents().iloc[0].order_id
++        status = ba.check_order_status(oid, sess=self.s)
++        self.assertEqual(status["filled_qty"], 6)
++        self.assertIsNone(status["avg_price"])
++        at.recover_buys(self.s)
++        row = self.store["sp"].iloc[0]
++        self.assertEqual(row.momentum_qty, 6)
++        self.assertEqual(row.price_pending, 1)
++        self.assertIn("fill price pending", row.note)
++        self.broker_fill(qty=6, avg=102., status="TRADED")
++        at.sync(self.s)
++        row = self.store["sp"].iloc[0]
++        self.assertEqual(row.entry_price, 102.)
++        self.assertEqual(row.price_pending, 0)
++
++    def test_recovered_position_blocks_same_stock_and_21st(self):
++        self.send(lost=True)
++        self.broker_fill()
++        others = []
++        for i in range(19):
++            row = position(); row["symbol"] = "H%02d" % i
++            others.append(row)
++        self.store["sp"] = pd.DataFrame(others)
++        at.recover_buys(self.s)
++        rows = pd.DataFrame({"Ticker": ["ABC", "NEW"], "act": "BUY",
++                             "Strategy Overlap": "Momentum only", "Amount (Rs)": ""})
++        new, _ = at.plan(rows, {"ABC": (101., "fake"), "NEW": (100., "fake")}, self.store["sp"], self.s)
++        self.assertEqual(new, [])
++        self.assertEqual(len(self.store["sp"]), 20)
++
++    def test_crash_before_acceptance_result_is_saved(self):
++        self.send()
++        tag = ba.load_intents().iloc[0].tag
++        ba.update_intent(tag, state="INTENT", order_id="", status="")
++        self.broker_fill(qty=0, status="PENDING", avg=0.)
++        at.recover_buys(self.s)
++        self.assertEqual(len(self.store["sp"]), 1)
++        self.assertEqual(self.store["sp"].iloc[0].momentum_qty, 10)  # provisional reservation
++        self.assertTrue(ba.ordered_today("ABC", sess=self.s))
++        self.assertEqual(self.f.posts, 1)
++
++    def test_failed_split_write_keeps_guard_and_reservation(self):
++        self.send(); self.broker_fill()
++        def fail(d):
++            raise OSError("simulated full disk")
++        writer = at.write_split; at.write_split = fail
++        with self.assertRaises(OSError):
++            at.recover_buys(self.s)
++        self.assertNotEqual(ba.load_intents().iloc[0].position_saved, "1")
++        self.assertTrue(ba.ordered_today("ABC", sess=self.s))
++        self.assertEqual(ba.buy_reservations(self.store["sp"]), ["ABC"])
++        at.write_split = writer
++        at.recover_buys(self.s)
++        self.assertEqual(len(self.store["sp"]), 1)
++
++    def test_crash_after_split_before_marker_does_not_duplicate(self):
++        self.send(); self.broker_fill()
++        updater = ba.update_intent
++        def fail_marker(tag, **kwargs):
++            if kwargs.get("position_saved") == "1":
++                raise OSError("marker save failed")
++            updater(tag, **kwargs)
++        ba.update_intent = fail_marker
++        with self.assertRaises(OSError):
++            at.recover_buys(self.s)
++        self.assertEqual(len(self.store["sp"]), 1)
++        ba.update_intent = updater
++        at.recover_buys(self.s)
++        self.assertEqual(len(self.store["sp"]), 1)
++        self.assertEqual(ba.load_intents().iloc[0].position_saved, "1")
++
++    def test_legacy_filled_intent_without_strategy_is_not_guessed(self):
++        at.send_one(self.s, "ABC", 10, "CNC", "BUY")
++        self.broker_fill()
++        tv.age_ledger(2)
++        at.recover_buys(self.s)
++        self.assertEqual(len(self.store["sp"]), 0)
++        self.assertTrue(ba.ordered_today("ABC", sess=self.s))
++        self.assertEqual(ba.buy_reservations(self.store["sp"]), ["ABC"])
++
++    def test_legacy_done_does_not_release_untracked_fill(self):
++        self.send(); self.broker_fill()
++        tag = ba.load_intents().iloc[0].tag
++        ba.update_intent(tag, state="DONE")
++        self.assertTrue(ba.ordered_today("ABC", sess=self.s))
++        at.recover_buys(self.s)
++        self.assertEqual(len(self.store["sp"]), 1)
++
++    def test_cancelled_partial_recovery_keeps_price_pending(self):
++        self.send(); self.broker_fill(avg=None, status="CANCELLED")
++        at.recover_buys(self.s)
++        row = self.store["sp"].iloc[0]
++        self.assertEqual(row.momentum_qty, 3)
++        self.assertEqual(row.price_pending, 1)
++        self.assertIn("fill price pending", row.note)
++        self.broker_fill(avg=101., status="CANCELLED")
++        at.sync(self.s)
++        row = self.store["sp"].iloc[0]
++        self.assertEqual(row.entry_price, 101.)
++        self.assertEqual(row.price_pending, 0)
++        self.assertNotIn("pending", row.note)
++
++    def test_lagging_quantity_does_not_reverse_confirmed_fills(self):
++        row, _ = self.send()
++        row["order_id"] = next(iter(self.f.orders.values()))["orderId"]
++        self.store["sp"] = pd.DataFrame([row])
++        self.broker_fill(status="PENDING")
++        at.sync(self.s)
++        self.broker_fill(qty=0, avg=0., status="CANCELLED")
++        at.sync(self.s)
++        self.assertEqual(self.store["sp"].iloc[0].momentum_qty, 3)
++        self.assertEqual(self.store["sp"].iloc[0].entry_price, 101.)
++
++    def test_more_fills_without_new_average_retry_price(self):
++        row, _ = self.send(); row["order_id"] = next(iter(self.f.orders.values()))["orderId"]
++        self.store["sp"] = pd.DataFrame([row])
++        self.broker_fill(qty=3, avg=100., status="PENDING"); at.sync(self.s)
++        self.broker_fill(qty=6, avg=None); at.sync(self.s)
++        self.assertEqual(self.store["sp"].iloc[0].price_pending, 1)
++        self.broker_fill(qty=6, avg=102.); at.sync(self.s)
++        self.assertEqual(self.store["sp"].iloc[0].entry_price, 102.)
++        self.assertEqual(self.store["sp"].iloc[0].momentum_qty, 6)
++
++    def test_delayed_price_reaches_existing_journal_cost_basis(self):
++        self.send(strategy="W+TT"); self.broker_fill(avg=None, status="CANCELLED")
++        at.recover_buys(self.s)
++        j, _ = journal.sync(self.store["sp"], [{"symbol": "ABC", "qty": 3}], {}, {}, quiet=True)
++        self.assertEqual(float(j.iloc[0].buy_price), 100.)
++        self.broker_fill(avg=101., status="CANCELLED"); at.sync(self.s)
++        j, _ = journal.sync(self.store["sp"], [{"symbol": "ABC", "qty": 3}], {}, {}, quiet=True)
++        self.assertEqual(float(j.iloc[0].buy_price), 101.)
++        self.assertEqual(float(j.iloc[0].qty), 3.)
++        self.assertEqual(float(j.iloc[0].buy_fees), round(journal.fees("DHAN", "BUY", 303)[0], 2))
++
++    def test_sip_recovery_log_is_idempotent(self):
++        self.send(strategy="SIP"); self.broker_fill(qty=10)
++        at.recover_buys(self.s); at.recover_buys(self.s)
++        self.assertEqual(len(sip.load_log()), 1)
++        self.assertEqual(len(self.store["sp"]), 1)
++        self.assertEqual(self.store["sp"].iloc[0].investing_qty, 10)
++
++    def test_already_recorded_then_closed_position_is_not_resurrected(self):
++        self.send(); self.broker_fill(); at.recover_buys(self.s)
++        self.store["sp"] = self.store["sp"].iloc[:0].copy()
++        at.recover_buys(self.s)
++        self.assertEqual(len(self.store["sp"]), 0)
++
++    def test_manual_row_cannot_mark_unrelated_intent_as_saved(self):
++        self.send(lost=True)
++        at._mark_saved([position()])   # no broker order ID
++        self.assertNotEqual(ba.load_intents().iloc[0].position_saved, "1")
++        self.assertEqual(ba.buy_reservations(self.store["sp"]), ["ABC"])
++
++    def test_legacy_closed_partial_fill_still_blocks(self):
++        at.send_one(self.s, "ABC", 10, "CNC", "BUY")
++        self.broker_fill(status="CANCELLED")
++        tag = ba.load_intents().iloc[0].tag
++        ba.update_intent(tag, state="CLOSED", filled_qty="")  # old schema had no fill count
++        self.assertTrue(ba.ordered_today("ABC", sess=self.s))
++        self.assertEqual(ba.buy_reservations(self.store["sp"]), ["ABC"])
++
++    def test_cancelled_zero_fill_does_not_create_a_position(self):
++        self.send(); self.broker_fill(qty=0, avg=0., status="CANCELLED")
++        at.recover_buys(self.s)
++        self.assertEqual(len(self.store["sp"]), 0)
++        self.assertEqual(ba.load_intents().iloc[0].state, "CLOSED")
++        self.assertFalse(ba.ordered_today("ABC", sess=self.s))
++
++    def test_stale_average_for_three_cannot_finalize_six_fills(self):
++        row, _ = self.send(); row["order_id"] = next(iter(self.f.orders.values()))["orderId"]
++        self.store["sp"] = pd.DataFrame([row])
++        self.broker_fill(qty=3, avg=100., status="PENDING"); at.sync(self.s)
++        self.broker_fill(qty=6, avg=None, status="PENDING"); at.sync(self.s)
++        self.broker_fill(qty=0, avg=0., status="CANCELLED"); at.sync(self.s)
++        self.assertEqual(self.store["sp"].iloc[0].momentum_qty, 6)
++        self.assertEqual(self.store["sp"].iloc[0].price_pending, 1)
++
++
++class FundingTests(unittest.TestCase):
++    def test_tax_preview_is_non_mutating_and_matches_payment(self):
++        book = fb.TaxBook(False)
++        book.cf_st = 1000.; book.cf_lt = 500.
++        book.add(10000., 100); book.add(200000., 400); book.interest = 2000.
++        before = copy.deepcopy(book.__dict__)
++        due = book.due()
++        self.assertEqual(book.__dict__, before)
++        self.assertAlmostEqual(book.due(), due)
++        self.assertAlmostEqual(book.settle(), due)
++
++    def test_loss_offsets_are_included_in_reserve(self):
++        book = fb.TaxBook(False)
++        book.add(10000., 100); first = book.due()
++        book.add(-5000., 100)
++        self.assertAlmostEqual(book.due(), first/2)
++        book.add(-5000., 100)
++        self.assertEqual(book.due(), 0.)
++
++    def test_live_default_and_research_fixed_budget_are_identical(self):
++        self.assertEqual(slot_budget(200000,20), 10000.)
++        self.assertEqual(slot_budget(200000,20,FIXED_SLOT,nav=400000), 10000.)
++        self.assertEqual(slot_budget(200000,20,NAV_DIV_SLOTS,nav=400000), 20000.)
++        self.assertEqual(tv.at.ms.shares_for(10000,333), whole_shares(10000,333))
++        with self.assertRaises(ValueError):
++            slot_budget(200000,20,NAV_DIV_SLOTS)
++
++    def test_cost_aware_whole_shares_fit_the_budget(self):
++        q = whole_shares(10000,333,.003)
++        self.assertLessEqual(q*333*1.003,10000)
++        self.assertGreater((q+1)*333*1.003,10000)
++
++    def test_nav_engine_funds_tax_without_borrowing(self):
++        cal = pd.bdate_range("2020-01-01", "2020-04-30")
++        names = ["a","b","c","d"]
++        close = pd.DataFrame(100., index=cal, columns=names)
++        close.loc["2020-02-01":,["a","b"]] = 200.
++        P = {k:close.copy() for k in ("Open","High","Low","Close")}
++        S = pd.DataFrame(np.tile([4.,3.,2.,1.], (len(cal),1)), index=cal, columns=names)
++        S.loc["2020-01-31":,:] = [1.,2.,4.,3.]
++        curve,_ = lab.run_rank(P,S,2,1,buffer=1,tax=True,capital=20000,
++                              cash_rate=0.,allocation_mode=NAV_DIV_SLOTS)
++        self.assertTrue(np.isfinite(curve).all())
++        self.assertGreater(curve.iloc[-1],20000)
++
++
++if __name__ == "__main__":
++    unittest.main(verbosity=2)
