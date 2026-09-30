@@ -20,6 +20,7 @@
   backtest.py           # backtest of the screener rules (pit10k / today10k / b173 universes)
   fusion_backtest.py    # Fusion vs W+TT, cash + stock futures, real Dhan costs + Indian tax
   fno_data.py           # downloads NSE F&O bhavcopy history (2013+) into data/fno/
+  buy_delay_study.py    # live 1-session buy delay vs backtest (30 Sep): ~ -0.5 pt/yr
   strategy_lab.py       # 16 pre-registered strategies (momentum, low-vol, mean reversion, timing) vs baselines
   momentum_screener.py  # LIVE momentum (RAMOM top 20, sector cap 4) -> Momentum_Top20 + Strategy_Comparison sheets
   auto_tracker_update.py# rbtrack: Action BUY -> Dhan AMO (CNC, MARKET @ open, type YES) -> split.csv LIVE;
@@ -465,10 +466,16 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   Codex re-check #3 (30 Sep, 5 bugs) FIXED: (1) ACCEPTED intent that is not final (PENDING/unknown) blocks on ANY
   day (was: only today -> next-day duplicate); TRADED older than the window -> DONE. (2) a SENT momentum SELL keeps its
   slot until the sale is confirmed (row leaves split.csv) -> rebalance buys one session after the sells (rebalance day
-  1/6/11/16 test says ~no cost). (3) order POST: HTTP 5xx or a reply without an order id = STATUS UNKNOWN -> book
+  buy_delay_study.py: delay 0/1/2 = 20.9/20.4/21.0% post-tax, 2013-19 12.8/12.3/13.4, 2020-26 27.4/26.5/26.1 -> ~0.5 pt/yr). (3) order POST: HTTP 5xx or a reply without an order id = STATUS UNKNOWN -> book
   lookup (was: treated as rejected -> re-run duplicated). (4) Dhan check_order_status uses the order's own
   filledQty/averageTradedPrice when the trade book is empty; sync keeps qty for non-final fills and fills without a
   price. (5) journal.sync updates an OPEN row's qty (+fees) when split.csv qty grows (3 -> 6). Tests now 36/36.
+  Codex recheck #4 (30 Sep; Mac: 36/36 + Codex 6/6 pass, follow-up 0/3) FIXED: P1 a lost-reply BUY found later
+  (even TRADED after midnight) is REBUILT into split.csv once by recover() (runs before plan() and in sync(); needs
+  a session) from intent meta (strategy, leg, price; tracked=1 after); untracked BUY intents block the stock and hold a
+  momentum slot (strategy momentum or unknown). P2 final fill without a price -> note 'PRICE?' -> re-asked every sync
+  until the real average arrives. sync selects any real order id (not len>3). send_one returns (ok,res,status,tag).
+  strategy_lab.run_rank(buy_delay=N). Tests 43/43.
   30 Sep: RB installed the full code zip (MANIFEST.txt sizes) in ~/RB_Screener AND ~/Downloads/codex/RB_Screener
   (Codex review copy); both "check done", no duplicate files; tests 26/26 on the Mac (Python 3.9, LibreSSL warning harmless).
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.

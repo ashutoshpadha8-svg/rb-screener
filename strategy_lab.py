@@ -104,8 +104,10 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
              offset=0, regime=None, tax=True, capital=CAPITAL,
              cash_rate=CASH_RATE, picks=None, sector=None, sector_cap=None,
              atr=None, atr_sizing=False, trail_atr=None, breakeven=None,
-             regime_blocks_buys_only=False):
-    """sector: array col -> sector label; sector_cap: max holdings per sector.
+             regime_blocks_buys_only=False, buy_delay=0):
+    """buy_delay: new buys N sessions after the rebalance sells (live
+    rbtrack buys once sells are confirmed = 1).
+    sector: array col -> sector label; sector_cap: max holdings per sector.
     atr_sizing: slot = equal slot x (median ATR% / stock ATR%), 0.5x..2x.
     trail_atr: stop = max(entry - k*ATR, highest close - k*ATR); breakeven:
     once close >= entry*(1+breakeven) the stop is at least the entry.
@@ -133,10 +135,49 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
         book.add(gross - fee - p["basis"], (cal[t] - cal[p["k"]]).days)
         trades += 1
 
+    def buys(t, ranked):
+        nonlocal cash
+        if picks is not None:
+            picks.append((t, ranked[:N]))
+        mark = cash + sum(p["sh"] * C[t - 1, j] for j, p in pos.items())
+        med = np.nanmedian(A[t - 1][[j for j in ranked]]) \
+            if (atr_sizing and A is not None and ranked) else None
+        count = {}
+        if sector is not None:
+            for j in pos:
+                count[sector[j]] = count.get(sector[j], 0) + 1
+        for j in ranked:
+            if len(pos) >= N:
+                break
+            if j in pos or not O[t, j] > 0:
+                continue
+            if sector_cap is not None and sector[j] != "?" and \
+                    count.get(sector[j], 0) >= sector_cap:
+                continue
+            amt = mark / N
+            if med is not None and A[t - 1, j] > 0:
+                amt *= float(np.clip(med / A[t - 1, j], 0.5, 2.0))
+            amt = min(amt, cash)
+            if amt < 1000:
+                continue
+            a = A[t - 1, j] if A is not None and A[t - 1, j] > 0 else 0.0
+            pos[j] = {"sh": amt / (O[t, j] * (1 + CASH_BUY + CASH_SLIP)),
+                      "k": t, "basis": amt, "px": O[t, j],
+                      "hi": O[t, j],
+                      "stop": O[t, j] * (1 - (trail_atr or 0) * a)
+                      if trail_atr else -1.0}
+            cash -= amt
+            if sector is not None:
+                count[sector[j]] = count.get(sector[j], 0) + 1
+
+    pending = None
     for t in range(start_k, n):
         intr = cash * day_rate if cash > 0 else 0.0
         cash += intr
         book.interest += intr
+        if pending is not None and t == pending[0]:
+            buys(t, pending[1])
+            pending = None
         if (trail_atr is not None or breakeven is not None) and t > start_k:
             for j in list(pos):
                 p = pos[j]
@@ -165,38 +206,10 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
                     px = O[t, j] if O[t, j] > 0 else C[t - 1, j]
                     sell(j, px, t)
             if on:
-                if picks is not None:
-                    picks.append((t, ranked[:N]))
-                mark = cash + sum(p["sh"] * C[t - 1, j] for j, p in pos.items())
-                med = np.nanmedian(A[t - 1][[j for j in ranked]]) \
-                    if (atr_sizing and A is not None and ranked) else None
-                count = {}
-                if sector is not None:
-                    for j in pos:
-                        count[sector[j]] = count.get(sector[j], 0) + 1
-                for j in ranked:
-                    if len(pos) >= N:
-                        break
-                    if j in pos or not O[t, j] > 0:
-                        continue
-                    if sector_cap is not None and sector[j] != "?" and \
-                            count.get(sector[j], 0) >= sector_cap:
-                        continue
-                    amt = mark / N
-                    if med is not None and A[t - 1, j] > 0:
-                        amt *= float(np.clip(med / A[t - 1, j], 0.5, 2.0))
-                    amt = min(amt, cash)
-                    if amt < 1000:
-                        continue
-                    a = A[t - 1, j] if A is not None and A[t - 1, j] > 0 else 0.0
-                    pos[j] = {"sh": amt / (O[t, j] * (1 + CASH_BUY + CASH_SLIP)),
-                              "k": t, "basis": amt, "px": O[t, j],
-                              "hi": O[t, j],
-                              "stop": O[t, j] * (1 - (trail_atr or 0) * a)
-                              if trail_atr else -1.0}
-                    cash -= amt
-                    if sector is not None:
-                        count[sector[j]] = count.get(sector[j], 0) + 1
+                if buy_delay:
+                    pending = (t + buy_delay, ranked)
+                else:
+                    buys(t, ranked)
         if t == n - 1:
             for j in list(pos):
                 sell(j, C[t, j], t)

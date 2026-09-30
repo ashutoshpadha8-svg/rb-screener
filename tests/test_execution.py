@@ -107,7 +107,7 @@ def run(sess, side="BUY", product="CNC"):
         ba.ordered_today("ABC", side, sess=sess)
     if blocked:
         return "BLOCKED"
-    ok, res, st = at.send_one(sess, "ABC", 1, product, side)
+    ok, res, st, _ = at.send_one(sess, "ABC", 1, product, side)
     return "OK" if ok else st
 
 
@@ -297,9 +297,68 @@ def main():
           run(s) == "BLOCKED" and f.posts == 1, "posts=%d" % f.posts)
     age_ledger(3)
     check("3 days later still PENDING -> still blocked", run(s) == "BLOCKED")
-    f.orders[list(f.orders)[0]]["orderStatus"] = "TRADED"
-    check("TRADED long ago -> no longer blocks (holding guards it)",
-          run(s) != "BLOCKED")
+    for o in f.orders.values():
+        o.update(orderStatus="TRADED", filledQty=1, averageTradedPrice=101.0)
+    check("TRADED but no split row yet -> still blocked", run(s) ==
+          "BLOCKED")
+    store["sp"] = store["sp"].iloc[0:0]         # empty split.csv
+    n = at.recover(s)
+    rows = store["sp"][store["sp"]["symbol"] == "ABC"]
+    check("recover() rebuilds exactly one ABC row", n == 1 and len(rows) == 1,
+          "%d added, %d rows" % (n, len(rows)))
+    check("second recover() adds nothing", at.recover(s) == 0 and
+          (store["sp"]["symbol"] == "ABC").sum() == 1)
+    at.sync(s)
+    r = store["sp"][store["sp"]["symbol"] == "ABC"].iloc[0]
+    check("sync gives the real fill (1 @ 101)", float(r["swing_qty"]) == 1
+          and abs(float(r["entry_price"]) - 101.0) < 1e-9, r.to_dict())
+    check("now tracked -> intent no longer blocks (split row guards it)",
+          not ba.ordered_today("ABC", sess=s))
+
+    print("12b) untracked lost-reply BUY holds a portfolio slot")
+    f = FakeDhan("lost_after_accept", show=False)
+    s = fresh(f)
+    run(s)                                      # ABC: UNKNOWN, no split row
+    held19 = ["H%02d" % i for i in range(19)]
+    sp19 = pd.DataFrame({"symbol": held19, "swing_qty": 0,
+                         "investing_qty": 0, "momentum_qty": 10,
+                         "entry_price": 1.0, "entry_date": "2026-09-01",
+                         "strategy": "Momentum", "mode": "LIVE",
+                         "product": "CNC", "order_id": "", "note": ""})
+    at._sectors = lambda: {x: "S" + x for x in held19 + ["ABC", "NEW"]}
+    new, skip = at.plan(pd.DataFrame([{"Ticker": "NEW", "act": "BUY",
+                                       "Strategy Overlap": "Momentum only",
+                                       "Amount (Rs)": ""}]),
+                        {"NEW": (100.0, "x")}, sp19, sess=s)
+    check("19 held + 1 unknown BUY -> NEW refused (no 21st)", new == [],
+          skip)
+    new, skip = at.plan(pd.DataFrame([{"Ticker": "ABC", "act": "BUY",
+                                       "Strategy Overlap": "Momentum only",
+                                       "Amount (Rs)": ""}]),
+                        {"ABC": (100.0, "x")}, sp19.iloc[0:0], sess=s)
+    check("same stock not bought again", new == [], skip)
+
+    print("12c) final fill first without a price, real price later")
+    store["sp"] = pd.DataFrame([{"symbol": "ABC", "swing_qty": 10,
+                                 "investing_qty": 0, "momentum_qty": 0,
+                                 "entry_price": 100.0,
+                                 "entry_date": "2026-09-30",
+                                 "strategy": "W+TT", "mode": "LIVE",
+                                 "product": "CNC", "order_id": "5501",
+                                 "note": "AMO pending"}])
+    seq2 = iter([{"status": "CANCELLED", "filled_qty": 3, "avg_price": None,
+                  "raw": "C"},
+                 {"status": "CANCELLED", "filled_qty": 3, "avg_price": 101.0,
+                  "raw": "C"}])
+    at.ba.check_order_status = lambda *a, **k: next(seq2)
+    at.recover = lambda sess: 0
+    at.sync(None)
+    at.sync(None)
+    r = store["sp"].iloc[0]
+    check("qty 3 kept, price becomes 101", float(r["swing_qty"]) == 3 and
+          abs(float(r["entry_price"]) - 101.0) < 1e-9 and
+          "PRICE?" not in r["note"], r.to_dict())
+    ba.check_order_status = REAL["check_order_status"]
 
     print("13) broker accepted but answered HTTP 500")
     f = FakeDhan("http500")

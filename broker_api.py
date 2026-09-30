@@ -1216,7 +1216,12 @@ def find_order_by_tag(sess, tag):
 # Unresolved rows block that stock+side on EVERY later day until the book
 # shows the order or RB resolves it by hand -- an empty book never clears it.
 INTENT_COLS = ["tag", "created", "date", "symbol", "side", "qty", "product",
-               "state", "order_id", "status", "note"]
+               "state", "order_id", "status", "note", "strategy", "leg",
+               "price", "tracked"]
+# BUY intents also carry what is needed to rebuild the split.csv row if the
+# reply was lost (strategy, leg column, provisional price); tracked=1 once
+# that row exists. An untracked BUY that may be live keeps blocking the stock
+# AND keeps a portfolio slot (Codex recheck 30 Sep).
 UNRESOLVED = ("INTENT", "UNKNOWN")
 
 
@@ -1242,9 +1247,10 @@ def _save_intents(d):
     os.replace(tmp, p)
 
 
-def new_intent(symbol, side, qty, product):
+def new_intent(symbol, side, qty, product, meta=None):
     """Save the intent (state INTENT) and return its tag. Call BEFORE the
-    order is sent, inside rbtrack's lock."""
+    order is sent, inside rbtrack's lock. meta = strategy / leg / price."""
+    meta = meta or {}
     d = load_intents()
     tag = new_tag(side)
     while tag in set(d["tag"]):
@@ -1253,7 +1259,9 @@ def new_intent(symbol, side, qty, product):
            "date": dt.date.today().isoformat(), "symbol": str(symbol).upper(),
            "side": str(side).upper(), "qty": str(int(qty)),
            "product": product, "state": "INTENT", "order_id": "",
-           "status": "", "note": ""}
+           "status": "", "note": "", "strategy": meta.get("strategy", ""),
+           "leg": meta.get("leg", ""), "price": str(meta.get("price", "")),
+           "tracked": ""}
     _save_intents(pd.concat([d, pd.DataFrame([row])], ignore_index=True))
     return tag
 
@@ -1276,6 +1284,17 @@ def resolve_intent(tag, placed, order_id=""):
                   order_id=order_id, note="resolved by hand %s"
                   % dt.date.today())
     return True
+
+
+LIVE_STATES = ("INTENT", "UNKNOWN", "ACCEPTED")
+
+
+def untracked_buys():
+    """BUY intents that may be (or may become) a holding but have no
+    split.csv row yet."""
+    d = load_intents()
+    return d[(d["side"] == "BUY") & (d["tracked"] != "1") &
+             d["state"].isin(LIVE_STATES)]
 
 
 def open_intents():
@@ -1306,6 +1325,19 @@ def intent_blocks(symbol, side="BUY", days=0, sess=None):
             if st in UNRESOLVED:
                 block = True
                 continue
+        if st == "ACCEPTED" and side.upper() == "BUY" and \
+                str(r.get("tracked", "")) != "1":
+            # executed or maybe executed, but not in split.csv yet: block
+            # until rbtrack rebuilds the row -- unless it died unfilled
+            if sess is not None and r["order_id"]:
+                o = check_order_status(r["order_id"], sess=sess)
+                if o.get("status") in ("REJECTED", "CANCELLED", "EXPIRED") \
+                        and not o.get("filled_qty"):
+                    update_intent(r["tag"], state="CLOSED",
+                                  status=o.get("status"))
+                    continue
+            block = True
+            continue
         if st == "ACCEPTED":
             recent = str(r["date"]) >= since
             if sess is None or not r["order_id"]:
