@@ -41,7 +41,7 @@
                         #   ONE-FILE view (27 Sep): Dashboard first (money, sell/red flags, new BUY, Super-Buy,
                         #   rebalance, watchlist, sheet links) + master Swing/Investing/Momentum_Top20/
                         #   Fundamentals copied in (Strategy_Comparison dropped: Actions = same list + picks)
-                        #   Super-Buy sheet (27 Sep): stocks in BOTH W+TT swing list and momentum top 20
+                        #   Super-Buy sheet (27 Sep): stocks in BOTH W+TT swing list and momentum top 20 (backtest 30 Sep: better per trade, not as a portfolio)
                         #   Layout v2 (27 Sep, RB chose): Holdings = CARDS (4 per row, colour = ACTION, exit door),
                         #   Journal = month-wise first (Option 2), Holdings_Table = full sortable table (grey tab),
                         #   Actions columns reordered (Action/Amount/Qty first, Regime/Shares dropped), Watchlist
@@ -386,6 +386,22 @@ NIFTY 50 index (price only) + 145 b173 SURVIVOR stocks (bias favours buying dips
   or mixed across halves (DIP52-20 on Nifty +0.4 in 2013-19, -0.6 in 2020-26) -> no proven edge.
 - Single stocks: median 14.6% but worst 10% of stocks 4.2% (FULL) and about -4% in each half; survivors only.
 - VERDICT: if SIP, plain monthly on a Nifty ETF; the broker's own SIP runs even with the Mac off. Dip/up rules rejected.
+
+## Super-Buy backtest (superbuy_backtest.py, 30 Sep 2026) - W+TT signal AND RAMOM rank <= 20 same day
+Pre-registered, same honest setup. 8157 W+TT signal days, 2931 of them Super-Buy. Trades (0.5% round trip):
+| Entry / exit | trades | win% | avg% | median% | 13-19 avg | 20-26 avg |
+|---|---|---|---|---|---|---|
+| SUPER-BUY investing exit | 791 | 46.8 | +19.9 | -2.8 | +8.8 | +26.8 |
+| ALL W+TT investing exit | 1769 | 46.9 | +16.7 | -3.0 | +5.6 | +20.6 |
+| SUPER-BUY swing exit | 791 | 39.8 | +14.7 | -6.5 | +7.2 | +19.4 |
+| SUPER-BUY momentum exit (rank > 40 at rebal) | 855 | 44.9 | +9.8 | -2.6 | +8.8 | +10.5 |
+Portfolio post-tax CAGR (2013-19 / 2020-26 / FULL / maxDD): SB inv 20 slots 10.1 / 16.5 / 13.0 / -34.6;
+SB inv 10 8.7 / 21.7 / 12.1 / -31.2; SB mom-exit 10 4.4 / 33.5 / 17.4 / -40.5; W+TT inv 20 10.0 / 16.2 / 13.6 / -37.6;
+LIVE momentum top20+cap 12.2 / 28.0 / 20.3 / -35.9; Nifty 10.3 / 9.7 / 9.8 / -38.4.
+- Per trade Super-Buy is better than plain W+TT in BOTH halves (+3 / +6 pts) -> a real quality label.
+- As a portfolio it does NOT beat W+TT (too few signals, cash waits) and loses to live momentum in both halves.
+- VERDICT: keep Super-Buy as a highlight on W+TT picks, not a separate strategy. Tracker: Age column (TODAY /
+  1-5 / 6-29 / 30+ days) with soft row colours (green / blue / beige / white), freeze C4.
 
 ## EMA 9/21 cross (ema_backtest.py, 29 Sep 2026) - RB's idea, pre-registered, same honest setup
 Buy next open after EMA9 crosses above EMA21; exit X1 = EMA9 back below EMA21, X2 = close < 50DMA. 7 filters x 2 exits.
