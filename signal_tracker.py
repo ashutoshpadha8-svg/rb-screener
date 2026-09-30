@@ -350,6 +350,25 @@ def summary(t):
 
 
 # ================================================================== output
+AGE_FILL = [("TODAY", "E2EFDA"), ("1-5 days", "DDEBF7"),
+            ("6-29 days", "FBF3E4")]           # soft, not flashy; 30+ = white
+
+
+def age_label(d):
+    """Calendar days since found -> TODAY / 1-5 days / 6-29 days / 30+ days."""
+    try:
+        d = int(d)
+    except (TypeError, ValueError):
+        return ""
+    if d <= 0:
+        return "TODAY"
+    if d <= 5:
+        return "1-5 days"
+    if d < TOO_EARLY:
+        return "6-29 days"
+    return "30+ days"
+
+
 def write_sheet(path, summ, t, note, today):
     """Two tabs: Signal_Tracker = every find (header + Symbol frozen, filter
     on, so sorting always moves whole rows); Signal_Summary = the groups."""
@@ -362,9 +381,10 @@ def write_sheet(path, summ, t, note, today):
             del wb[n]
     head = Font(bold=True, color="FFFFFF")
     navy = PatternFill("solid", fgColor="1F4E78")
-    grey = PatternFill("solid", fgColor="EDEDED")
-    note_txt = ("Grey = younger than 30 days: TOO EARLY, a few days of prices "
-                "say nothing. Rank then = momentum rank (MOMENTUM rows) or RS "
+    ages = {lab: PatternFill("solid", fgColor=col) for lab, col in AGE_FILL}
+    note_txt = ("Row colour = Age: green = found TODAY, blue = 1-5 days, "
+                "beige = 6-29 days (TOO EARLY to judge), white = 30+ days. "
+                "Rank then = momentum rank (MOMENTUM rows) or RS "
                 "rank 0-100 (W+TT rows). Sort ONLY with the header arrows "
                 "(filter) -- sorting one selected column mixes the rows. "
                 "Backtest (2013-26): W+TT ~39% winners, avg +11.8% per trade "
@@ -380,7 +400,7 @@ def write_sheet(path, summ, t, note, today):
             ws.column_dimensions[L(j)].width = widths.get(h, 12)
         ws.row_dimensions[r0].height = 32
         for i, row in enumerate(df.itertuples(index=False), r0 + 1):
-            young = False
+            age = None
             for j, v in enumerate(row, 1):
                 if isinstance(v, float):
                     v = None if v != v else round(v, 1)
@@ -390,11 +410,11 @@ def write_sheet(path, summ, t, note, today):
                     c.number_format = "+0.0;-0.0;0.0"
                     c.font = Font(color="1E7B34" if v > 0 else "C00000"
                                   if v < 0 else "000000")
-                if h == "Status" and "TOO EARLY" in str(v):
-                    young = True
-            if young:
+                if h == "Age":
+                    age = v
+            if age in ages:
                 for j in range(1, len(df.columns) + 1):
-                    ws.cell(row=i, column=j).fill = grey
+                    ws.cell(row=i, column=j).fill = ages[age]
         return r0 + len(df)
 
     ws = wb.create_sheet(SHEET)
@@ -402,9 +422,10 @@ def write_sheet(path, summ, t, note, today):
             "summary: tab %s" % (today, note, SUMMARY_SHEET)).font = \
         Font(bold=True, size=13)
     ws.cell(row=2, column=1, value=note_txt).font = Font(italic=True, size=10)
-    last = table(ws, t, 3, {"Symbol": 14, "Source": 11, "Status": 40,
-                            "Found on": 11, "Last in list": 11})
-    ws.freeze_panes = "B4"                 # header row + Symbol always seen
+    last = table(ws, t, 3, {"Symbol": 14, "Age": 10, "Source": 11,
+                            "Status": 40, "Found on": 11,
+                            "Last in list": 11})
+    ws.freeze_panes = "C4"           # header row + Symbol + Age always seen
     if len(t):
         ws.auto_filter.ref = "A3:%s%d" % (L(len(t.columns)), last)
 
@@ -431,7 +452,8 @@ def main():
     syms = sorted(set(log.symbol))
     frames, bm, live, note = prices(syms)
     t = evaluate(log, frames, bm, live, today)
-    cols = ["Symbol", "Source", "First status", "Rank then", "Found on",
+    t["Age"] = t["Days since found"].map(age_label)
+    cols = ["Symbol", "Age", "Source", "First status", "Rank then", "Found on",
             "Days since found",
             "Price then", "Price now", "Return %", "Nifty same days %",
             "vs Nifty %", "Best since %", "Worst since %", "Both lists",
