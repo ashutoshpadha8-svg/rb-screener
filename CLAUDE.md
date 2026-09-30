@@ -408,7 +408,8 @@ LIVE momentum top20+cap 12.2 / 28.0 / 20.3 / -35.9; Nifty 10.3 / 9.7 / 9.8 / -38
   LATE orange + fundamentals colours kept. Tracker pushes the master to the Drive copy after writing (rbsig).
   Momentum_Top20 also 'In Top 20 since' (date, col D; scans started 26 Sep 2026 -> nothing earlier).
   xl_fit.py (30 Sep, RB: "columns fit karo sab jagah"): width from header words (header <= 2 lines) + shown values
-  (cap 45, in-table long text = 45 + keeps wrap), short cells unwrapped (no tall rows). Run on the master by
+  (cap 45), ALL table cells one line (wrap off, saved row heights cleared). `python3 xl_fit.py check` = what the
+  newest master really has (Momentum cols/widths, Drive copy age, script sizes). Run on the master by
   signal_tracker (last step of every scan / rbsig) and on the Portfolio file before save (Dashboard, Holdings cards skipped).
 
 ## EMA 9/21 cross (ema_backtest.py, 29 Sep 2026) - RB's idea, pre-registered, same honest setup

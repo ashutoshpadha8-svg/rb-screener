@@ -5,7 +5,7 @@ columns ko ache se, sab jagah").
 fit_sheet(ws): finds the header row (first row in 1..8 with >= 3 bold text
 cells), sets every column's width from its header words and its values
 (numbers measured as shown), header row tall enough for its wrapped words,
-body cells on one line (no tall rows). Long note lines (> 60 chars) and
+body cells on one line (no tall rows, wrap off, saved heights cleared). Long note lines (> 60 chars) and
 cells under the table are ignored, so notes never blow up a column.
 fit_workbook(wb, skip=...) runs it on every sheet except the skipped ones
 (Dashboard / Holdings cards have their own layout).
@@ -82,15 +82,18 @@ def fit_sheet(ws):
             data = max(data, n if n <= NOTE_LEN else MAX_W)
         half = math.ceil(len(head) / 2)          # header in <= 2 lines
         w = min(MAX_W, max(MIN_W, word + 3, half + 3, data + 2))
-        for cell, n in sizes:         # fits on one line -> no tall row;
-            al = cell.alignment       # long text (Cons, news) keeps wrap
-            if al is not None and al.wrap_text and n <= w:
+        for cell, n in sizes:         # table rows stay ONE line high (RB:
+            al = cell.alignment       # tall rows = bad); long text is cut,
+            if al is not None and al.wrap_text:   # full text on click
                 cell.alignment = Alignment(horizontal=al.horizontal,
                                            vertical=al.vertical,
                                            wrap_text=False)
         ws.column_dimensions[L(c)].width = w
         lines = max(lines, math.ceil((len(head) + 1) / max(w - 1, 1)))
     ws.row_dimensions[h].height = 15 * min(lines, 4) + 4
+    for r in range(h + 1, last + 1):  # old saved heights would keep rows tall
+        if r in ws.row_dimensions:
+            ws.row_dimensions[r].height = None
     return True
 
 
@@ -102,3 +105,59 @@ def fit_workbook(wb, skip=("Dashboard", "Holdings")):
             fit_sheet(ws)
         except Exception:
             pass                      # layout only -- never stop a report
+
+
+def check():
+    """python3 xl_fit.py check -> what today's master file really contains
+    (no prices, no token): newest scan, Momentum_Top20 columns + widths,
+    and whether the Google Drive copy is as new as the local file."""
+    import glob
+    import os
+    from openpyxl import load_workbook
+    here = os.path.dirname(os.path.abspath(__file__))
+    files = [f for f in glob.glob(os.path.join(here, "reports",
+                                               "RB_Screener_*.xlsx"))
+             if not os.path.basename(f).startswith("~$")]
+    if not files:
+        print("No master scan in reports/.")
+        return
+    f = max(files, key=os.path.getmtime)
+    print("Newest master: %s  (saved %s)" % (os.path.basename(f), dt.datetime
+          .fromtimestamp(os.path.getmtime(f)).strftime("%d %b %H:%M")))
+    wb = load_workbook(f)
+    for n in ("Momentum_Top20", "Swing"):
+        if n not in wb.sheetnames:
+            print("  %s: MISSING" % n)
+            continue
+        ws = wb[n]
+        heads = [ws.cell(row=1, column=c).value for c in range(1, 6)]
+        widths = [ws.column_dimensions[L(c)].width for c in range(1, 6)]
+        print("  %s: %s | widths %s | header height %s"
+              % (n, heads, widths, ws.row_dimensions[1].height))
+    print("  Signal_Tracker tab: %s" % ("yes" if "Signal_Tracker" in
+                                         wb.sheetnames else "NO"))
+    try:
+        import drive_copy
+        dst = drive_copy._target(f)
+        if dst and os.path.exists(dst):
+            late = os.path.getmtime(f) - os.path.getmtime(dst)
+            print("  Drive copy: %s" % ("same as local" if late < 5 else
+                                        "OLDER than local by %d min"
+                                        % (late // 60)))
+        else:
+            print("  Drive copy: not found")
+    except Exception as e:
+        print("  Drive copy: could not check (%s)" % type(e).__name__)
+    for m in ("momentum_screener", "signal_tracker", "portfolio",
+              "daily_screener", "xl_fit"):
+        p = os.path.join(here, m + ".py")
+        print("  %-18s %s bytes" % (m + ".py", os.path.getsize(p)
+                                    if os.path.exists(p) else "MISSING"))
+
+
+if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["check"]:
+        check()
+    else:
+        print("usage: python3 xl_fit.py check")
