@@ -453,6 +453,16 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   -> portfolio.rebal_window uses trading days. (6) stop_policy_study.py: live stop (low hit -> next-open AMO) vs backtest
   intraday fill: avg trade 12.1 vs 11.8% (same), but stop exits worse than -25%: 20 vs 10, worst -84 vs -63% ->
   20% is NOT a max loss; close-based stop 12.6% avg but 29 tails. Live policy kept (a resting SL/GTT = new feature, RB decides).
+  MILESTONE 1 (execution, 30 Sep, Codex plan) DONE: every order carries our tag (broker_api.order_tag = RB+yymmdd+B|S+SYM,
+  Dhan correlationId / Angel ordertag / Kite tag); log_intent() row BEFORE the POST; a lost reply -> find_order_by_tag
+  (Dhan GET /orders/external/{tag}, Angel/Kite order book) -> OK / 'not placed, safe to re-run' / STATUS UNKNOWN;
+  orphan INTENT rows (crash mid-send) block until the book says otherwise; sync() handles partial fills (PENDING keeps
+  'pending', CANCELLED-with-fills closes at the filled qty). tests/test_execution.py = 23 mocked checks (timeout
+  after/before accept, book down, crash, cancel, partial, holiday, 20 slots/sector, rebalance) -> run after any change.
+  NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
+  delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
+  GTT/SL design waiting on RB: A) swing only vs test momentum 20% stop, B) MARKET vs LIMIT. Dhan order APIs need a
+  whitelisted STATIC IP (docs) -> needed before TRADING ON.
 - 29 Sep: Angel getCandleData rate limit (3/s, 180/min) -> HTTP 403 'exceeding access rate' was read as a bad token,
   the fill stopped after ~50 big caps and momentum ranked ONLY those (liq needed the last bar). Fixed: throttle,
   rate-limit = retry, per-stock failures skip, loud 'N stocks not filled' warning, liq min_periods=50.

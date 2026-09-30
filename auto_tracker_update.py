@@ -368,6 +368,7 @@ def place_orders(sess, live, use_limit, dry):
     accepted = []
     for x in live:
         lim = round(round(x["entry_price"] * (1 + LIMIT_BUFFER) / 0.05) * 0.05, 2)
+        ba.log_intent(x["symbol"], "BUY", x["shares"], x["product"], sess)
         ok, res, status = ba.place_amo_order(
             x["symbol"], x["shares"], x["product"] == "MTF", sess=sess,
             order_type=otype, price=lim if use_limit else 0.0)
@@ -407,11 +408,20 @@ def sync(sess):
         q, avg, st = o["filled_qty"], o["avg_price"], o["status"] or o["raw"] or "?"
         leg = next((c for c in ("momentum_qty", "investing_qty", "swing_qty")
                     if r[c] > 0), "swing_qty")       # SIP rows: investing_qty
-        if q > 0 and avg:
+        if q > 0 and avg and st == "PENDING":    # partly filled, rest open
             sp.at[i, leg] = q
             sp.at[i, "entry_price"] = round(avg, 2)
-            sp.at[i, "note"] = str(r["note"]).replace("pending", "filled")
-            print("  %-12s filled %d @ %.2f" % (r["symbol"], q, avg))
+            print("  %-12s PARTLY filled %d @ %.2f (order still open -- "
+                  "rbtrack --sync again later)" % (r["symbol"], q, avg))
+        elif q > 0 and avg:
+            ordered = r[leg]
+            sp.at[i, leg] = q
+            sp.at[i, "entry_price"] = round(avg, 2)
+            part = "" if q >= ordered else " (partial: %d of %d, rest %s)" \
+                % (q, ordered, str(st).lower())
+            sp.at[i, "note"] = str(r["note"]).replace("pending",
+                                                      "filled" + part)
+            print("  %-12s filled %d @ %.2f%s" % (r["symbol"], q, avg, part))
         elif st in ("REJECTED", "CANCELLED", "EXPIRED"):
             sp.at[i, leg] = 0
             sp.at[i, "note"] = str(r["note"]).replace("pending", st.lower())
@@ -495,6 +505,7 @@ def place_sells(sess, sells, dry):
     sp = read_split()
     sp["note"] = sp["note"].fillna("").astype(object).astype(str)
     for x in todo:
+        ba.log_intent(x["symbol"], "SELL", x["qty"], x["product"], sess)
         ok, res, status = ba.place_amo_order(
             x["symbol"], x["qty"], x["product"] == "MTF", sess=sess,
             order_type="MARKET", side="SELL")

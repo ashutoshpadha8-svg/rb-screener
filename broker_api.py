@@ -1042,8 +1042,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
     try:
         if sess.broker == "DHAN":
             body = {"dhanClientId": sess.client_id,
-                    "correlationId": ("RB%s%s" % (dt.date.today().strftime(
-                        "%y%m%d"), sym))[:30],
+                    "correlationId": order_tag(sym, side),
                     "transactionType": side, "exchangeSegment": "NSE_EQ",
                     "productType": "MTF" if is_mtf else "CNC",
                     "orderType": order_type, "validity": "DAY",
@@ -1064,7 +1063,8 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
                     "exchange": "NSE", "ordertype": order_type,
                     "producttype": "MARGIN" if is_mtf else "DELIVERY",
                     "duration": "DAY", "price": "%.2f" % lim, "squareoff": "0",
-                    "stoploss": "0", "quantity": str(qty)}
+                    "stoploss": "0", "quantity": str(qty),
+                    "ordertag": order_tag(sym, side)}
             d = _call(sess, "POST",
                       "/rest/secure/angelbroking/order/v1/placeOrder", body=body,
                       once=True)
@@ -1074,7 +1074,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
         form = {"tradingsymbol": x["tsym"], "exchange": "NSE",
                 "transaction_type": side, "order_type": order_type,
                 "quantity": qty, "product": "MTF" if is_mtf else "CNC",
-                "validity": "DAY"}
+                "validity": "DAY", "tag": order_tag(sym, side)}
         if order_type == "LIMIT":
             form["price"] = lim
         d = _call(sess, "POST", "/orders/amo", form=form, once=True)
@@ -1082,6 +1082,15 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
         return (True, oid, "AMO") if oid else \
             (False, "no order id in reply", "ERROR")
     except BrokerError as e:
+        if "STATUS UNKNOWN" in str(e):          # reply lost: ask the book
+            time.sleep(3)
+            found, oid, st = find_order_by_tag(sess, order_tag(sym, side))
+            if found:
+                return True, oid, st or "AMO"
+            if found is False:
+                return False, "not placed (order book checked, no order " \
+                    "with tag %s) -- safe to run rbtrack again" \
+                    % order_tag(sym, side), "ERROR"
         return False, str(e), "ERROR"
 
 
@@ -1127,6 +1136,62 @@ def check_order_status(order_id, broker=None, token=None, sess=None):
     return out
 
 
+def order_tag(symbol, side="BUY", day=None):
+    """Our own id on every order (Dhan correlationId / Angel ordertag / Kite
+    tag, <= 20 chars): RB + yymmdd + B|S + symbol. Same stock + side + day =
+    same tag, so a lost reply can be looked up in the broker's order book."""
+    day = day or dt.date.today()
+    s = re.sub(r"[^A-Z0-9]", "", str(symbol).upper())
+    return ("RB%s%s%s" % (day.strftime("%y%m%d"), str(side).upper()[:1],
+                          s))[:20]
+
+
+def find_order_by_tag(sess, tag):
+    """(True, order_id, status) if the broker has an order with our tag,
+    (False, '', '') if the book was read and has none, (None, '', '') if the
+    book could not be read (then nobody can say -> treat as placed)."""
+    try:
+        if sess.broker == "DHAN":
+            try:
+                d = _call(sess, "GET", "/orders/external/%s" % tag, retries=1)
+            except BrokerError as e:
+                if "404" in str(e) or "not found" in str(e).lower():
+                    return False, "", ""
+                raise
+            d = (d[0] if d else {}) if isinstance(d, list) else (d or {})
+            oid = str(d.get("orderId") or "")
+            st = str(d.get("orderStatus") or "").upper()
+        elif sess.broker == "ANGEL":
+            book = _call(sess, "GET",
+                         "/rest/secure/angelbroking/order/v1/getOrderBook")
+            d = next((o for o in book or [] if str(o.get("ordertag")) == tag),
+                     {})
+            oid = str(d.get("orderid") or "")
+            st = str(d.get("status") or d.get("orderstatus") or "").upper()
+        else:
+            book = _call(sess, "GET", "/orders")
+            d = next((o for o in book or [] if str(o.get("tag")) == tag), {})
+            oid = str(d.get("order_id") or "")
+            st = str(d.get("status") or "").upper()
+        if not oid:
+            return False, "", ""
+        return True, oid, _STATUS.get(st, "PENDING" if st else "")
+    except Exception:
+        return None, "", ""
+
+
+def log_intent(symbol, side, qty, product, sess):
+    """Written BEFORE the order is sent: if rbtrack dies mid-send, the next
+    run sees this row (no result after it) and checks the broker first."""
+    log_order({"date": dt.date.today().isoformat(), "broker": sess.broker,
+               "client_id": sess.client_id,
+               "time": ds.now_ist().strftime("%H:%M:%S"),
+               "symbol": symbol, "qty": qty, "side": side,
+               "product": product, "type": "", "ok": False, "order_id": "",
+               "status": "INTENT", "error": "INTENT tag=%s"
+               % order_tag(symbol, side)})
+
+
 def log_order(row):
     exists = os.path.exists(ORDER_LOG)
     pd.DataFrame([row]).to_csv(ORDER_LOG, mode="a", header=not exists,
@@ -1150,8 +1215,20 @@ def _still_live(rows, sess):
         return True
     for _, r in rows.iterrows():
         oid = str(r.get("order_id", "") or "").split(".")[0]
-        if not oid or oid == "nan":
-            return True                          # status unknown -> block
+        if not oid or oid == "nan":              # unknown / orphan intent:
+            try:                                 # look for our tag
+                day = dt.date.fromisoformat(str(r.get("date")))
+            except ValueError:
+                return True
+            found, oid, st = find_order_by_tag(
+                sess, order_tag(r["symbol"], _log_side(rows.loc[[r.name]])
+                                .iloc[0], day))
+            if found is False:
+                continue                         # broker: never placed
+            if found is None or st not in ("REJECTED", "CANCELLED",
+                                           "EXPIRED"):
+                return True
+            continue
         st = check_order_status(oid, sess=sess).get("status")
         if st not in ("REJECTED", "CANCELLED", "EXPIRED"):
             return True                          # pending / traded / unknown
@@ -1171,11 +1248,24 @@ def ordered_today(symbol, side="BUY", sess=None):
 
 
 def _placed(d):
-    """Accepted, OR status unknown after a network error (may be placed ->
-    never send it again the same day / window)."""
-    unknown = d["error"].astype(str).str.contains("STATUS UNKNOWN") \
-        if "error" in d else False
-    return (d["ok"] == True) | unknown                         # noqa
+    """Accepted, OR status unknown after a network error, OR an INTENT row
+    with no result row after it (rbtrack stopped mid-send) -> may be placed,
+    never send it again blindly."""
+    if "error" not in d:
+        return d["ok"] == True                                  # noqa
+    err = d["error"].astype(str)
+    unknown = err.str.contains("STATUS UNKNOWN")
+    intent = err.str.startswith("INTENT")
+    side = _log_side(d)
+    orphan = pd.Series(False, index=d.index)
+    for i in d.index[intent]:
+        later = d.loc[d.index > i]
+        done = (later["symbol"] == d.at[i, "symbol"]) & \
+            (later["date"].astype(str) == str(d.at[i, "date"])) & \
+            (side[later.index] == side[i]) & \
+            ~later["error"].astype(str).str.startswith("INTENT")
+        orphan[i] = not done.any()
+    return (d["ok"] == True) | unknown | orphan                 # noqa
 
 
 def sold_recently(symbol, days=4, sess=None):
