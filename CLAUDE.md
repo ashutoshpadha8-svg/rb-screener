@@ -476,6 +476,14 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   momentum slot (strategy momentum or unknown). P2 final fill without a price -> note 'PRICE?' -> re-asked every sync
   until the real average arrives. sync selects any real order id (not len>3). send_one returns (ok,res,status,tag).
   strategy_lab.run_rank(buy_delay=N). Tests 43/43.
+  Codex delay backtest (30 Sep, RB pasted; own whole-share engine, Rs 10k FIXED slots, est. hist 10k universe):
+  same open 14.12% / DD -19.07; buy next session old list 13.95 / -18.98; refreshed list 14.10 / -18.56; no cash
+  interest 12.66. -> delay cost small (matches ours). The 14% vs our 20.4% is SIZING: fixed Rs 10k x 20 = Rs 2 L
+  invested forever, growth piles up in 6% cash (lower CAGR AND lower DD). Live default = fixed Rs 10k -> decision
+  for RB (milestone 2): slot = current account value / 20 like the backtest. Median hold 120 days (not 1-2 weeks).
+  Codex UI asks (prototype xlsx on RB's Mac, not seen): page 1 exits / pending orders / cash + free slots / data
+  freshness; compact shortlist; signal date + last complete bar + LTP time per stock; 4 '?' sectors; tracker 5/10
+  session returns with costs + sample size.
   30 Sep: RB installed the full code zip (MANIFEST.txt sizes) in ~/RB_Screener AND ~/Downloads/codex/RB_Screener
   (Codex review copy); both "check done", no duplicate files; tests 26/26 on the Mac (Python 3.9, LibreSSL warning harmless).
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
