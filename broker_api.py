@@ -527,6 +527,105 @@ def get_live_price(symbol, broker=None, token=None, sess=None):
     return live_prices(sess, [symbol]).get(str(symbol).upper())
 
 
+# ------------------------------------------------------------------ NSE bhavcopy
+# ONE file per day holds every stock's OHLCV (unadjusted, same as broker bars).
+# 4 missing days = 4 downloads instead of ~500 broker calls per missing stretch.
+BHAV_URL = ("https://nsearchives.nseindia.com/content/cm/"
+            "BhavCopy_NSE_CM_0_0_0_%s_F_0000.csv.zip")
+BHAV_DIR = os.path.join(ds.DATA, "_bhav")
+BHAV_SERIES = ("EQ", "BE", "BZ")
+
+
+def _bhav_day(d):
+    """{SYMBOL: (O, H, L, C, V)} for one session, or None (holiday / not out
+    yet / blocked). Downloads once, kept in data/_bhav/."""
+    import io
+    import zipfile
+    tag = d.strftime("%Y%m%d")
+    path = os.path.join(BHAV_DIR, tag + ".csv.zip")
+    if not os.path.exists(path):
+        r = None
+        for hdr in (ds.NSE_HDRS, {"User-Agent": "Mozilla/5.0"},
+                    ds.NSE_HDRS):           # NSE refuses one or the other
+            try:
+                r = requests.get(BHAV_URL % tag, headers=hdr, timeout=30)
+            except requests.RequestException:
+                r = None
+            if r is not None and r.status_code == 200 and \
+                    r.content[:2] == b"PK":
+                break
+            time.sleep(1.5)
+        if r is None or r.status_code != 200 or r.content[:2] != b"PK":
+            return None
+        os.makedirs(BHAV_DIR, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(r.content)
+    try:
+        with zipfile.ZipFile(path) as z:
+            t = pd.read_csv(io.BytesIO(z.read(z.namelist()[0])))
+    except Exception:
+        return None
+    t = t[t["SctySrs"].isin(BHAV_SERIES)]
+    return {str(r.TckrSymb).upper(): (r.OpnPric, r.HghPric, r.LwPric, r.ClsPric,
+                                      r.TtlTradgVol) for r in t.itertuples()}
+
+
+def bhav_fill(frames, want, warns=None):
+    """Fill the days the free source is missing from NSE's daily bhavcopy.
+    Returns how many stocks got at least one day. Never raises."""
+    warns = warns if warns is not None else []
+    behind = [s for s, f in frames.items() if f.index[-1].date() < want]
+    if not behind:
+        return 0
+    start = min(frames[s].index[-1].date() for s in behind) + \
+        dt.timedelta(days=1)
+    start = max(start, want - dt.timedelta(days=21))   # a lag, not history
+    days, d = [], start
+    while d <= want:
+        if d.weekday() < 5:
+            days.append(d)
+        d += dt.timedelta(days=1)
+    got = {}
+    for d in days:
+        try:
+            t = _bhav_day(d)
+        except Exception:
+            t = None
+        if t:
+            got[d] = t
+    if not got:
+        return 0
+    filled, skipped = set(), set()
+    for s in behind:
+        f = frames[s]
+        add = []
+        prev = float(f["Close"].iloc[-1])
+        for d in sorted(got):
+            if pd.Timestamp(d) <= f.index[-1] or s in skipped:
+                continue
+            row = got[d].get(s.upper())
+            if not row:
+                continue
+            o, h, l, c, v = (float(x) for x in row)
+            if not c > 0:
+                continue
+            if not 0.6 < c / prev < 1.4:          # split / bonus: adjusted
+                skipped.add(s)                    # history vs raw price
+                warns.append("%s: %.0f%% gap vs NSE bhavcopy -- possible "
+                             "split/bonus, fill skipped" % (s, (c / prev - 1)
+                                                            * 100))
+                break
+            add.append((pd.Timestamp(d), o, h, l, c, v))
+            prev = c
+        if add:
+            a = pd.DataFrame([x[1:] for x in add], index=[x[0] for x in add],
+                             columns=["Open", "High", "Low", "Close", "Volume"])
+            a.index.name = f.index.name
+            frames[s] = pd.concat([f, a])
+            filled.add(s)
+    return len(filled)
+
+
 # Broker bars fetched today are kept on disk, so the 2nd screen of the same
 # scan (momentum after W+TT) does not ask the broker for all 500 stocks again.
 _FILL = {"path": None, "bars": {}, "dirty": False}
@@ -603,6 +702,12 @@ def refresh(sess, frames, bm=None, want=None, warns=None, every=10):
     want = want or ds.last_expected_session()
     live = {}
     behind = [s for s, f in frames.items() if f.index[-1].date() < want]
+    if behind:                              # fast path: NSE daily file
+        n = bhav_fill(frames, want, warns)
+        if n:
+            print("  NSE bhavcopy: %d stock(s) filled (daily files, fast)" % n)
+        behind = [s for s, f in frames.items()
+                  if f.index[-1].date() < want]
     try:
         if behind or (bm is not None and bm.index[-1].date() < want):
             print("  source is behind -- filling missing days from %s ..."

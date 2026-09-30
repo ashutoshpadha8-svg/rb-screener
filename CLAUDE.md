@@ -398,6 +398,10 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 - 29 Sep: Angel getCandleData rate limit (3/s, 180/min) -> HTTP 403 'exceeding access rate' was read as a bad token,
   the fill stopped after ~50 big caps and momentum ranked ONLY those (liq needed the last bar). Fixed: throttle,
   rate-limit = retry, per-stock failures skip, loud 'N stocks not filled' warning, liq min_periods=50.
+- 30 Sep: gap fill first from NSE CM bhavcopy (broker_api.bhav_fill, BhavCopy_NSE_CM_0_0_0_YYYYMMDD_F_0000.csv.zip,
+  series EQ/BE/BZ, cached data/_bhav/, split guard 0.6-1.4x) -> broker only for leftovers + Nifty + today's bar before
+  NSE publishes it (evening). Checked vs eod2: 4578 stock-days (23-25 Sep), 0 mismatches in OHLC and volume.
+  NSE sometimes 403s one header set -> tries NSE_HDRS, plain UA, NSE_HDRS.
 - NEVER put the token inside a .py file or print it. It once got pasted into position_tracker.py docstring (fixed).
 - Copying a terminal command overwrites the clipboard - don't use `pbpaste` right after copying a command.
 - Dhan may not publish today's daily candle until later in the evening; prices are still live.
