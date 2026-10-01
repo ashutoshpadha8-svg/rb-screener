@@ -58,16 +58,15 @@ def combine(size_k, mll, target, max_minis):
     }
 
 
-def xfa(size_k, mll, cap_std, cap_cons, max_minis):
+def xfa(size_k, mll, cap_std, cap_cons, max_minis, scaling):
     return {
         "name": "Topstep %dK Express Funded Account" % size_k,
         "stage": "xfa",
         "start_balance": 0.0,           # XFA starts at $0
         "mll": mll,                     # starts at -MLL, trails EOD, locks at $0; $0 for good after any payout
         "max_micros": max_minis * 10,
-        # Scaling plan: (balance at start of session, max micros). 50K verified (2 / 3 / 5 minis).
-        # 100K/150K thresholds NOT published in the help center - using the 50K table as a safe floor until verified.
-        "scaling": [(0.0, 20), (1500.0, 30), (2000.0, 50)],
+        # Scaling plan: (balance at start of session, max micros). Confirmed by Topstep support (Irene), 29 Sep 2026.
+        "scaling": scaling,
         "cap_standard": cap_std,        # max per payout request (x2 if DLL was chosen at purchase)
         "cap_consistency": cap_cons,
         "xfa_consistency": 0.40,        # Consistency path: best day <= 40% of profit since last payout, 3+ days
@@ -85,9 +84,9 @@ PROFILES = {
     "150k": combine(150, 4500.0, 9000.0, 15),
 }
 XFA_PROFILES = {
-    "50k": xfa(50, 2000.0, 2000.0, 3000.0, 5),
-    "100k": xfa(100, 3000.0, 3000.0, 4000.0, 10),
-    "150k": xfa(150, 4500.0, 5000.0, 6000.0, 15),
+    "50k": xfa(50, 2000.0, 2000.0, 3000.0, 5, [(0.0, 20), (1500.0, 30), (2000.0, 50)]),
+    "100k": xfa(100, 3000.0, 3000.0, 4000.0, 10, [(0.0, 30), (1500.0, 40), (2000.0, 50), (3000.0, 100)]),
+    "150k": xfa(150, 4500.0, 5000.0, 6000.0, 15, [(0.0, 30), (1500.0, 40), (2000.0, 50), (3000.0, 100), (4500.0, 150)]),
 }
 RULES = PROFILES["50k"]
 

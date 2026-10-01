@@ -87,6 +87,15 @@ def test_xfa_floor_scaling_and_payout_lock():
     assert g.account_limits({D(2026, 11, 3): 100.0}, today, r2)[0] == 0.0  # after payout MLL = 0
 
 
+def test_xfa_scaling_100k_150k():
+    today = D(2026, 11, 6)
+    r = g.make_rules("xfa", "100k")
+    assert g.account_limits({D(2026, 11, 3): 3200.0}, today, r)[1] == 100
+    r = g.make_rules("xfa", "150k")
+    assert g.account_limits({D(2026, 11, 3): 1000.0}, today, r)[1] == 30
+    assert g.account_limits({D(2026, 11, 3): 4600.0}, today, r)[1] == 150
+
+
 def test_xfa_consistency_early_warning():
     r = g.make_rules("xfa", "50k", "consistency")
     now = dt.datetime(2026, 11, 6, 10, 0, tzinfo=CT)

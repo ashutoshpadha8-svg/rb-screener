@@ -110,3 +110,19 @@ Confirmed in writing:
 NOT answered (follow-up drafted asking for a human): India eligibility, bot OK under "unfair technology" rule,
 read-only API on XFA/Live, DLL double caps on Standard path, full scaling table, MLL $0 after payout,
 US withholding, 14-day guarantee for India, GST.
+
+## Human support reply - Irene, Topstep Support, 29 Sep 2026 (keep this email)
+- INDIA IS ELIGIBLE: Trading Combine, Express Funded and Live Funded, payouts "without restrictions".
+- API is "designed for ... algo traders ... build trading algos, alert systems, risk tools". Automated trading
+  through the ProjectX API is PROHIBITED ON THE LIVE FUNDED ACCOUNT (allowed in Combine/XFA). API is $29/month via
+  ProjectX ($14.50 with code). API support: dashboardapi@topstep.com. Orders via API are final.
+- XFA scaling plan (lots = minis; x10 micros), new tier applies from the NEXT session:
+  50K: <$1,500 2 | $1,500-2,000 3 | >$2,000 5
+  100K: <$1,500 3 | $1,500-2,000 4 | $2,000-3,000 5 | >$3,000 10
+  150K: <$1,500 3 | $1,500-2,000 4 | $2,000-3,000 5 | $3,000-4,500 10 | >$4,500 15
+- After the FIRST XFA payout the MLL is $0 permanently.
+- No US tax withheld for non-US traders with W-8BEN; no 1099; report in India.
+- 14-day guarantee: first Combine only, within 14 days, not passed.
+- GST/taxes shown at checkout for Indian cards.
+Still not answered: double payout caps with DLL on the Standard path; read-only API on a Live account.
+Ticket auto-closed 29 Sep (no reply) - reply on the same thread to reopen.

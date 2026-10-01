@@ -76,7 +76,7 @@ Done:
 - rule_guard.py on RB's Mac at ~/RB_Screener/futures (demo works). Supports 50k/100k/150k Combine via --size,
   multiple accounts via --account (one Terminal window per account), `list` shows account names.
 - Screener actually lives at ~/RB_Screener (home), not Desktop. rbscan alias not set up on this Mac.
-Next step (waiting on RB): Topstep account made (28 Sep). Practice account is NOT free - needs an active Combine.
+Topstep human support (29 Sep): India ELIGIBLE for all stages; API algos OK in Combine/XFA, banned on Live. Practice needs active Combine.
 Full rules in futures/TOPSTEP_RULES.md. Before paying: email support (India eligibility + bot OK).
 After that: install requests, create topstep_login.txt, run guard live on Practice; then NOISE signal mode.
 Guard now has XFA mode (--stage xfa --path standard|consistency --payout-since --dll): 40% early warning,
