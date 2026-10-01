@@ -111,3 +111,14 @@ First run of RB idea showed 34-45% pass but used an optimistic same-bar assumpti
 at lock in the same bar). Conservative version (lock from previous bars, gap fills at open) above = the real answer.
 Tight profit locks raise win rate but kill the big winners that pay for the losers. Also: Combine MLL is EOD, an
 intraday open-profit peak does NOT move the MLL, so locking +$90 of a +$100 trade isn't needed for drawdown.
+
+## FundedNext Futures Rapid check (1 Oct 2026) - strong BACKUP (replaces MFFU as #2)
+- UAE firm, founded 2022 (forex first; futures arm newer). Rapid Pro/Daily launched July 2026 (rules churn).
+- 50K Rapid: $159.99 ONE-TIME (discounted), target $3,000, MLL $2,000 EOD trailing, can pass in 1 day,
+  NO consistency in the challenge. Daily: $1,000 DLL, daily payouts, buffer first. Pro: no DLL, 40% consistency
+  when funded, payout every 3 days. Cap per cycle $800/$1,200/$2,500 (25/50/100K), min $500 profit/cycle, 90%.
+- Bots/EAs officially allowed (Tradovate integrations); no tech support; no latency/order-flood abuse.
+- Payouts: Rise, bank transfer, USDT/USDC, ~24h. India is a top country by payouts.
+- Tradovate only (Python bot needs Tradovate API or a webhook bridge - verify access for prop accounts).
+- NOISE sim on Rapid rules (no consistency, 40 micros, 60-session limit): pass 34.7% (2016-21) / 45.0% (2022-26)
+  vs Topstep 28.8% / 35.9%. Median days to pass 18 / 27.5 vs 23 / 31.
