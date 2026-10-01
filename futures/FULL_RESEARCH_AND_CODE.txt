@@ -1,0 +1,1860 @@
+RB FUTURES PROJECT - POORI RESEARCH + SAARA CODE (1 Oct 2026)
+==============================================================
+Is file mein:
+  1. PROP_FIRM_GUIDE.txt   - simple guide: Topstep vs FundedNext, INR kharcha, payout kab, rules kaise sambhalein
+  2. TOPSTEP_RULES.md      - Topstep ki poori research (Help Center + support ke jawab)
+  3. PLAN.md               - poora plan + saare backtest results (Run 1-4) + firm comparisons
+  4-9. Code: rule_guard.py, test_rule_guard.py, backtest.py, tune_noise.py, smc_test.py, giveback_test.py
+Code chalane ke liye files alag se ~/RB_Screener/futures mein hain - yahan sirf padhne ke liye copy hai.
+
+
+################################################################
+### FILE: PROP_FIRM_GUIDE.txt
+################################################################
+
+PROP FIRM GUIDE - TOPSTEP vs FUNDEDNEXT (RB ke liye, 1 Oct 2026)
+=================================================================
+Rate: 1 USD = ~Rs 96 (1 Oct 2026). Prices badalte rehte hain - khareedne se pehle site pe check karo.
+"All-in" = base price + 18% GST (Indian card pe checkout mein lagta hai) + ~3.5% bank forex markup.
+Zero-markup forex card (Niyo, Scapia, IDFC First etc.) use karo to ~3.5% bach jayega.
+
+
+---------------------------------------------------------------
+PART A: YEH PROP FIRM KAAM KAISE KARTI HAI (2 minute mein)
+---------------------------------------------------------------
+1. Aap exam (evaluation) ki fees dete ho. Trading SIMULATED account pe hoti hai.
+2. Exam pass = $3,000 profit banao, aur kabhi $2,000 se zyada neeche mat jao.
+3. Pass hone pe "funded" account milta hai (abhi bhi simulated). Wahan jo profit banao,
+   uska 90% firm aapko ASLI paisa bhejti hai (performance fee).
+4. Fail = account khatam, phir se fees / reset.
+Sachai: Topstep ke 2025 data mein sirf 16.8% exams pass hue, aur funded logon mein se
+sirf 33% ko kabhi payout mila. Hamare backtest (NOISE strategy) mein pass rate 29-45%.
+
+
+---------------------------------------------------------------
+PART B: TOPSTEP (hamara #1)
+---------------------------------------------------------------
+Firm: 2012 se, Chicago (US). India ELIGIBLE - support (Irene) ne 29 Sep 2026 ko likhit mein bola.
+
+PAISA (50K account, Standard plan):
+  Kya                         USD      INR base   INR all-in (approx)
+  Combine (exam) per mahina   $49      Rs 4,700   Rs 5,750
+  Pass hone pe activation     $149     Rs 14,300  Rs 17,500  (sirf pass hone pe)
+  API (guard/bot ke liye)     $14.50   Rs 1,400   Rs 1,700   (per mahina)
+  Payout wire fee             $30      payout se katega
+  ---------------------------------------------------------
+  Shuru mein dena:  ~Rs 5,750 (exam) + Rs 1,700 (API)  = ~Rs 7,500 pehle mahine
+  Pass karke payout tak (best case, 1 mahine mein pass): ~Rs 25,000 total
+  Fail hua to: har mahine ~Rs 5,750 jab tak pass na ho ya cancel na karo.
+  Refund: pehle Combine pe 14 din ke andar (agar pass nahi kiya).
+
+EXAM RULES (Combine 50K):
+  - Target: $3,000 profit
+  - Max Loss Limit (MLL): $2,000. Din ke close balance se trail karta hai, $50,000 pe lock.
+    Chalu trade ka loss bhi gina jata hai - floor chhua to turant account fail.
+  - Daily Loss Limit (DLL): $1,000 (hum ON karenge). Hit = us din band, account nahi jata.
+  - Consistency: ek din ka profit total ka 55% se zyada hua to target badh jata hai.
+    Matlab kam se kam 2 din lagenge.
+  - Max size: 5 mini / 50 micro contracts.
+  - Sab positions 3:10 PM CT tak band (IST mein raat ~1:40 baje, Nov se ~2:40 baje).
+
+FUNDED (Express) RULES:
+  - Balance $0 se shuru, MLL -$2,000.
+  - Size: $1,500 se kam = 20 micros, $1,500-2,000 = 30, $2,000+ = 50.
+  - Payout ke liye: 5 din $150+ profit (Standard), ya 3 din with ek din <= 40% (Consistency).
+  - Ek payout: balance ka 50%, max $2,000 (50K).
+  - PEHLE PAYOUT KE BAAD MLL $0 PE FIX - jo balance chhodoge wahi buffer hai.
+  - Split: 90% aapka (12 Jan 2026 ke baad join karne walon ke liye).
+
+PAYOUT KAB (Topstep):
+  Best case:  Exam 2 din + Express 3-5 din + wire 5-10 business din = ~3-4 hafte.
+  Realistic:  Hamare backtest mein median ~1-1.5 mahina per pass, aur 3 mein se ~2 attempts fail.
+              Isliye pehla payout 2-4 mahine mein aana normal maano.
+  Example: Express mein $1,000 profit -> 50% = $500 nikaalo -> 90% = $450 -> minus $30 = $420
+           = ~Rs 40,000 bank mein (SWIFT wire, 5-10 din).
+
+BOT: Combine aur Express mein allowed (official API). Live account mein banned - wahan haath se.
+
+
+---------------------------------------------------------------
+PART C: FUNDEDNEXT RAPID (backup #2)
+---------------------------------------------------------------
+Firm: 2022 se, UAE. Futures side naya (Rapid plan July 2026 mein aaya). India ke log bahut use karte hain.
+
+PAISA (50K Rapid):
+  Exam (ek baar, monthly nahi)  $159.99  Rs 15,350 base  ~Rs 18,750 all-in
+  Activation                     $0
+  Reset (fail hone pe)           ~$85-130 (plan pe depend)
+  Payout fee                     koi nahi likha
+  Shuru mein dena: ~Rs 18,750 ek baar.
+
+EXAM RULES:
+  - Target $3,000, max loss $2,000 (EOD), consistency NAHI - 1 din mein bhi pass.
+  - Max size ~40 micros.
+  - Do plan: PRO (no daily loss limit, funded mein 40% consistency, payout har 3 din)
+             DAILY ($1,000 daily loss limit, koi consistency nahi, payout roz, pehle buffer banana)
+
+PAYOUT KAB (FundedNext):
+  Best case: Exam 1 din + 3 din (Pro) + 24 ghante = ~1 hafta.
+  Har cycle: min $500 profit, max $1,200 (50K). 90% aapka.
+  Methods: Rise, bank transfer, crypto (crypto MAT lena - account freeze ka risk). ~24 ghante.
+
+BOT: Likhit mein allowed (Tradovate ke through). Lekin hamara guard/bot abhi Topstep (ProjectX)
+     ke liye bana hai - FundedNext ke liye dobara likhna padega.
+
+
+---------------------------------------------------------------
+PART D: SEEDHA COMPARISON
+---------------------------------------------------------------
+                       TOPSTEP                    FUNDEDNEXT RAPID
+Shuru ka kharcha       ~Rs 7,500/mahina           ~Rs 18,750 ek baar
+Pass pe extra          ~Rs 17,500 activation      Rs 0
+NOISE pass rate        29-36%                     35-45%
+Pehla payout (best)    ~3-4 hafte                 ~1 hafta
+Payout India           SWIFT wire, $30, 5-10 din  Rise/bank, ~24 ghante
+Max per payout (50K)   $2,000                     $1,200
+Firm kitni purani      2012                       2022 (futures 2024+)
+Hamara code ready?     HAAN                       NAHI (Tradovate ke liye likhna padega)
+Asli capital (Live)    Haan (invite se)           Clear nahi
+
+Faisla: Topstep se shuru. Topstep pe kuch gadbad ho to FundedNext.
+
+
+---------------------------------------------------------------
+PART E: RULES KAISE SAMBHALENGE (bhoolne se kaise bachein)
+---------------------------------------------------------------
+4 layer suraksha - ek bhool jao to doosra pakad le:
+
+LAYER 1 - PLATFORM KHUD ROKEGA (TopstepX settings, ek baar set karo):
+  - Daily Loss Limit $1,000 (purchase pe ON) -> hit hote hi platform positions band kar deta hai.
+  - Personal Daily Loss Limit (TopstepX Risk Settings): $800, "Liquidate and Block" ->
+    $800 loss pe platform khud band karke us din trading block.
+  - Max contracts limit TopstepX mein bhi set karo (jaise 15 micros).
+  - Bracket order default ON: har entry ke saath stop-loss apne aap lage.
+  - 3:10 PM CT pe Topstep khud sab band kar deta hai.
+
+LAYER 2 - RULE GUARD (hamara code, aapke Mac pe, har 5 second):
+  Command: rbfutg --since <account start date>
+  Pehle se alert dega (screen + Mac notification + awaaz):
+  - MLL ke paas (50% / 25% buffer bacha)
+  - Daily loss limit ke paas (75%)
+  - Bina stop ke position
+  - Stop itna door ki hit hua to MLL tootega
+  - Size limit ke paas / pending order se limit tootegi
+  - 3:10 PM CT se 15 min aur 3 min pehle
+  - Consistency: ek din ka profit bahut zyada (55% exam / 40% funded) - pehle hi bata dega
+  - Express mein: winning days ginti, payout eligible hone pe batayega
+  Trade se pehle: rbfutch MNQ 5 20 --since <date>  -> GO / NO-GO
+
+LAYER 3 - AADATEIN (khud ke rules):
+  - Har trade pe stop. Bina stop ke kabhi nahi.
+  - Ek trade mein max $300 risk.
+  - Din ka $800 loss = laptop band.
+  - CPI/FOMC/NFP ke time full size nahi (Topstep ka rule).
+  - VPN kabhi nahi. Do accounts mein ulta trade (hedging) kabhi nahi.
+
+LAYER 4 - CHECKLIST (har raat trading se pehle, 1 minute):
+  [ ] Guard chal raha hai? (rbfutg)
+  [ ] Aaj koi badi news (CPI/FOMC/NFP)? Economic calendar dekha?
+  [ ] Bracket/stop default ON hai?
+  [ ] Mac ka sleep OFF, internet theek?
+  [ ] Kal ka loss/profit dekha - aaj kitna room hai?
+
+Yaad rakho: guard ALERT deta hai, rokta nahi. Asli bachav exchange pe laga stop aur
+platform ki DLL settings hain. Guard ek dost hai jo kaan mein bolta hai "dhyan se".
+
+
+---------------------------------------------------------------
+PART F: AGLE STEPS (ek-ek karke)
+---------------------------------------------------------------
+1. Topstep 50K Standard Combine khareedo, DLL ON. (~Rs 5,750)
+2. Practice account activate (free, Combine ke saath).
+3. API lo ($14.50, code "topstep"), login file banao - commands main dunga.
+4. Guard ko Practice account pe live chalao 1-2 hafte.
+5. Phir Combine mein trade.
+
+
+################################################################
+### FILE: TOPSTEP_RULES.md
+################################################################
+
+# Topstep - full rules research (read from help.topstep.com, 28 Sep 2026)
+
+Topstep changes rules often. Re-check the help center before buying anything.
+
+## Eligibility (India)
+- India is NOT on the ineligible list and NOT on the "XFA only" list -> India appears eligible for Combine, XFA and Live.
+  Confirm with support before paying.
+- 18+. ID verification after first purchase: original physical passport / driving licence / national ID + selfie.
+  Use the passport (name must match PAN/bank for payouts). No VPN - location mismatch breaks verification and is banned.
+- Non-US traders fill W-8BEN. No US tax withheld info given; report in India (see earlier tax notes, get a CA).
+
+## Prices (checkout page + pricing article)
+| Size | Standard /month | Activation (per XFA, one-time) | No-Activation-Fee /month | With DLL ("Responsible Trading") |
+|---|---|---|---|---|
+| 50K  | $49  | $149 | $95 ($85 with DLL)  | payout caps x2 |
+| 100K | $99  | $149 | $149 ($129 with DLL) | payout caps x2 |
+| 150K | $199 | $149 | $229 ($199 with DLL) | payout caps x2 |
+- Reset = same as one month's fee. Every monthly rebill gives 1 free Reset credit (expires after 1 year). Max 2 resets/account/day.
+- Rebills every 30 days until you pass or cancel. Passing auto-cancels that subscription. Cancelled = gone for good.
+- Level 2 data $38/month (optional, not needed). TopstepX platform free. Cards: Visa/Mastercard/Amex/Discover, Apple/Google Pay. GST/VAT may be added.
+- Refunds: 14-day guarantee (one monthly fee, only if not passed). Resets, activation, L2 data, Back2Funded = no refund.
+  Chargeback = ban.
+- Practice account: FREE only WITH an active Combine ($150K sim, 15 lots, 10 resets/day). No free practice without buying.
+- API (ProjectX): $29/month, $14.50 with code "topstep". Combine + XFA only, NOT Live. No VPS/VPN; orders from own device.
+
+## Trading Combine (the exam)
+| | 50K | 100K | 150K |
+|---|---|---|---|
+| Profit target | $3,000 | $6,000 | $9,000 |
+| Max Loss Limit (EOD trailing, locks at start) | $2,000 | $3,000 | $4,500 |
+| Max contracts | 5 mini / 50 micro | 10 / 100 | 15 / 150 |
+| Optional DLL (soft: flattens, back next session) | $1,000 | $2,000 | $3,000 |
+- MLL checked in real time on realized + UNREALIZED P&L -> instant liquidation. Slippage past MLL is your problem.
+- Consistency 55%: best day's profit vs total. If a day is too big the target rises (e.g. $1,800 day -> need $3,273).
+  Best day locks at 3:10 PM CT.
+- Trading day 5:00 PM CT -> 3:10 PM CT. Flat by 3:10 PM CT (auto-flatten starts 3:10; don't open after 3:08).
+  No overnight / weekend holding. Futures only (no forex).
+- No minimum-days rule found in 2026 docs; no time limit (you pay monthly until pass).
+
+## Express Funded Account (XFA) - first account that pays
+- Starts at $0 balance (Combine profit does NOT carry over). MLL starts at -$2,000 (50K) and trails EOD, locks at $0.
+- AFTER EVERY PAYOUT: MLL resets to $0 permanently. Buffer = only what you leave in the account. Big trap.
+- Scaling plan (50K): 2 minis/20 micros at start, 3 minis at $1,500 balance, 5 minis at $2,000. Limit changes next
+  session only. Over the limit for 10+ seconds = review.
+- Max 5 active XFAs. No trading for 30+ days = account can be closed.
+- Payout paths:
+  - Standard: 5 winning days of $150+ (non-consecutive), up to 50% of balance, cap $2,000 (50K) / $3,000 / $5,000.
+  - Consistency: 3 trading days, best day <= 40% of profit, cap $3,000 / $4,000 / $6,000.
+  - DLL chosen at purchase -> caps doubled.
+- Split: 90/10 from the first dollar for accounts joined on/after 12 Jan 2026 (support confirmed 28 Sep 2026).
+- India payout: Wire/SWIFT, $30 fee, 5-10 business days. (Rise/Wise not offered for India.)
+- Back2Funded: lost XFA before any payout -> reactivate for $599/$699/$829 (max 2 times, 30-day window).
+
+## Live Funded Account
+- Only by Topstep Risk Team invitation (consistency, stops, sizing, payout history). Cannot be bought.
+- Account size = average of your XFAs; you get 20% now (min $10K), 80% in reserve released as you hit targets.
+  XFA balances above the Live account size are FORFEITED on call-up.
+- Live costs: pro market data $133/month per exchange (CME covered), NQ/ES $3.80 RT, own platform licence.
+- Daily loss limit mandatory ($2,000 / $3,000 / $4,500). Balance < $1,000 = closed.
+- Call-down back to sim for drawdowns, revenge trading, over-leverage.
+
+## Commissions (TopstepX, Combine/XFA)
+MNQ / MES $1.22 round turn. NQ / ES $3.78 round turn. (Our backtests assumed $1.50 + 2 ticks slippage for micros - conservative.)
+
+## Banned (read before trading)
+- Cross-account hedging (long in one account, short in another, same/correlated product). Payouts forfeited, no appeal.
+- Trading full max size INTO a scheduled major news event. News trading otherwise allowed, but no exceptions for slippage.
+- Account stacking (blowing many accounts hoping one hits big). Excessive Combine/Reset buying -> "Focused Trader" restrictions.
+- Sim exploitation: scalping for unrealistic fills, hundreds of rapid trades, gap trading for stray fills.
+- "Unfair technology: software, AI, ultra-high speed systems that manipulate/abuse/give unfair advantage."
+  Official API automation is allowed - get written confirmation that our rule-based bot is fine.
+- Trading within 2% of CME price limit. Orders outside best bid/offer. Trading for others / copying others. VPN/proxy.
+- During high volatility (CPI etc.) Topstep can temporarily cut contract limits.
+- Behaviour: pushing too many Resets, trading without stops, maxing size, revenge trading -> Responsible Trading Program
+  (forced DLL, XFA consistency path only) until $10K Live profit.
+
+## Decisions for RB
+1. 50K, Standard plan ($49/month). No-Activation-Fee only wins if you pass in < ~4 months: 49m + 149 = 85m -> m = 4.1.
+   Our backtest: median ~1-1.5 months per pass attempt, but 2 of 3 attempts fail, so expected total 3-5 months -> Standard.
+   Standard also only charges the $149 when you actually pass.
+2. DLL ($1,000, "Responsible Trading Advantage") ON: backtest NOISE (MNQ, 60-session limit, 55% consistency):
+   pass 28.8% -> 24.8% (2016-21), 35.9% -> 35.5% (2022-26). Small cost, but doubles XFA payout caps. Worth it.
+3. First XFA payout: take small (e.g. $500-1,000), leave buffer - MLL goes to $0 after payout.
+4. Before paying: email support: (a) India eligible for XFA + Live and SWIFT payouts? (b) rule-based Python bot via
+   ProjectX API from own Mac OK under "unfair technology" clause? Keep the written replies.
+
+## Official 2025 funnel stats (Topstep blog "The truth about prop firm payouts")
+- 16.8% of all Combines started were passed.
+- 51.8% of people who tried at least one Combine reached XFA at least once (many attempts).
+- 33.3% of people at Funded level received at least one payout.
+- 0.71% of XFA traders were called up to Live.
+- 99.26% of payout requests that qualified were approved.
+- Profit split conflict: help center says 100% of first $10K for new dashboard users; other sources say flat 90/10
+  for accounts created after 12 Jan 2026. Asked support (Gmail draft, 28 Sep 2026).
+
+## What "top traders" do - what can actually be verified
+- Topstep does not publish trade logs of top traders. Spotlights/"biggest payout" posts are marketing and survivorship.
+- Only verifiable behaviour: what Topstep rewards (stops on every trade, small size vs limits, no revenge trading,
+  consistency) and what it punishes (maxing size, stacking accounts, trading into news).
+- Research: Chague, De-Losso, Giovannetti (2019/2020), Brazil mini-index futures day traders, 1,551 who traded 300+ days:
+  97% lost money, 1.1% earned more than minimum wage; no evidence of learning.
+
+## Support reply (28 Sep 2026, looks like the AI assistant "Windy" - came 2 min after sending)
+Confirmed in writing:
+- Profit split: accounts joined on/after 12 Jan 2026 = 90/10 from the first dollar (the "100% of first $10K" line is old).
+- International payouts: Wire/SWIFT only, 5-10 business days, $30 fee. Wise only for China/Canada/UK. W-8BEN at payout.
+- Cards: Visa/Mastercard/Amex/Discover, Apple Pay, Google Wallet. Sales tax may be added at checkout.
+- API $14.50/month with code "topstep". Automation must run from own device; VPS/VPN/remote servers banned;
+  private server only for research/logging/read-only dashboards.
+NOT answered (follow-up drafted asking for a human): India eligibility, bot OK under "unfair technology" rule,
+read-only API on XFA/Live, DLL double caps on Standard path, full scaling table, MLL $0 after payout,
+US withholding, 14-day guarantee for India, GST.
+
+## Human support reply - Irene, Topstep Support, 29 Sep 2026 (keep this email)
+- INDIA IS ELIGIBLE: Trading Combine, Express Funded and Live Funded, payouts "without restrictions".
+- API is "designed for ... algo traders ... build trading algos, alert systems, risk tools". Automated trading
+  through the ProjectX API is PROHIBITED ON THE LIVE FUNDED ACCOUNT (allowed in Combine/XFA). API is $29/month via
+  ProjectX ($14.50 with code). API support: dashboardapi@topstep.com. Orders via API are final.
+- XFA scaling plan (lots = minis; x10 micros), new tier applies from the NEXT session:
+  50K: <$1,500 2 | $1,500-2,000 3 | >$2,000 5
+  100K: <$1,500 3 | $1,500-2,000 4 | $2,000-3,000 5 | >$3,000 10
+  150K: <$1,500 3 | $1,500-2,000 4 | $2,000-3,000 5 | $3,000-4,500 10 | >$4,500 15
+- After the FIRST XFA payout the MLL is $0 permanently.
+- No US tax withheld for non-US traders with W-8BEN; no 1099; report in India.
+- 14-day guarantee: first Combine only, within 14 days, not passed.
+- GST/taxes shown at checkout for Indian cards.
+Still not answered: double payout caps with DLL on the Standard path; read-only API on a Live account.
+Ticket auto-closed 29 Sep (no reply) - reply on the same thread to reopen.
+
+
+################################################################
+### FILE: PLAN.md
+################################################################
+
+# Futures Prop Bot — Plan (started 27 Sep 2026)
+
+Fresh project, separate from the NSE swing screener. Nothing from the swing system carries over.
+
+## Fixed decisions
+- Firm: Topstep (EOD trailing drawdown, official ProjectX API allows bots in Combine + Express).
+- Apex is out: its rules ban AI/bots/algos on all account types.
+- Instruments: micros only (MES $5/pt, MNQ $2/pt). Full ES = $50/pt is too big for a $2,000 drawdown.
+- Payout: bank wire / Rise only. No crypto.
+
+## Topstep API rules (verify before going live)
+- ProjectX API: $29/mo ($14.50 with code "topstep"). REST + WebSocket, works from Python.
+- Allowed: Combine, Express Funded. NOT allowed: Live Funded via API.
+- Orders must come from own device (Mac Mini). VPS / VPN / remote server = banned.
+- No HFT. No sandbox - test on Practice account.
+- Get written confirmation from Topstep support before running live.
+
+## Phases (one at a time)
+1. Data: 5-8 years of ES/NQ 1-minute bars (Databento, CME Globex OHLCV-1m).
+2. Backtester with Topstep rules built in: $2,000 EOD trailing DD (50K), $3,000 target,
+   flat by 4:10 PM ET, commission + 1 tick slippage per side, contract limits.
+3. Test candidates, in-sample 2018-2022, out-of-sample 2023-2026:
+   a. Intraday momentum / noise-area breakout (Zarattini, Aziz, Barbon 2024)
+   b. Opening Range Breakout 5/15/30 min (Zarattini & Aziz 2023)
+   c. Market intraday momentum, first 30 min -> last 30 min (Gao, Han, Li, Zhou 2018)
+   d. VWAP mean reversion (for comparison)
+   Key metric: % of simulated Combines passed vs blown, not just total return.
+4. Pick 1 strategy that survives out-of-sample. If none survives, stop - don't buy an eval.
+5. Bot: Python on Mac Mini -> ProjectX API. Every entry sent as a bracket order (stop at exchange).
+   Kill switch at daily loss limit. Logs every order.
+6. Practice account paper run: 4+ weeks, live results must match backtest.
+7. Buy Topstep 50K Combine. Cancel subscription the day it passes.
+
+## Results log
+
+### Run 1 - 27 Sep 2026 (Dukascopy index CFD 1-min, 2016-2026, costs 1 tick slip/side + $0.75/side)
+Paper parameters, no optimisation. IS = 2016-21, OOS = 2022-26. $/1 micro after costs.
+
+| Strategy | Mkt | IS avg$ / PF / Sharpe | OOS avg$ / PF / Sharpe | Verdict |
+|---|---|---|---|---|
+| NOISE  | MNQ | +5.4 / 1.22 / 1.24 | +8.6 / 1.14 / 0.90 | Candidate #1 |
+| ORB5   | MNQ | +3.0 / 1.10 / 0.47 | +9.5 / 1.13 / 0.61 | Candidate #2 |
+| ORB30  | MNQ | -1.3 / 0.97 | +18.0 / 1.18 | Regime-dependent, reject |
+| LAST30 | MNQ | negative | negative | Reject |
+| VWAPMR | MNQ | negative | negative | Reject |
+| All 5  | MES | ~0 or negative after costs | | S&P too slow for costs |
+
+Combine pass rate (50K, $3k target, $2k EOD trailing MLL, 50% consistency), full period:
+NOISE ~23-27%, ORB5 ~24-37% vs zero-edge baseline 13-28%. Median 60-300 sessions to pass.
+=> Edge is real but thin; ~70% of Combines still fail. Next: improve pass rate (trade filters,
+risk per trade), then confirm on real MNQ futures data before any money.
+
+### Run 2 - NOISE tuning for Combine pass rate (MNQ, tuned on 2016-21 only, checked on 2022-26)
+Combine now counts as FAILED if not passed within 60 sessions (~3 months of fees).
+Grid: check every 15/30 min, hard intrabar stop yes/no, max 1/2/unlimited trades per day,
+size = $400-2400 per average daily range; then daily loss stop (400/700) and daily profit cap (1000/1400).
+
+Best IS config = the paper default: 30-min checks, no hard stop, unlimited trades, $1600 per avg daily range (~11 MNQ).
+  IS  pass 26.7% (zero-edge baseline 19.9%), median 25 sessions to pass
+  OOS pass 32.8% (baseline 19.8%), median 31 sessions
+Hard stops, trade caps, daily loss stop and profit cap did NOT improve pass rate (loss stop made it worse -
+momentum needs room). Ceiling with this strategy is ~25-33% per Combine.
+Economics: ~1 pass per 3-4 attempts, ~1-2 months each => roughly $250-450 fees + activation per funded account.
+
+## Rule Guard (manual trading) - futures/rule_guard.py
+Read-only watcher on TopstepX API: never places orders. Alerts (terminal + Mac notification + voice) before:
+MLL breach incl. unrealized, personal daily loss limit, size > 50 micro-equiv (incl. pending orders),
+position without stop, stop placed below MLL floor, 3:10 PM CT flat time, 55% consistency target raise.
+`check` command = pre-trade GO / NO-GO. Topstep consistency is now 55% of total profit (runs 1-2 used 50%,
+so those pass rates are slightly conservative).
+
+## STATUS (27 Sep 2026) - start here next session
+Done:
+- Firm research: Topstep #1 (official bot API, EOD MLL, India payout = SWIFT wire $30). MFFU backup. Apex out (bans bots).
+- Backtest + tuning: NOISE on MNQ = only candidate. Combine pass ~25-33% (luck ~20%).
+- rule_guard.py on RB's Mac at ~/RB_Screener/futures (demo works). Supports 50k/100k/150k Combine via --size,
+  multiple accounts via --account (one Terminal window per account), `list` shows account names.
+- Screener actually lives at ~/RB_Screener (home), not Desktop. rbscan alias not set up on this Mac.
+Topstep human support (29 Sep): India ELIGIBLE for all stages; API algos OK in Combine/XFA, banned on Live. Practice needs active Combine.
+Full rules in futures/TOPSTEP_RULES.md. Before paying: email support (India eligibility + bot OK).
+After that: install requests, create topstep_login.txt, run guard live on Practice; then NOISE signal mode.
+Guard now has XFA mode (--stage xfa --path standard|consistency --payout-since --dll): 40% early warning,
+winning days, payout eligibility/amount, scaling plan (50K verified; 100K/150K use 50K table until verified).
+
+### Run 3 - ICT / SMC ideas (smc_test.py), fixed rules, no tuning, $250 risk/trade
+AMD_LDN (Asia range -> London sweep -> NY reversal), AMD_NY (overnight range sweep 9:30-11:00, 5-min close back
+inside -> reverse), SWEEP_PD (prev-day high/low sweep reversal), each with 2R target and hold-to-close.
+Result: NO edge. Before costs, average trade = -0.10R to +0.14R and the sign flips between 2016-21 and 2022-26
+(pure noise). After costs every variant loses on MNQ and MES; Combine pass 0-10%, at or below luck.
+Order flow NOT tested: needs tick data with aggressor side (bid/ask volume); 1-min price data can't do it.
+=> Rejected. NOISE stays the only candidate.
+
+## Hola Prime check (28 Sep 2026) - verdict: NOT primary, maybe later as small second firm
+- Founded Oct/Nov 2024 (under 2 years), HQ Comoros, FSC Mauritius dealer licence; forex/CFD firm with a futures arm.
+- Futures 1-Step: 6% target, 4% trailing max loss (3% on 100K/150K), no DLL, 40% consistency in eval.
+  Direct Account (no eval): 2.5% DLL, 20% consistency. Platforms Tradovate / NinjaTrader / WealthCharts.
+- Payout methods include Rise and bank transfer (good for India); claims 1-hour payouts.
+- Red flags: Trustpilot removed ~1,300 reviews (early 2025) for guideline breaches; payout denials/closures citing
+  discretionary "gambling", "2% risk rule", margin use - some reversed only after public escalation.
+- Bot/automation rules for futures not published. No official funnel stats like Topstep's.
+
+### Run 4 - profit-lock / small target exits on NOISE entries (giveback_test.py), MNQ ~11 micros, 55% consistency
+| Exit rule | win% IS/OOS | avg$/trade IS/OOS | Combine pass% IS/OOS |
+|---|---|---|---|
+| NOISE as tested (no lock) | 37/39 | +26/+26 | 28.8/35.9 |
+| lock after +$100, exit on 10% giveback (RB idea) | 76/77 | -10/+1 | 15.3/17.2 |
+| lock after +$300, exit on 30% giveback | 59/58 | +2/+6 | 24.2/26.0 |
+| lock after +$500, exit on 50% giveback | 47/47 | +12/+27 | 28.8/37.8 |
+| fixed +$500 target (1% of 50K) | 50/49 | +2/+12 | 20.9/33.2 |
+First run of RB idea showed 34-45% pass but used an optimistic same-bar assumption (peak from bar high, then exit
+at lock in the same bar). Conservative version (lock from previous bars, gap fills at open) above = the real answer.
+Tight profit locks raise win rate but kill the big winners that pay for the losers. Also: Combine MLL is EOD, an
+intraday open-profit peak does NOT move the MLL, so locking +$90 of a +$100 trade isn't needed for drawdown.
+
+## FundedNext Futures Rapid check (1 Oct 2026) - strong BACKUP (replaces MFFU as #2)
+- UAE firm, founded 2022 (forex first; futures arm newer). Rapid Pro/Daily launched July 2026 (rules churn).
+- 50K Rapid: $159.99 ONE-TIME (discounted), target $3,000, MLL $2,000 EOD trailing, can pass in 1 day,
+  NO consistency in the challenge. Daily: $1,000 DLL, daily payouts, buffer first. Pro: no DLL, 40% consistency
+  when funded, payout every 3 days. Cap per cycle $800/$1,200/$2,500 (25/50/100K), min $500 profit/cycle, 90%.
+- Bots/EAs officially allowed (Tradovate integrations); no tech support; no latency/order-flood abuse.
+- Payouts: Rise, bank transfer, USDT/USDC, ~24h. India is a top country by payouts.
+- Tradovate only (Python bot needs Tradovate API or a webhook bridge - verify access for prop accounts).
+- NOISE sim on Rapid rules (no consistency, 40 micros, 60-session limit): pass 34.7% (2016-21) / 45.0% (2022-26)
+  vs Topstep 28.8% / 35.9%. Median days to pass 18 / 27.5 vs 23 / 31.
+
+## Apex Trader Funding re-check (1 Oct 2026, "Apex 4.0" since 1 Mar 2026) - #3, only for MANUAL trading
+- 50K EOD: $197 eval (often ~90% off, ~$20-49) + $99 PA activation. Intraday-trail 50K: $131 + $79. No monthly fee.
+- Target $3,000, $2,000 EOD trailing, $1,000 DLL (soft). Eval EXPIRES in 30 days, no resets/extensions.
+- PA payouts: 5 qualifying days, no day > 50% of profit since last payout, balance > start + DD + $100.
+  50K ladder: 1st payout cap $1,500 ... 6th $3,000, then the PA CLOSES (lifetime cap). 100% split inside the cap.
+- Automation/AI/bots banned on ALL account types (semi-automated tools only). Max 20 accounts. Metals suspended.
+- International payouts via Plane (Deel/Wise dropped 2026); India support not confirmed.
+- NOISE sim on Apex EOD rules (no eval consistency, $1,000 DLL, 21-session expiry): pass 17.2% / 16.4%
+  (vs Topstep 28.8/35.9, FundedNext 34.7/45.0). The 30-day expiry is the killer.
+- Cheap on promo: ~$20 eval / 0.17 pass + $99 = ~$220 per PA. But no bot, payouts capped, account dies after 6 payouts.
+
+
+################################################################
+### FILE: rule_guard.py
+################################################################
+
+"""
+Topstep Rule Guard - watches your account while YOU trade manually and alerts BEFORE a rule breaks.
+It never places, changes or cancels orders. Read-only.
+
+Setup (once):
+  pip3 install requests
+  Put your TopstepX username on line 1 and API key on line 2 of:
+    ~/Desktop/RB_Screener/futures/topstep_login.txt
+  (NEVER put these in a .py file, never print or share them.)
+
+Commands:
+  python3 rule_guard.py demo                         # see sample alerts, no API needed
+  python3 rule_guard.py list                         # your account names
+  python3 rule_guard.py watch --since 2026-10-01     # live watch (since = day the account started)
+  python3 rule_guard.py watch --account NAME --size 100k --since 2026-10-01
+                                                     # one Terminal window per account
+  python3 rule_guard.py watch --stage xfa --path consistency --dll --since 2026-11-03
+                                                     # Express Funded: payout rules, 40% early warning, scaling plan
+  python3 rule_guard.py watch --stage xfa --payout-since 2026-11-20 --since 2026-11-03
+                                                     # after a payout: MLL locked at $0, rules count from that day
+  python3 rule_guard.py check MNQ 10 20 --since 2026-10-01
+                                                     # pre-trade: 10 MNQ with 20-point stop -> GO / NO-GO
+
+Rules checked (Topstep Trading Combine 50K/100K/150K via --size, verified Sep 2026 - re-check help.topstep.com if Topstep changes them):
+  - Max Loss Limit ($2,000 / $3,000 / $4,500), trails end-of-day balance, locks at start balance. Hit even on unrealized P&L = account fails.
+  - Max position 5 / 10 / 15 minis (x10 micros).
+  - Flat by 3:10 PM CT (Topstep trading day = 5:00 PM CT to 3:10 PM CT).
+  - Consistency: best day <= 55% of total profit, else profit target goes up.
+  - Profit target $3,000 / $6,000 / $9,000.
+Your own rules (edit PERSONAL below): daily loss limit, max risk per trade, stop must exist.
+"""
+import argparse
+import datetime as dt
+import os
+import re
+import subprocess
+import sys
+import time
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    sys.exit("Python 3.9+ needed")
+
+CT = ZoneInfo("America/Chicago")
+IST = ZoneInfo("Asia/Kolkata")
+
+def combine(size_k, mll, target, max_minis):
+    return {
+        "name": "Topstep %dK Trading Combine" % size_k,
+        "start_balance": size_k * 1000.0,
+        "mll": mll,
+        "target": target,
+        "max_micros": max_minis * 10,   # 1 mini = 10 micros
+        "consistency": 0.55,
+        "flat_by": dt.time(15, 10),     # CT
+        "day_starts": dt.time(17, 0),   # CT
+    }
+
+
+def xfa(size_k, mll, cap_std, cap_cons, max_minis, scaling):
+    return {
+        "name": "Topstep %dK Express Funded Account" % size_k,
+        "stage": "xfa",
+        "start_balance": 0.0,           # XFA starts at $0
+        "mll": mll,                     # starts at -MLL, trails EOD, locks at $0; $0 for good after any payout
+        "max_micros": max_minis * 10,
+        # Scaling plan: (balance at start of session, max micros). Confirmed by Topstep support (Irene), 29 Sep 2026.
+        "scaling": scaling,
+        "cap_standard": cap_std,        # max per payout request (x2 if DLL was chosen at purchase)
+        "cap_consistency": cap_cons,
+        "xfa_consistency": 0.40,        # Consistency path: best day <= 40% of profit since last payout, 3+ days
+        "win_day": 150.0,               # Standard path: 5 winning days of $150+
+        "win_days_needed": 5,
+        "flat_by": dt.time(15, 10),
+        "day_starts": dt.time(17, 0),
+    }
+
+
+# Account types: --size 50k / 100k / 150k, --stage combine / xfa. Verify on help.topstep.com - Topstep changes these.
+PROFILES = {
+    "50k": combine(50, 2000.0, 3000.0, 5),
+    "100k": combine(100, 3000.0, 6000.0, 10),
+    "150k": combine(150, 4500.0, 9000.0, 15),
+}
+XFA_PROFILES = {
+    "50k": xfa(50, 2000.0, 2000.0, 3000.0, 5, [(0.0, 20), (1500.0, 30), (2000.0, 50)]),
+    "100k": xfa(100, 3000.0, 3000.0, 4000.0, 10, [(0.0, 30), (1500.0, 40), (2000.0, 50), (3000.0, 100)]),
+    "150k": xfa(150, 4500.0, 5000.0, 6000.0, 15, [(0.0, 30), (1500.0, 40), (2000.0, 50), (3000.0, 100), (4500.0, 150)]),
+}
+RULES = PROFILES["50k"]
+
+
+def make_rules(stage="combine", size="50k", path="standard", payout_since=None, dll=False):
+    """payout_since: date of your last XFA payout (MLL is then locked at $0; payout rules count from that day)."""
+    r = dict(XFA_PROFILES[size] if stage == "xfa" else PROFILES[size])
+    r.update({"path": path, "payout_since": payout_since, "dll_caps": dll})
+    return r
+
+PERSONAL = {
+    "daily_loss_limit": 800.0,     # your own stop for the day (Topstep doesn't force one). None to switch off
+    "max_risk_per_trade": 300.0,   # $ lost if the stop is hit
+    "require_stop": True,          # every open position must have a stop order working
+}
+
+API = "https://api.topstepx.com"
+HERE = os.path.dirname(os.path.abspath(__file__))
+LOGIN_FILE = os.path.join(HERE, "topstep_login.txt")
+
+# levels
+INFO, WARN, DANGER, BREACH = "INFO", "WARN", "DANGER", "BREACH"
+ORDER_STOP_TYPES = {3, 4, 5}      # StopLimit, Stop, TrailingStop
+LONG, SHORT = 1, 2                 # PositionType
+BID, ASK = 0, 1                    # OrderSide
+
+
+# ---------------------------------------------------------------- helpers
+
+def trading_day(ts_ct):
+    """Topstep trading day: anything after 5 PM CT counts for the next calendar day."""
+    d = ts_ct.date()
+    if ts_ct.time() >= dt.time(17, 0):   # same for all account sizes
+        d += dt.timedelta(days=1)
+    return d
+
+
+def parse_ts(s):
+    s = s.replace("Z", "+00:00")
+    s = re.sub(r"\.(\d{6})\d+", r".\1", s)   # .NET can send 7 fraction digits
+    return dt.datetime.fromisoformat(s)
+
+
+def root_of(contract_id):
+    parts = contract_id.split(".")
+    return parts[3] if len(parts) > 3 else contract_id
+
+
+def is_micro(contract_id):
+    return root_of(contract_id).startswith("M")
+
+
+def micro_equiv(contract_id, size):
+    return size if is_micro(contract_id) else size * 10
+
+
+def daily_net(trades):
+    """trades from /api/Trade/search -> {trading_day: net P&L after fees}"""
+    out = {}
+    for t in trades:
+        if t.get("voided"):
+            continue
+        d = trading_day(parse_ts(t["creationTimestamp"]).astimezone(CT))
+        out[d] = out.get(d, 0.0) + (t.get("profitAndLoss") or 0.0) - (t.get("fees") or 0.0)
+    return out
+
+
+def mll_floor(daily, today, start, mll):
+    """EOD trailing: highest closing balance of completed days minus MLL, never above start balance."""
+    bal, peak = start, start
+    for d in sorted(daily):
+        if d >= today:
+            break
+        bal += daily[d]
+        peak = max(peak, bal)
+    return min(peak - mll, start)
+
+
+def account_limits(daily, today, rules):
+    """(MLL floor, max micros right now) for Combine or XFA."""
+    if rules.get("stage") == "xfa":
+        floor = 0.0 if rules.get("payout_since") else mll_floor(daily, today, 0.0, rules["mll"])
+        bal_sod = sum(v for d, v in daily.items() if d < today)       # balance at start of this session
+        cap = rules["scaling"][0][1]
+        for thr, micros in rules["scaling"]:
+            if bal_sod >= thr:
+                cap = micros
+        return floor, min(cap, rules["max_micros"])
+    return mll_floor(daily, today, rules["start_balance"], rules["mll"]), rules["max_micros"]
+
+
+def point_value(p):
+    return p["tick_value"] / p["tick_size"]
+
+
+# ---------------------------------------------------------------- the rule engine (pure, testable)
+
+def evaluate(snap, now_ct, rules=RULES, personal=PERSONAL):
+    """snap = {balance, positions:[{contract, type, size, avg, last, tick_size, tick_value}],
+               orders:[{contract, type, side, size, stop}], daily:{day: net}}
+    returns list of (level, key, message)"""
+    alerts = []
+    today = trading_day(now_ct)
+    start, mll = rules["start_balance"], rules["mll"]
+    floor, max_micros = account_limits(snap["daily"], today, rules)
+
+    unreal = 0.0
+    for p in snap["positions"]:
+        sgn = 1 if p["type"] == LONG else -1
+        unreal += sgn * (p["last"] - p["avg"]) * p["size"] * point_value(p)
+    equity = snap["balance"] + unreal
+    room = equity - floor
+    today_net = snap["daily"].get(today, 0.0) + unreal
+
+    # 1. Max Loss Limit
+    if room <= 0:
+        alerts.append((BREACH, "mll", "MAX LOSS LIMIT HIT. Equity $%.0f <= floor $%.0f. Account liquidated." % (equity, floor)))
+    elif room < 0.25 * mll:
+        alerts.append((DANGER, "mll", "MLL se sirf $%.0f door! Position kam karo / band karo. (equity $%.0f, floor $%.0f)" % (room, equity, floor)))
+    elif room < 0.5 * mll:
+        alerts.append((WARN, "mll", "MLL buffer aadha bacha: $%.0f (floor $%.0f). Size chhota rakho." % (room, floor)))
+
+    # 2. Personal daily loss limit
+    dll = personal.get("daily_loss_limit")
+    if dll:
+        if today_net <= -dll:
+            alerts.append((DANGER, "dll", "Aaj ka loss $%.0f - aapka daily limit $%.0f cross. AAJ TRADING BAND." % (-today_net, dll)))
+        elif today_net <= -0.75 * dll:
+            alerts.append((WARN, "dll", "Aaj ka loss $%.0f - daily limit $%.0f ke 75%% pe." % (-today_net, dll)))
+
+    # 3. Position size
+    size = sum(micro_equiv(p["contract"], p["size"]) for p in snap["positions"])
+    working = 0
+    for o in snap["orders"]:
+        if o["type"] not in ORDER_STOP_TYPES:   # entry orders that could add size
+            working += micro_equiv(o["contract"], o["size"])
+    if size > max_micros:
+        alerts.append((BREACH, "size", "SIZE LIMIT TOOTA: %d micro-equiv > %d. Turant kam karo (10 sec se zyada = review)." % (size, max_micros)))
+    elif size + working > max_micros:
+        alerts.append((DANGER, "size", "Open + pending orders = %d micro-equiv > limit %d. Pending order fill hua to violation." % (size + working, max_micros)))
+    elif size >= 0.8 * max_micros:
+        alerts.append((WARN, "size", "Size %d / %d micro-equiv." % (size, max_micros)))
+
+    # 4. Stops: exist, and not below MLL / daily limit if hit
+    loss_at_stops = 0.0
+    for p in snap["positions"]:
+        exit_side = ASK if p["type"] == LONG else BID
+        stops = [o for o in snap["orders"] if o["contract"] == p["contract"]
+                 and o["type"] in ORDER_STOP_TYPES and o["side"] == exit_side and o.get("stop")]
+        covered = sum(o["size"] for o in stops)
+        name = root_of(p["contract"])
+        if personal.get("require_stop") and covered < p["size"]:
+            alerts.append((DANGER, "nostop_" + name, "%s position (%d) pe stop nahi hai (covered %d). Abhi stop lagao." % (name, p["size"], covered)))
+        sgn = 1 if p["type"] == LONG else -1
+        pv = point_value(p)
+        worst = min((o["stop"] for o in stops), default=None) if sgn > 0 else max((o["stop"] for o in stops), default=None)
+        if worst is not None:
+            pnl_at_stop = sgn * (worst - p["avg"]) * p["size"] * pv
+            loss_at_stops += min(0.0, sgn * (worst - p["last"]) * p["size"] * pv)
+            if pnl_at_stop < -personal.get("max_risk_per_trade", 1e9):
+                alerts.append((WARN, "risk_" + name, "%s: stop hit hua to $%.0f loss > aapka max $%.0f per trade." % (name, -pnl_at_stop, personal["max_risk_per_trade"])))
+    if snap["positions"] and equity + loss_at_stops <= floor:
+        alerts.append((DANGER, "stop_mll", "Stop hit hua to equity $%.0f -> MLL floor $%.0f ke neeche. Stop tight karo ya size kam karo." % (equity + loss_at_stops, floor)))
+
+    # 5. Time: flat by 3:10 PM CT
+    t = now_ct.time()
+    if snap["positions"] or snap["orders"]:
+        mins_left = (dt.datetime.combine(now_ct.date(), rules["flat_by"]) - now_ct.replace(tzinfo=None)).total_seconds() / 60
+        if rules["flat_by"] <= t < rules["day_starts"]:
+            if snap["positions"]:
+                alerts.append((BREACH, "time", "3:10 PM CT ke baad position khuli hai! Turant close karo."))
+        elif 0 < mins_left <= 3:
+            alerts.append((DANGER, "time", "%.0f min mein 3:10 PM CT - ABHI flat ho jao, pending orders cancel karo." % mins_left))
+        elif 0 < mins_left <= 15:
+            alerts.append((WARN, "time", "%.0f min baaki 3:10 PM CT close tak. Naya trade mat lo." % mins_left))
+
+    # 6. Combine target + 55% consistency, or XFA payout rules
+    if rules.get("stage") == "xfa":
+        alerts.extend(xfa_payout_alerts(snap, today, today_net, equity, rules))
+        return alerts
+    # 6. Target and consistency
+    total = equity - start
+    days = dict(snap["daily"])
+    days[today] = today_net
+    best = max([v for v in days.values()] + [0.0])
+    need = max(rules["target"], best / rules["consistency"]) if best > 0 else rules["target"]
+    if total >= need:
+        alerts.append((INFO, "target", "TARGET DONE: profit $%.0f, best day $%.0f (<= %d%%). Positions band karo, aur trade mat lo." % (total, best, rules["consistency"] * 100)))
+    elif today_net > rules["consistency"] * rules["target"]:
+        alerts.append((WARN, "consistency", "Aaj ka profit $%.0f > $%.0f: consistency ki wajah se target ab $%.0f ho gaya. Aaj band karna behtar." % (today_net, rules["consistency"] * rules["target"], need)))
+    elif today_net > 0.8 * rules["consistency"] * rules["target"]:
+        alerts.append((INFO, "consistency", "Aaj ka profit $%.0f - $%.0f ke baad consistency target badhayega." % (today_net, rules["consistency"] * rules["target"])))
+
+    return alerts
+
+
+def xfa_payout_alerts(snap, today, today_net, equity, rules):
+    """Payout eligibility + early warnings for the 40% consistency path / 5 winning days path."""
+    out = []
+    since = rules.get("payout_since")
+    period = {d: v for d, v in snap["daily"].items() if (since is None or d > since) and d != today}
+    before = sum(period.values())                      # profit since last payout, before today
+    total = before + today_net
+    days = dict(period)
+    days[today] = today_net
+    traded_days = len([d for d, v in days.items() if v != 0 or d == today])
+    mult = 2 if rules.get("dll_caps") else 1
+    after_payout = "Payout ke baad MLL $0 pe lock hoga - bacha balance hi buffer hai."
+
+    if rules.get("path") == "consistency":
+        lim = rules["xfa_consistency"]
+        cap = rules["cap_consistency"] * mult
+        best = max([v for v in days.values()] + [0.0])
+        if before > 0:
+            max_today = lim / (1 - lim) * before        # today <= 40% of (before + today)
+            if today_net > max_today:
+                need = best / lim - total
+                out.append((WARN, "xfa_cons", "Aaj ka profit $%.0f > 40%% limit $%.0f. Payout ke liye ab kam se kam $%.0f aur profit doosre din chahiye. Aaj ruk jao." % (today_net, max_today, max(need, 0))))
+            elif today_net > 0.85 * max_today:
+                out.append((WARN, "xfa_cons", "40%% limit paas: aaj $%.0f / max $%.0f (sirf $%.0f bacha). Yahan band karo ya size kam karo." % (today_net, max_today, max_today - today_net)))
+            elif today_net > 0.6 * max_today:
+                out.append((INFO, "xfa_cons", "Aaj ka profit $%.0f. 40%% rule ke hisaab se aaj max $%.0f tak." % (today_net, max_today)))
+        elif today_net > 0:
+            out.append((INFO, "xfa_cons", "Is payout period ka pehla profit din: $%.0f. Baaki din milake yeh total ka 40%% se kam hona chahiye - chhota rakho." % today_net))
+        if traded_days >= 3 and total > 0 and best <= lim * total:
+            amt = min(0.5 * equity, cap)
+            out.append((INFO, "payout", "PAYOUT ELIGIBLE (Consistency path): request up to $%.0f (50%% balance / cap $%.0f). %s" % (amt, cap, after_payout)))
+    else:
+        cap = rules["cap_standard"] * mult
+        wins = len([v for d, v in period.items() if v >= rules["win_day"]])
+        need = rules["win_days_needed"]
+        if today_net >= rules["win_day"] and wins < need:
+            out.append((INFO, "xfa_win", "Aaj winning day ban gaya ($%.0f >= $%.0f): %d/%d. Ab profit bachao - aur risk mat lo." % (today_net, rules["win_day"], wins + 1, need)))
+        elif 0.7 * rules["win_day"] <= today_net < rules["win_day"] and wins < need:
+            out.append((INFO, "xfa_win", "Winning day ke liye sirf $%.0f aur (aaj $%.0f / $%.0f)." % (rules["win_day"] - today_net, today_net, rules["win_day"])))
+        wins_incl = wins + (1 if today_net >= rules["win_day"] else 0)
+        if wins_incl >= need and total > 0:
+            amt = min(0.5 * equity, cap)
+            out.append((INFO, "payout", "PAYOUT ELIGIBLE (Standard path, %d winning days): request up to $%.0f (50%% balance / cap $%.0f). %s" % (wins_incl, amt, cap, after_payout)))
+    return out
+
+
+def pretrade(snap, now_ct, contract, qty, stop_pts, tick_size, tick_value, rules=RULES, personal=PERSONAL):
+    """Would this new trade break anything if the stop is hit? Returns (ok, reasons)."""
+    reasons = []
+    today = trading_day(now_ct)
+    floor, max_micros = account_limits(snap["daily"], today, rules)
+    unreal = sum((1 if p["type"] == LONG else -1) * (p["last"] - p["avg"]) * p["size"] * point_value(p)
+                 for p in snap["positions"])
+    equity = snap["balance"] + unreal
+    risk = qty * stop_pts * tick_value / tick_size + qty * 2 * 0.75   # + fees approx
+    size_now = sum(micro_equiv(p["contract"], p["size"]) for p in snap["positions"])
+    size_new = size_now + micro_equiv(contract, qty)
+    today_net = snap["daily"].get(today, 0.0) + unreal
+
+    if size_new > max_micros:
+        reasons.append("Size %d micro-equiv > limit %d" % (size_new, max_micros))
+    if equity - risk <= floor + 100:
+        reasons.append("Stop hit hua to equity $%.0f -> MLL floor $%.0f ke paas/neeche" % (equity - risk, floor))
+    if risk > personal.get("max_risk_per_trade", 1e9):
+        reasons.append("Risk $%.0f > aapka max per trade $%.0f" % (risk, personal["max_risk_per_trade"]))
+    dll = personal.get("daily_loss_limit")
+    if dll and today_net - risk < -dll:
+        reasons.append("Stop hit hua to aaj ka loss $%.0f > daily limit $%.0f" % (-(today_net - risk), dll))
+    mins_left = (dt.datetime.combine(now_ct.date(), rules["flat_by"]) - now_ct.replace(tzinfo=None)).total_seconds() / 60
+    if rules["flat_by"] <= now_ct.time() < rules["day_starts"]:
+        reasons.append("Market 3:10 PM CT ke baad - Topstep trading day band")
+    elif 0 < mins_left <= 15:
+        reasons.append("Sirf %.0f min baaki 3:10 PM CT tak" % mins_left)
+    info = "Risk if stop hit: $%.0f | MLL room now: $%.0f | after stop: $%.0f" % (risk, equity - floor, equity - risk - floor)
+    return (not reasons), reasons, info
+
+
+# ---------------------------------------------------------------- alerts
+
+class Alerter:
+    COLORS = {INFO: "\033[36m", WARN: "\033[33m", DANGER: "\033[31m", BREACH: "\033[41;97m"}
+    REPEAT = {INFO: 600, WARN: 120, DANGER: 30, BREACH: 15}   # seconds before the same alert repeats
+
+    def __init__(self):
+        self.last = {}
+
+    def send(self, level, key, msg):
+        now = time.time()
+        if now - self.last.get((level, key), 0) < self.REPEAT[level]:
+            return
+        self.last[(level, key)] = now
+        stamp = dt.datetime.now(IST).strftime("%H:%M:%S IST")
+        print("%s%s [%s] %s\033[0m" % (self.COLORS[level], stamp, level, msg), flush=True)
+        if sys.platform == "darwin":
+            safe = msg.replace('"', "'")
+            subprocess.run(["osascript", "-e", 'display notification "%s" with title "Rule Guard: %s" sound name "Sosumi"' % (safe, level)],
+                           check=False, capture_output=True)
+            if level in (DANGER, BREACH):
+                subprocess.run(["say", "Rule guard. " + level.lower() + ". " + key.split("_")[0]], check=False)
+
+
+# ---------------------------------------------------------------- TopstepX API (read-only)
+
+class TopstepX:
+    def __init__(self):
+        import requests
+        self.s = requests.Session()
+        self.token = None
+        self.contracts = {}
+
+    def login(self):
+        if not os.path.exists(LOGIN_FILE):
+            sys.exit("Login file missing: %s (line 1 username, line 2 API key)" % LOGIN_FILE)
+        with open(LOGIN_FILE) as f:
+            lines = [x.strip() for x in f.read().splitlines() if x.strip()]
+        if len(lines) < 2:
+            sys.exit("topstep_login.txt needs 2 lines: username, then API key")
+        r = self.s.post(API + "/api/Auth/loginKey", json={"userName": lines[0], "apiKey": lines[1]}, timeout=15).json()
+        if not r.get("success"):
+            sys.exit("Login failed (errorCode %s). Check username / API key / API subscription." % r.get("errorCode"))
+        self.token = r["token"]
+
+    def post(self, path, body):
+        for attempt in range(3):
+            if not self.token:
+                self.login()
+            r = self.s.post(API + path, json=body, headers={"Authorization": "Bearer " + self.token}, timeout=15)
+            if r.status_code == 401:
+                self.token = None
+                continue
+            if r.status_code == 429:
+                time.sleep(5)
+                continue
+            r.raise_for_status()
+            j = r.json()
+            if not j.get("success", True):
+                raise RuntimeError("%s failed: errorCode %s" % (path, j.get("errorCode")))
+            return j
+        raise RuntimeError("%s failed after retries" % path)
+
+    def contract(self, cid):
+        if cid not in self.contracts:
+            self.contracts[cid] = self.post("/api/Contract/searchById", {"contractId": cid})["contract"]
+        return self.contracts[cid]
+
+    def find_contract(self, symbol):
+        j = self.post("/api/Contract/search", {"searchText": symbol, "live": False})
+        for c in j.get("contracts", []):
+            if c.get("activeContract", True) and root_of(c["id"]) == symbol.upper():
+                return c
+        sys.exit("Contract %s not found" % symbol)
+
+    def last_price(self, cid):
+        now = dt.datetime.now(dt.timezone.utc)
+        j = self.post("/api/History/retrieveBars", {
+            "contractId": cid, "live": False, "unit": 2, "unitNumber": 1, "limit": 1, "includePartialBar": True,
+            "startTime": (now - dt.timedelta(hours=2)).isoformat(), "endTime": now.isoformat()})
+        bars = j.get("bars") or []
+        return bars[0]["c"] if bars else None
+
+    def account(self, name=None):
+        accs = self.post("/api/Account/search", {"onlyActiveAccounts": True})["accounts"]
+        if name:
+            accs = [a for a in accs if a["name"] == name]
+        if not accs:
+            sys.exit("No active account found")
+        if len(accs) > 1 and not name:
+            print("Multiple accounts, using %s. Use --account to choose: %s" % (accs[0]["name"], [a["name"] for a in accs]))
+        return accs[0]
+
+    def snapshot(self, acc_name, since):
+        acc = self.account(acc_name)
+        aid = acc["id"]
+        pos = self.post("/api/Position/searchOpen", {"accountId": aid}).get("positions", [])
+        orders = self.post("/api/Order/searchOpen", {"accountId": aid}).get("orders", [])
+        trades = self.post("/api/Trade/search", {"accountId": aid, "startTimestamp": since.isoformat()}).get("trades", [])
+        positions = []
+        for p in pos:
+            c = self.contract(p["contractId"])
+            last = self.last_price(p["contractId"]) or p["averagePrice"]
+            positions.append({"contract": p["contractId"], "type": p["type"], "size": p["size"],
+                              "avg": p["averagePrice"], "last": last,
+                              "tick_size": c["tickSize"], "tick_value": c["tickValue"]})
+        return {"account": acc["name"], "balance": acc["balance"], "positions": positions,
+                "orders": [{"contract": o["contractId"], "type": o["type"], "side": o["side"],
+                            "size": o["size"], "stop": o.get("stopPrice")} for o in orders],
+                "daily": daily_net(trades)}
+
+
+# ---------------------------------------------------------------- commands
+
+def rules_from_args(args):
+    return make_rules(args.stage, args.size, args.path, args.payout_since, args.dll)
+
+
+def cmd_watch(args):
+    api, alerter = TopstepX(), Alerter()
+    since = dt.datetime.combine(args.since, dt.time(0), tzinfo=CT) - dt.timedelta(hours=7)
+    rules = rules_from_args(args)
+    print("Rule Guard ON - %s. Read-only, har %ds check. Ctrl+C se band." % (rules["name"], args.every))
+    while True:
+        try:
+            snap = api.snapshot(args.account, since)
+            now = dt.datetime.now(CT)
+            alerts = evaluate(snap, now, rules)
+            for a in alerts:
+                alerter.send(*a)
+            if args.verbose or not alerts:
+                today = trading_day(now)
+                floor, _ = account_limits(snap["daily"], today, rules)
+                print("%s %s ok | bal $%.0f | floor $%.0f | positions %d" %
+                      (dt.datetime.now(IST).strftime("%H:%M:%S"), snap["account"], snap["balance"], floor, len(snap["positions"])), end="\r")
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:   # network blips must not kill the guard
+            alerter.send(WARN, "guard", "Guard ko data nahi mila (%s). Platform pe khud check karo." % type(e).__name__)
+        time.sleep(args.every)
+
+
+def cmd_check(args):
+    api = TopstepX()
+    since = dt.datetime.combine(args.since, dt.time(0), tzinfo=CT) - dt.timedelta(hours=7)
+    snap = api.snapshot(args.account, since)
+    c = api.find_contract(args.symbol)
+    ok, reasons, info = pretrade(snap, dt.datetime.now(CT), c["id"], args.qty, args.stop_points, c["tickSize"], c["tickValue"],
+                                 rules_from_args(args))
+    print(info)
+    print("\033[32mGO\033[0m" if ok else "\033[31mNO-GO\033[0m")
+    for r in reasons:
+        print("  - " + r)
+
+
+def cmd_list(args):
+    api = TopstepX()
+    for a in api.post("/api/Account/search", {"onlyActiveAccounts": True})["accounts"]:
+        print("%-30s balance $%.0f  canTrade=%s" % (a["name"], a["balance"], a.get("canTrade")))
+
+
+def demo_snapshots():
+    d0 = dt.date(2026, 10, 5)
+    mnq = "CON.F.US.MNQ.Z26"
+    base = {"tick_size": 0.25, "tick_value": 0.5}
+    return [
+        ("Normal trade, stop laga hai", dt.datetime(2026, 10, 7, 10, 0, tzinfo=CT), {
+            "balance": 50400.0, "daily": {d0: 400.0},
+            "positions": [dict(base, contract=mnq, type=LONG, size=5, avg=20000.0, last=20010.0)],
+            "orders": [{"contract": mnq, "type": 4, "side": ASK, "size": 5, "stop": 19980.0}]}),
+        ("Bina stop, MLL ke paas", dt.datetime(2026, 10, 7, 11, 0, tzinfo=CT), {
+            "balance": 49000.0, "daily": {d0: -600.0, dt.date(2026, 10, 6): -400.0},
+            "positions": [dict(base, contract=mnq, type=SHORT, size=10, avg=20000.0, last=20040.0)],
+            "orders": []}),
+        ("3:05 PM CT, position khuli", dt.datetime(2026, 10, 7, 15, 5, tzinfo=CT), {
+            "balance": 50200.0, "daily": {d0: 200.0},
+            "positions": [dict(base, contract=mnq, type=LONG, size=4, avg=20000.0, last=20005.0)],
+            "orders": [{"contract": mnq, "type": 4, "side": ASK, "size": 4, "stop": 19990.0}]}),
+        ("Ek bada din - consistency", dt.datetime(2026, 10, 7, 12, 0, tzinfo=CT), {
+            "balance": 52000.0, "daily": {d0: 300.0, dt.date(2026, 10, 7): 1700.0},
+            "positions": [], "orders": []}),
+    ]
+
+
+def demo_xfa():
+    mnq = "CON.F.US.MNQ.Z26"
+    base = {"tick_size": 0.25, "tick_value": 0.5}
+    return [
+        ("XFA Consistency path - aaj 40% limit ke paas", dt.datetime(2026, 11, 5, 11, 0, tzinfo=CT),
+         make_rules("xfa", "50k", "consistency"), {
+            "balance": 1100.0, "daily": {dt.date(2026, 11, 3): 500.0, dt.date(2026, 11, 4): 400.0, dt.date(2026, 11, 5): 200.0},
+            "positions": [dict(base, contract=mnq, type=LONG, size=5, avg=20000.0, last=20035.0)],   # +$350 open
+            "orders": [{"contract": mnq, "type": 4, "side": ASK, "size": 5, "stop": 19990.0}]}),
+        ("XFA Standard path - 5th winning day", dt.datetime(2026, 11, 10, 11, 0, tzinfo=CT),
+         make_rules("xfa", "50k", "standard"), {
+            "balance": 1180.0, "daily": {dt.date(2026, 11, 3): 200.0, dt.date(2026, 11, 4): 250.0, dt.date(2026, 11, 5): -100.0,
+                                          dt.date(2026, 11, 6): 300.0, dt.date(2026, 11, 9): 170.0, dt.date(2026, 11, 10): 160.0},
+            "positions": [], "orders": []}),
+        ("XFA - scaling plan: $0-1,500 balance = sirf 20 micros", dt.datetime(2026, 11, 3, 10, 0, tzinfo=CT),
+         make_rules("xfa", "50k", "standard"), {
+            "balance": 0.0, "daily": {},
+            "positions": [dict(base, contract=mnq, type=LONG, size=25, avg=20000.0, last=20000.0)],
+            "orders": [{"contract": mnq, "type": 4, "side": ASK, "size": 25, "stop": 19990.0}]}),
+    ]
+
+
+def cmd_demo(args):
+    alerter = Alerter()
+    for title, now, snap in demo_snapshots():
+        print("\n=== %s (%s CT)" % (title, now.strftime("%H:%M")))
+        alerter = Alerter()
+        alerts = evaluate(snap, now)
+        if not alerts:
+            print("  sab theek - koi alert nahi")
+        for a in alerts:
+            alerter.send(*a)
+        ok, reasons, info = pretrade(snap, now, "CON.F.US.MNQ.Z26", 10, 30, 0.25, 0.5)
+        print("  Pre-trade 10 MNQ, 30pt stop: %s | %s" % ("GO" if ok else "NO-GO: " + "; ".join(reasons), info))
+    for title, now, rules, snap in demo_xfa():
+        print("\n=== %s (%s CT)" % (title, now.strftime("%H:%M")))
+        alerter = Alerter()      # fresh, so repeated alert types still show in the demo
+        for a in evaluate(snap, now, rules):
+            alerter.send(*a)
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Topstep Rule Guard (read-only)")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("demo")
+    sub.add_parser("list", help="show your account names")
+    since_help = "Account start date YYYY-MM-DD (needed for correct MLL)"
+    w = sub.add_parser("watch")
+    w.add_argument("--since", type=dt.date.fromisoformat, required=True, help=since_help)
+    w.add_argument("--account", default=None, help="account name from 'list'")
+    w.add_argument("--size", choices=sorted(PROFILES), default="50k")
+    w.add_argument("--stage", choices=["combine", "xfa"], default="combine", help="combine = exam, xfa = Express Funded")
+    w.add_argument("--path", choices=["standard", "consistency"], default="standard", help="XFA payout path")
+    w.add_argument("--payout-since", type=dt.date.fromisoformat, default=None, help="XFA: date of your last payout")
+    w.add_argument("--dll", action="store_true", help="XFA: you chose the Daily Loss Limit (payout caps x2)")
+    w.add_argument("--every", type=int, default=5)
+    w.add_argument("--verbose", action="store_true")
+    c = sub.add_parser("check")
+    c.add_argument("symbol")
+    c.add_argument("qty", type=int)
+    c.add_argument("stop_points", type=float)
+    c.add_argument("--since", type=dt.date.fromisoformat, required=True, help=since_help)
+    c.add_argument("--account", default=None, help="account name from 'list'")
+    c.add_argument("--size", choices=sorted(PROFILES), default="50k")
+    c.add_argument("--stage", choices=["combine", "xfa"], default="combine", help="combine = exam, xfa = Express Funded")
+    c.add_argument("--path", choices=["standard", "consistency"], default="standard", help="XFA payout path")
+    c.add_argument("--payout-since", type=dt.date.fromisoformat, default=None, help="XFA: date of your last payout")
+    c.add_argument("--dll", action="store_true", help="XFA: you chose the Daily Loss Limit (payout caps x2)")
+    args = ap.parse_args()
+    {"demo": cmd_demo, "list": cmd_list, "watch": cmd_watch, "check": cmd_check}[args.cmd](args)
+
+
+if __name__ == "__main__":
+    main()
+
+
+################################################################
+### FILE: test_rule_guard.py
+################################################################
+
+"""Run: python3 test_rule_guard.py  (no API needed)"""
+import datetime as dt
+
+import rule_guard as g
+
+CT = g.CT
+MNQ = "CON.F.US.MNQ.Z26"
+TICK = {"tick_size": 0.25, "tick_value": 0.5}
+D = dt.date
+
+
+def levels(alerts, key):
+    return [a[0] for a in alerts if a[1].startswith(key)]
+
+
+def test_trading_day_rollover():
+    assert g.trading_day(dt.datetime(2026, 10, 6, 16, 59, tzinfo=CT)) == D(2026, 10, 6)
+    assert g.trading_day(dt.datetime(2026, 10, 6, 17, 0, tzinfo=CT)) == D(2026, 10, 7)
+
+
+def test_mll_trails_eod_and_locks():
+    start, mll = 50000.0, 2000.0
+    assert g.mll_floor({}, D(2026, 10, 7), start, mll) == 48000
+    daily = {D(2026, 10, 5): 1000.0, D(2026, 10, 6): -500.0}
+    assert g.mll_floor(daily, D(2026, 10, 7), start, mll) == 49000       # peak EOD 51000
+    daily = {D(2026, 10, 5): 3000.0}
+    assert g.mll_floor(daily, D(2026, 10, 7), start, mll) == 50000       # locked at start
+    # today's P&L must not move the floor (EOD only)
+    daily = {D(2026, 10, 7): 1500.0}
+    assert g.mll_floor(daily, D(2026, 10, 7), start, mll) == 48000
+
+
+def test_breach_on_unrealized():
+    now = dt.datetime(2026, 10, 7, 10, 0, tzinfo=CT)
+    snap = {"balance": 48500.0, "daily": {D(2026, 10, 6): -1500.0}, "orders": [],
+            "positions": [dict(TICK, contract=MNQ, type=g.LONG, size=10, avg=20000.0, last=19970.0)]}  # -600
+    assert g.BREACH in levels(g.evaluate(snap, now), "mll")
+
+
+def test_size_limit_counts_minis_as_10():
+    now = dt.datetime(2026, 10, 7, 10, 0, tzinfo=CT)
+    nq = "CON.F.US.ENQ.Z26"
+    snap = {"balance": 50000.0, "daily": {}, "orders": [],
+            "positions": [dict(tick_size=0.25, tick_value=5.0, contract=nq, type=g.LONG, size=6, avg=1.0, last=1.0)]}
+    assert g.BREACH in levels(g.evaluate(snap, now), "size")
+
+
+def test_missing_stop_and_flat_time():
+    snap = {"balance": 50000.0, "daily": {}, "orders": [],
+            "positions": [dict(TICK, contract=MNQ, type=g.SHORT, size=2, avg=100.0, last=100.0)]}
+    a = g.evaluate(snap, dt.datetime(2026, 10, 7, 15, 8, tzinfo=CT))
+    assert g.DANGER in levels(a, "nostop")
+    assert g.DANGER in levels(a, "time")
+    a = g.evaluate(snap, dt.datetime(2026, 10, 7, 15, 12, tzinfo=CT))
+    assert g.BREACH in levels(a, "time")
+
+
+def test_consistency_raises_target():
+    now = dt.datetime(2026, 10, 7, 12, 0, tzinfo=CT)
+    snap = {"balance": 53100.0, "daily": {D(2026, 10, 5): 1100.0, D(2026, 10, 7): 2000.0}, "orders": [], "positions": []}
+    a = g.evaluate(snap, now)
+    assert not levels(a, "target")            # 3100 profit but best day 2000 -> need 3637
+    snap["balance"] = 53700.0
+    snap["daily"][D(2026, 10, 6)] = 600.0
+    assert levels(g.evaluate(snap, now), "target") == [g.INFO]
+
+
+def test_pretrade_blocks_trade_that_can_hit_mll():
+    now = dt.datetime(2026, 10, 7, 10, 0, tzinfo=CT)
+    snap = {"balance": 48300.0, "daily": {D(2026, 10, 6): -1700.0}, "orders": [], "positions": []}
+    ok, reasons, _ = g.pretrade(snap, now, MNQ, 5, 40, 0.25, 0.5)     # risk ~$408, room $300
+    assert not ok and any("MLL" in r for r in reasons)
+    snap = {"balance": 50000.0, "daily": {}, "orders": [], "positions": []}
+    ok, _, _ = g.pretrade(snap, now, MNQ, 3, 20, 0.25, 0.5)            # risk ~$125
+    assert ok
+
+
+def test_xfa_floor_scaling_and_payout_lock():
+    r = g.make_rules("xfa", "50k", "standard")
+    today = D(2026, 11, 6)
+    assert g.account_limits({}, today, r) == (-2000.0, 20)
+    daily = {D(2026, 11, 3): 1000.0, D(2026, 11, 4): 700.0}              # EOD 1700 -> floor -300, 30 micros
+    assert g.account_limits(daily, today, r) == (-300.0, 30)
+    daily[D(2026, 11, 5)] = 500.0                                          # EOD 2200 -> floor locks at 0, 50 micros
+    assert g.account_limits(daily, today, r) == (0.0, 50)
+    r2 = g.make_rules("xfa", "50k", "standard", payout_since=D(2026, 11, 4))
+    assert g.account_limits({D(2026, 11, 3): 100.0}, today, r2)[0] == 0.0  # after payout MLL = 0
+
+
+def test_xfa_scaling_100k_150k():
+    today = D(2026, 11, 6)
+    r = g.make_rules("xfa", "100k")
+    assert g.account_limits({D(2026, 11, 3): 3200.0}, today, r)[1] == 100
+    r = g.make_rules("xfa", "150k")
+    assert g.account_limits({D(2026, 11, 3): 1000.0}, today, r)[1] == 30
+    assert g.account_limits({D(2026, 11, 3): 4600.0}, today, r)[1] == 150
+
+
+def test_xfa_consistency_early_warning():
+    r = g.make_rules("xfa", "50k", "consistency")
+    now = dt.datetime(2026, 11, 6, 10, 0, tzinfo=CT)
+    snap = {"balance": 1000.0 + 560.0, "orders": [], "positions": [],
+            "daily": {D(2026, 11, 4): 500.0, D(2026, 11, 5): 400.0, D(2026, 11, 6): 560.0}}   # max today = 600
+    a = [x for x in g.evaluate(snap, now, r) if x[1] == "xfa_cons"]
+    assert a and a[0][0] == g.WARN and "paas" in a[0][2]
+    snap["daily"][D(2026, 11, 6)] = 700.0
+    a = [x for x in g.evaluate(snap, now, r) if x[1] == "xfa_cons"]
+    assert "> 40%" in a[0][2]
+
+
+if __name__ == "__main__":
+    n = 0
+    for name, fn in list(globals().items()):
+        if name.startswith("test_"):
+            fn()
+            n += 1
+            print("ok", name)
+    print("%d tests passed" % n)
+
+
+################################################################
+### FILE: backtest.py
+################################################################
+
+"""
+Futures intraday backtester with Topstep 50K Combine rules.
+
+Data: Dukascopy 1-minute index CFD bars (US 500 / US Tech 100) as a proxy for MES / MNQ.
+Download (needs Node.js):
+  npx dukascopy-node -i usa500idxusd  -from 2016-01-01 -to 2026-09-26 -t m1 -f csv -dir data
+  npx dukascopy-node -i usatechidxusd -from 2016-01-01 -to 2026-09-26 -t m1 -f csv -dir data
+
+Run:
+  python3 backtest.py data/usa500idxusd-m1-bid-2016-01-01-2026-09-26.csv MES
+
+Strategies (parameters taken from the papers, NOT optimised):
+  NOISE  - intraday momentum / noise-area breakout (Zarattini, Aziz, Barbon 2024)
+  ORB5   - 5-min opening range, trade in direction of first candle (Zarattini & Aziz 2023)
+  ORB30  - 30-min opening range breakout, stop at other side of range
+  LAST30 - first-30-min return predicts last 30 min (Gao, Han, Li, Zhou 2018)
+  VWAPMR - fade 2-sigma stretch from VWAP after 10:30, target VWAP (comparison only)
+"""
+import sys
+
+import numpy as np
+import pandas as pd
+
+# ---------------- settings ----------------
+SPECS = {  # point value $, tick size
+    "MES": (5.0, 0.25),
+    "MNQ": (2.0, 0.25),
+}
+COMMISSION_PER_SIDE = 0.75   # $ per micro contract per side (commission + exchange fees, approx)
+SLIP_TICKS_PER_SIDE = 1      # 1 tick slippage on every entry and exit
+RISK_PER_TRADE = 200.0       # $ risked per trade in Combine sim (10% of the $2,000 max loss)
+MAX_MICROS = 50              # Topstep 50K = 5 minis = 50 micros
+START_BAL = 50000.0
+TARGET = 3000.0
+MLL = 2000.0                 # end-of-day trailing max loss limit, locks at start balance
+CONSISTENCY = 0.55           # best day must be <= 55% of total profit (Topstep, Sep 2026; runs 1-2 used 0.50)
+IS_END = "2021-12-31"        # in-sample 2016-2021, out-of-sample 2022-2026
+
+
+def load(path):
+    df = pd.read_csv(path)
+    ts = pd.to_datetime(df["timestamp"], unit="ms", utc=True).dt.tz_convert("America/New_York")
+    df.index = ts
+    df = df.drop(columns=["timestamp"])
+    t = df.index.hour * 60 + df.index.minute
+    df = df[(t >= 9 * 60 + 30) & (t < 16 * 60)].copy()   # regular session only
+    df["date"] = df.index.date
+    df["mod"] = df.index.hour * 60 + df.index.minute - (9 * 60 + 30)  # minute of day, 0..389
+    return df
+
+
+def day_table(df):
+    """One row per session: arrays of minute bars aligned to 0..389."""
+    days = []
+    prev_close = np.nan
+    for d, g in df.groupby("date"):
+        if len(g) < 300:        # skip half days / broken data
+            prev_close = g["close"].iloc[-1] if len(g) else prev_close
+            continue
+        full = g.set_index("mod")[["open", "high", "low", "close"]].reindex(range(390)).ffill().bfill()
+        days.append({
+            "date": pd.Timestamp(d),
+            "o": full["open"].values, "h": full["high"].values,
+            "l": full["low"].values, "c": full["close"].values,
+            "prev_close": prev_close,
+        })
+        prev_close = full["close"].values[-1]
+    return days
+
+
+def vwap_proxy(day):
+    # no volume in the data -> use cumulative average of typical price (TWAP) as VWAP proxy
+    tp = (day["h"] + day["l"] + day["c"]) / 3.0
+    return np.cumsum(tp) / np.arange(1, len(tp) + 1)
+
+
+# Each strategy returns a list of trades: dict(date, side, entry, exit, risk_pts, mae_pts)
+# All prices are in index points; entries/exits at bar close unless a stop is hit.
+
+def trade(date, side, entry, exit_, risk_pts, mae_pts):
+    return {"date": date, "side": side, "entry": entry, "exit": exit_,
+            "pts": side * (exit_ - entry), "risk_pts": risk_pts, "mae_pts": mae_pts}
+
+
+def mae(day, side, entry, i0, i1):
+    if i1 < i0:
+        return 0.0
+    if side > 0:
+        return max(0.0, entry - day["l"][i0:i1 + 1].min())
+    return max(0.0, day["h"][i0:i1 + 1].max() - entry)
+
+
+def strat_noise(days, lookback=14):
+    """Zarattini et al. 2024: band = open * (1 +/- avg |move from open| at this minute over last 14 days).
+    Check every 30 min from 10:00. Long above upper band, short below lower. Trailing stop = band or VWAP.
+    Flat at close."""
+    out = []
+    moves = []  # list of arrays |c/o - 1|
+    for k, day in enumerate(days):
+        o = day["o"][0]
+        if len(moves) >= lookback and not np.isnan(day["prev_close"]):
+            sigma = np.mean(moves[-lookback:], axis=0)
+            ub = max(o, day["prev_close"]) * (1 + sigma)
+            lb = min(o, day["prev_close"]) * (1 - sigma)
+            vw = vwap_proxy(day)
+            pos, entry, i_in, risk = 0, 0.0, 0, 0.0
+            for i in range(30, 390, 30):          # 10:00, 10:30 ... 15:30 decision points
+                c = day["c"][i - 1]
+                if pos == 1 and c < max(ub[i - 1], vw[i - 1]):
+                    out.append(trade(day["date"], 1, entry, c, risk, mae(day, 1, entry, i_in, i - 1))); pos = 0
+                elif pos == -1 and c > min(lb[i - 1], vw[i - 1]):
+                    out.append(trade(day["date"], -1, entry, c, risk, mae(day, -1, entry, i_in, i - 1))); pos = 0
+                if pos == 0:
+                    if c > ub[i - 1]:
+                        pos, entry, i_in = 1, c, i
+                        risk = c - max(ub[i - 1], vw[i - 1]) + 0.25 * sigma[i - 1] * c + 1
+                    elif c < lb[i - 1]:
+                        pos, entry, i_in = -1, c, i
+                        risk = min(lb[i - 1], vw[i - 1]) - c + 0.25 * sigma[i - 1] * c + 1
+            if pos != 0:
+                out.append(trade(day["date"], pos, entry, day["c"][-1], risk, mae(day, pos, entry, i_in, 389)))
+        moves.append(np.abs(day["c"] / o - 1))
+    return out
+
+
+def strat_orb5(days):
+    """Zarattini & Aziz 2023: first 5-min candle direction; enter at 9:35 open; stop at other end of candle;
+    no target, exit at close."""
+    out = []
+    for day in days:
+        o5, c5 = day["o"][0], day["c"][4]
+        h5, l5 = day["h"][:5].max(), day["l"][:5].min()
+        if c5 == o5:
+            continue
+        side = 1 if c5 > o5 else -1
+        entry = day["o"][5]
+        stop = l5 if side > 0 else h5
+        risk = side * (entry - stop)
+        if risk <= 0:
+            continue
+        exit_, idx = day["c"][-1], 389
+        for i in range(5, 390):
+            if (side > 0 and day["l"][i] <= stop) or (side < 0 and day["h"][i] >= stop):
+                exit_, idx = stop, i
+                break
+        out.append(trade(day["date"], side, entry, exit_, risk, mae(day, side, entry, 5, idx)))
+    return out
+
+
+def strat_orb30(days):
+    """Break of 30-min opening range (first break only), stop at other side of range, exit at close."""
+    out = []
+    for day in days:
+        hi, lo = day["h"][:30].max(), day["l"][:30].min()
+        side, entry, i_in = 0, 0.0, 0
+        for i in range(30, 390):
+            if day["h"][i] > hi:
+                side, entry, i_in = 1, hi, i; break
+            if day["l"][i] < lo:
+                side, entry, i_in = -1, lo, i; break
+        if side == 0:
+            continue
+        stop = lo if side > 0 else hi
+        risk = hi - lo
+        exit_, idx = day["c"][-1], 389
+        for i in range(i_in + 1, 390):
+            if (side > 0 and day["l"][i] <= stop) or (side < 0 and day["h"][i] >= stop):
+                exit_, idx = stop, i
+                break
+        out.append(trade(day["date"], side, entry, exit_, risk, mae(day, side, entry, i_in, idx)))
+    return out
+
+
+def strat_last30(days, lookback=14):
+    """Gao et al. 2018: sign of (prev close -> 10:00) return; trade 15:30 -> 16:00 in that direction."""
+    out = []
+    hist = []
+    for day in days:
+        last_move = abs(day["c"][-1] - day["c"][359])
+        if len(hist) >= lookback and not np.isnan(day["prev_close"]):
+            r1 = day["c"][29] - day["prev_close"]
+            if r1 != 0:
+                side = 1 if r1 > 0 else -1
+                entry, exit_ = day["c"][359], day["c"][-1]
+                risk = 2 * np.mean(hist[-lookback:])  # sizing proxy, no hard stop
+                out.append(trade(day["date"], side, entry, exit_, risk, mae(day, side, entry, 360, 389)))
+        hist.append(last_move)
+    return out
+
+
+def strat_vwapmr(days, lookback=14):
+    """Fade: after 10:30, if price is > 2x avg abs(close - VWAP) away from VWAP, fade it.
+    Target VWAP, stop 1x further stretch, exit at close. One trade per day."""
+    out = []
+    hist = []
+    for day in days:
+        vw = vwap_proxy(day)
+        dev = day["c"] - vw
+        if len(hist) >= lookback:
+            s = np.mean(hist[-lookback:])
+            for i in range(60, 360):
+                if abs(dev[i]) > 2 * s:
+                    side = -1 if dev[i] > 0 else 1
+                    entry = day["c"][i]
+                    stop = entry - side * s
+                    exit_, idx = day["c"][-1], 389
+                    for j in range(i + 1, 390):
+                        if (side > 0 and day["l"][j] <= stop) or (side < 0 and day["h"][j] >= stop):
+                            exit_, idx = stop, j; break
+                        if (side > 0 and day["h"][j] >= vw[j]) or (side < 0 and day["l"][j] <= vw[j]):
+                            exit_, idx = vw[j], j; break
+                    out.append(trade(day["date"], side, entry, exit_, s, mae(day, side, entry, i + 1, idx)))
+                    break
+        hist.append(np.mean(np.abs(dev)))
+    return out
+
+
+STRATS = {"NOISE": strat_noise, "ORB5": strat_orb5, "ORB30": strat_orb30,
+          "LAST30": strat_last30, "VWAPMR": strat_vwapmr}
+
+
+def to_dollars(trades, pv, tick):
+    t = pd.DataFrame(trades)
+    if t.empty:
+        return t
+    cost_pts = 2 * SLIP_TICKS_PER_SIDE * tick
+    t["n"] = np.clip(np.floor(RISK_PER_TRADE / (t["risk_pts"] * pv)), 1, MAX_MICROS)
+    t["pnl1"] = (t["pts"] - cost_pts) * pv - 2 * COMMISSION_PER_SIDE       # 1 micro
+    t["pnl"] = t["pnl1"] * t["n"]                                          # sized
+    t["mae"] = t["mae_pts"] * pv * t["n"]
+    return t
+
+
+def stats(t, col):
+    p = t[col]
+    wins, losses = p[p > 0], p[p <= 0]
+    daily = t.groupby("date")[col].sum()
+    eq = daily.cumsum()
+    dd = (eq - eq.cummax()).min()
+    pf = wins.sum() / -losses.sum() if losses.sum() != 0 else np.inf
+    return {"trades": len(p), "win%": 100 * len(wins) / max(len(p), 1), "avg$": p.mean(),
+            "PF": pf, "total$": p.sum(), "maxDD$": dd,
+            "sharpe": daily.mean() / daily.std() * np.sqrt(252) if daily.std() > 0 else 0}
+
+
+def combine_sim(t, all_dates, max_days=None):
+    """Start a Combine on every 5th session; run until pass or blow (or max_days = give up, counted as not passed)."""
+    daily_pnl = t.groupby("date")["pnl"].sum()
+    daily_mae = t.groupby("date")["mae"].max()
+    dates = list(all_dates)
+    res = []
+    for s in range(0, len(dates) - 60, 5):
+        bal, peak_eod, best, days_n = START_BAL, START_BAL, 0.0, 0
+        outcome = "open"
+        for d in dates[s:]:
+            days_n += 1
+            floor = min(peak_eod - MLL, START_BAL)
+            pnl = daily_pnl.get(d, 0.0)
+            worst = daily_mae.get(d, 0.0)
+            if bal - worst <= floor:          # intraday touch of max loss (approx, one trade/day)
+                outcome = "fail"; break
+            bal += pnl
+            if bal <= floor:
+                outcome = "fail"; break
+            peak_eod = max(peak_eod, bal)
+            best = max(best, pnl)
+            profit = bal - START_BAL
+            if profit >= TARGET and best < CONSISTENCY * profit and days_n >= 2:
+                outcome = "pass"; break
+            if max_days and days_n >= max_days:
+                outcome = "timeout"; break
+        res.append((outcome, days_n))
+    r = pd.DataFrame(res, columns=["outcome", "days"])
+    done = r[r["outcome"] != "open"]
+    return {"sims": len(done),
+            "pass%": 100 * (done["outcome"] == "pass").mean() if len(done) else np.nan,
+            "med_days_to_pass": done.loc[done["outcome"] == "pass", "days"].median()}
+
+
+def main():
+    path, sym = sys.argv[1], sys.argv[2]
+    pv, tick = SPECS[sym]
+    df = load(path)
+    days = day_table(df)
+    all_dates = [d["date"] for d in days]
+    print("%s: %d sessions %s -> %s" % (sym, len(days), all_dates[0].date(), all_dates[-1].date()))
+    rows = []
+    for name, fn in STRATS.items():
+        t = to_dollars(fn(days), pv, tick)
+        if t.empty:
+            continue
+        for label, part in (("IS 2016-21", t[t["date"] <= IS_END]), ("OOS 2022-26", t[t["date"] > IS_END])):
+            s1 = stats(part, "pnl1")
+            dates = [d for d in all_dates if (d <= pd.Timestamp(IS_END)) == label.startswith("IS")]
+            c = combine_sim(part, dates)
+            rows.append({"strategy": name, "period": label, "trades": s1["trades"],
+                         "win%": round(s1["win%"], 1), "avg$/1micro": round(s1["avg$"], 2),
+                         "PF": round(s1["PF"], 2), "sharpe": round(s1["sharpe"], 2),
+                         "total$/1micro": round(s1["total$"]), "maxDD$/1micro": round(s1["maxDD$"]),
+                         "combine_pass%": round(c["pass%"], 1), "med_days": c["med_days_to_pass"]})
+    out = pd.DataFrame(rows)
+    pd.set_option("display.width", 200)
+    print(out.to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
+
+
+################################################################
+### FILE: tune_noise.py
+################################################################
+
+"""
+Tune NOISE (intraday momentum) for Topstep Combine pass rate.
+Tuning uses ONLY 2016-2021. The chosen config is then checked on 2022-2026 (never used for choosing).
+
+Run:
+  python3 tune_noise.py data/usatechidxusd-m1-bid-2016-01-01-2026-09-26.csv MNQ
+
+Variants tested:
+  freq       - decision every 15 or 30 minutes (paper: 30)
+  hard_stop  - exit intrabar when price crosses the trailing band/VWAP stop, instead of waiting for next check
+  max_trades - max entries per day (1, 2, unlimited)
+  budget     - $ per one average daily range (vol-targeted sizing, paper-style). NQ range ~200 pts = $400/micro
+"""
+import itertools
+import sys
+
+import numpy as np
+import pandas as pd
+
+import backtest as bt
+
+MAX_DAYS = 60   # give up after ~3 months of subscription fees; counted as NOT passed
+
+
+def strat_noise2(days, freq=30, hard_stop=False, max_trades=99, lookback=14):
+    out = []
+    moves, ranges = [], []
+    for day in days:
+        o = day["o"][0]
+        if len(moves) >= lookback and not np.isnan(day["prev_close"]):
+            sigma = np.mean(moves[-lookback:], axis=0)
+            avg_range = np.mean(ranges[-lookback:])
+            ub = max(o, day["prev_close"]) * (1 + sigma)
+            lb = min(o, day["prev_close"]) * (1 - sigma)
+            vw = bt.vwap_proxy(day)
+            pos, entry, i_in, stop, n_tr = 0, 0.0, 0, 0.0, 0
+            i = 30
+            last_check = 30
+            while i < 390:
+                if i == last_check:
+                    c = day["c"][i - 1]
+                    if pos == 1:
+                        stop = max(stop, ub[i - 1], vw[i - 1])
+                        if c < stop:
+                            out.append(bt.trade(day["date"], 1, entry, c, avg_range, bt.mae(day, 1, entry, i_in, i - 1)))
+                            pos = 0
+                    elif pos == -1:
+                        stop = min(stop, lb[i - 1], vw[i - 1])
+                        if c > stop:
+                            out.append(bt.trade(day["date"], -1, entry, c, avg_range, bt.mae(day, -1, entry, i_in, i - 1)))
+                            pos = 0
+                    if pos == 0 and n_tr < max_trades and i < 385:
+                        if c > ub[i - 1]:
+                            pos, entry, i_in, stop, n_tr = 1, c, i, max(ub[i - 1], vw[i - 1]), n_tr + 1
+                        elif c < lb[i - 1]:
+                            pos, entry, i_in, stop, n_tr = -1, c, i, min(lb[i - 1], vw[i - 1]), n_tr + 1
+                    last_check += freq
+                # intrabar stop check (after the decision made on the previous bar's close)
+                if hard_stop and pos != 0 and i >= i_in:
+                    if (pos == 1 and day["l"][i] <= stop) or (pos == -1 and day["h"][i] >= stop):
+                        fill = min(stop, day["o"][i]) if pos == 1 else max(stop, day["o"][i])  # gap through stop
+                        out.append(bt.trade(day["date"], pos, entry, fill, avg_range,
+                                            bt.mae(day, pos, entry, i_in, i)))
+                        pos = 0
+                i += 1
+            if pos != 0:
+                out.append(bt.trade(day["date"], pos, entry, day["c"][-1], avg_range, bt.mae(day, pos, entry, i_in, 389)))
+        moves.append(np.abs(day["c"] / o - 1))
+        ranges.append(day["h"].max() - day["l"].min())
+    return out
+
+
+def evaluate(raw, budget, pv, tick, dates_is, dates_oos):
+    bt.RISK_PER_TRADE = budget
+    t = bt.to_dollars(raw, pv, tick)
+    res = {}
+    for label, part, dates in (("IS", t[t["date"] <= bt.IS_END], dates_is),
+                               ("OOS", t[t["date"] > bt.IS_END], dates_oos)):
+        s = bt.stats(part, "pnl1")
+        c = bt.combine_sim(part, dates, MAX_DAYS)
+        z = part.copy()
+        z["pnl"] = z["pnl"] - z["pnl"].mean()
+        c0 = bt.combine_sim(z, dates, MAX_DAYS)
+        res[label] = {"pass%": c["pass%"], "base%": c0["pass%"], "days": c["med_days_to_pass"],
+                      "PF": s["PF"], "sharpe": s["sharpe"], "micros": part["n"].mean()}
+    return res
+
+
+def main():
+    path, sym = sys.argv[1], sys.argv[2]
+    pv, tick = bt.SPECS[sym]
+    days = bt.day_table(bt.load(path))
+    dates = [d["date"] for d in days]
+    d_is = [d for d in dates if d <= pd.Timestamp(bt.IS_END)]
+    d_oos = [d for d in dates if d > pd.Timestamp(bt.IS_END)]
+    rows = []
+    for freq, hs, mt in itertools.product([15, 30], [False, True], [1, 2, 99]):
+        raw = strat_noise2(days, freq, hs, mt)
+        for budget in [400, 800, 1200, 1600, 2400]:
+            r = evaluate(raw, budget, pv, tick, d_is, d_oos)
+            rows.append({"freq": freq, "hard_stop": hs, "max_tr": mt, "budget": budget,
+                         "micros": round(r["IS"]["micros"], 1),
+                         "IS_pass%": round(r["IS"]["pass%"], 1), "IS_base%": round(r["IS"]["base%"], 1),
+                         "IS_PF": round(r["IS"]["PF"], 2), "IS_days": r["IS"]["days"],
+                         "OOS_pass%": round(r["OOS"]["pass%"], 1), "OOS_base%": round(r["OOS"]["base%"], 1),
+                         "OOS_PF": round(r["OOS"]["PF"], 2), "OOS_days": r["OOS"]["days"]})
+    out = pd.DataFrame(rows).sort_values("IS_pass%", ascending=False)
+    pd.set_option("display.width", 220)
+    print(out.to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
+
+
+################################################################
+### FILE: smc_test.py
+################################################################
+
+"""
+Backtest ICT / "smart money" ideas with fixed, pre-declared rules (no tuning):
+
+  AMD_LDN  - Power of 3: Accumulation = Asia range (20:00-00:00 ET). Manipulation = London (02:00-05:00 ET)
+             sweeps ONE side of the Asia range. Distribution = at 9:30 NY open trade the opposite way.
+             Stop = London sweep extreme. Target 2R, else exit 15:59.
+  AMD_NY   - Accumulation = overnight range (18:00-09:30). Manipulation = between 9:30-11:00 price trades beyond
+             the overnight high/low and a 5-min bar closes back inside -> enter opposite way next bar.
+             Stop = sweep extreme. Target 2R, else exit 15:59.
+  SWEEP_PD - Liquidity sweep of previous day high/low (RTH), 9:30-13:00, same entry logic as AMD_NY.
+  ..._EOD  - same entries but no 2R target: hold to 15:59 (lets winners run).
+
+Order flow (footprint, delta, absorption) can NOT be tested here: it needs tick data with buy/sell aggressor
+volume. This data is 1-minute price only.
+
+Run:
+  python3 smc_test.py data/usatechidxusd-m1-bid-2016-01-01-2026-09-26.csv MNQ
+"""
+import sys
+
+import numpy as np
+import pandas as pd
+
+import backtest as bt
+
+MAX_DAYS = 60
+MIN_RISK_FRAC = 0.0003     # stop at least 0.03% of price away (NQ ~6 pts, ES ~1.5 pts)
+RR = 2.0
+
+
+def load_all(path):
+    df = pd.read_csv(path)
+    ts = pd.to_datetime(df["timestamp"], unit="ms", utc=True).dt.tz_convert("America/New_York").dt.tz_localize(None)
+    return (ts.values.astype("datetime64[m]"), df["open"].values, df["high"].values,
+            df["low"].values, df["close"].values)
+
+
+def sl(t, a, b):
+    """index slice [a, b) of sorted minute timestamps"""
+    return np.searchsorted(t, a), np.searchsorted(t, b)
+
+
+def run_trade(t, o, h, l, c, i, side, entry, stop, target, end_i):
+    """walk bars from i until stop / target / end. Stop assumed first if both hit in one bar."""
+    worst = 0.0
+    for k in range(i, end_i):
+        if side > 0:
+            worst = max(worst, entry - l[k])
+            if l[k] <= stop:
+                return min(stop, o[k]), worst
+            if target is not None and h[k] >= target:
+                return target, worst
+        else:
+            worst = max(worst, h[k] - entry)
+            if h[k] >= stop:
+                return max(stop, o[k]), worst
+            if target is not None and l[k] <= target:
+                return target, worst
+    return c[end_i - 1], worst
+
+
+def sweep_reversal(t, o, h, l, c, i0, i1, hi, lo, end_i):
+    """In window [i0, i1): price trades beyond hi (or lo); first 5-min bar close back inside -> reversal entry."""
+    swept_hi = swept_lo = False
+    ext_hi, ext_lo = -np.inf, np.inf
+    for k in range(i0, i1 - 5, 5):
+        bh, bl, bc = h[k:k + 5].max(), l[k:k + 5].min(), c[k + 4]
+        if bh > hi:
+            swept_hi = True
+            ext_hi = max(ext_hi, bh)
+        if bl < lo:
+            swept_lo = True
+            ext_lo = min(ext_lo, bl)
+        if swept_hi and swept_lo:
+            return None                     # both sides taken - no clean manipulation
+        if swept_hi and bc < hi:
+            return -1, k + 5, ext_hi
+        if swept_lo and bc > lo:
+            return 1, k + 5, ext_lo
+    return None
+
+
+def strategies(t, o, h, l, c):
+    days = pd.to_datetime(np.unique(t.astype("datetime64[D]")))
+    out = {k: [] for k in ["AMD_LDN", "AMD_LDN_EOD", "AMD_NY", "AMD_NY_EOD", "SWEEP_PD", "SWEEP_PD_EOD"]}
+    prev_rth = None
+    for d in days:
+        if d.weekday() >= 5:
+            continue
+        D = np.datetime64(d.date(), "m")
+        r0, r1 = sl(t, D + 570, D + 960)            # 09:30-16:00
+        if r1 - r0 < 300:
+            continue
+        a0, a1 = sl(t, D - 240, D)                  # Asia 20:00-00:00 (previous evening)
+        n0, n1 = sl(t, D + 120, D + 300)            # London 02:00-05:00
+        o0, o1 = sl(t, D - 360, D + 570)            # overnight 18:00-09:30
+        day_rows = []
+
+        def add(name, side, i, entry, stop, target_ok=True):
+            risk = side * (entry - stop)
+            risk = max(risk, MIN_RISK_FRAC * entry)
+            stop = entry - side * risk
+            for suffix, tgt in (("", entry + side * RR * risk), ("_EOD", None)):
+                ex, worst = run_trade(t, o, h, l, c, i, side, entry, stop, tgt, r1)
+                out[name + suffix].append(bt.trade(d, side, entry, ex, risk, worst))
+
+        # AMD_LDN
+        if a1 - a0 > 100 and n1 - n0 > 100:
+            ahi, alo = h[a0:a1].max(), l[a0:a1].min()
+            lhi, llo = h[n0:n1].max(), l[n0:n1].min()
+            if (lhi > ahi) != (llo < alo):          # exactly one side swept
+                side = -1 if lhi > ahi else 1
+                stop = lhi if side < 0 else llo
+                entry = o[r0]
+                if side * (entry - stop) > 0:
+                    add("AMD_LDN", side, r0, entry, stop)
+        # AMD_NY
+        if o1 - o0 > 300:
+            ohi, olo = h[o0:o1].max(), l[o0:o1].min()
+            k1 = np.searchsorted(t, D + 660)        # 11:00
+            s = sweep_reversal(t, o, h, l, c, r0, k1, ohi, olo, r1)
+            if s:
+                side, i, ext = s
+                add("AMD_NY", side, i, o[i], ext)
+        # SWEEP_PD
+        if prev_rth is not None:
+            k1 = np.searchsorted(t, D + 780)        # 13:00
+            s = sweep_reversal(t, o, h, l, c, r0, k1, prev_rth[0], prev_rth[1], r1)
+            if s:
+                side, i, ext = s
+                add("SWEEP_PD", side, i, o[i], ext)
+        prev_rth = (h[r0:r1].max(), l[r0:r1].min())
+    return out
+
+
+def main():
+    path, sym = sys.argv[1], sys.argv[2]
+    pv, tick = bt.SPECS[sym]
+    t, o, h, l, c = load_all(path)
+    all_dates = sorted(set(pd.to_datetime(np.unique(t.astype("datetime64[D]")))))
+    all_dates = [d for d in all_dates if d.weekday() < 5]
+    d_is = [d for d in all_dates if d <= pd.Timestamp(bt.IS_END)]
+    d_oos = [d for d in all_dates if d > pd.Timestamp(bt.IS_END)]
+    bt.RISK_PER_TRADE = 250.0
+    rows = []
+    for name, trades in strategies(t, o, h, l, c).items():
+        tr = bt.to_dollars(trades, pv, tick)
+        for label, part, dates in (("IS 2016-21", tr[tr["date"] <= bt.IS_END], d_is),
+                                   ("OOS 2022-26", tr[tr["date"] > bt.IS_END], d_oos)):
+            s = bt.stats(part, "pnl")
+            cmb = bt.combine_sim(part, dates, MAX_DAYS)
+            z = part.copy()
+            z["pnl"] = z["pnl"] - z["pnl"].mean()
+            base = bt.combine_sim(z, dates, MAX_DAYS)
+            rows.append({"strategy": name, "period": label, "trades": s["trades"], "win%": round(s["win%"], 1),
+                         "avg$": round(s["avg$"], 1), "PF": round(s["PF"], 2), "sharpe": round(s["sharpe"], 2),
+                         "total$": round(s["total$"]), "maxDD$": round(s["maxDD$"]),
+                         "pass%": round(cmb["pass%"], 1), "luck%": round(base["pass%"], 1)})
+    pd.set_option("display.width", 220)
+    print("%s, $%.0f risk per trade, costs 1 tick + $0.75/side per micro" % (sym, bt.RISK_PER_TRADE))
+    print(pd.DataFrame(rows).to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
+
+
+################################################################
+### FILE: giveback_test.py
+################################################################
+
+# Usage: python3 giveback_test.py data/usatechidxusd-m1-bid-2016-01-01-2026-09-26.csv
+# Test RB's idea on NOISE entries: once open profit >= ACT dollars, exit if it gives back GB% of peak open profit.
+import sys, numpy as np, pandas as pd
+sys.path.insert(0,'.')
+import backtest as bt, tune_noise as tn
+PV, BUDGET = 2.0, 1600.0
+days = bt.day_table(bt.load(sys.argv[1]))
+dates=[d['date'] for d in days]
+d_is=[d for d in dates if d<=pd.Timestamp(bt.IS_END)]; d_oos=[d for d in dates if d>pd.Timestamp(bt.IS_END)]
+
+def run(act, gb, target):
+    out=[]; moves=[]; ranges=[]
+    for day in days:
+        o=day['o'][0]
+        if len(moves)>=14 and not np.isnan(day['prev_close']):
+            sigma=np.mean(moves[-14:],axis=0); ar=np.mean(ranges[-14:])
+            n=max(1,min(50,int(BUDGET/(ar*PV))))
+            ub=max(o,day['prev_close'])*(1+sigma); lb=min(o,day['prev_close'])*(1-sigma); vw=bt.vwap_proxy(day)
+            pos=0; entry=0; i_in=0; peak=0.0
+            for i in range(30,390):
+                if pos!=0 and i>i_in:
+                    # conservative: lock uses peak from PREVIOUS bars only; gap through lock fills at open
+                    exit_px=None
+                    if act and peak*PV*n>=act:
+                        lock=entry+pos*peak*(1-gb)
+                        if (pos>0 and day['l'][i]<=lock) or (pos<0 and day['h'][i]>=lock):
+                            exit_px=min(lock,day['o'][i]) if pos>0 else max(lock,day['o'][i])
+                    fav=pos*((day['h'][i] if pos>0 else day['l'][i])-entry)
+                    if exit_px is None and target and fav*PV*n>=target: exit_px=entry+pos*target/(PV*n)
+                    peak=max(peak,fav)
+                    if exit_px is not None:
+                        out.append(bt.trade(day['date'],pos,entry,exit_px,ar,bt.mae(day,pos,entry,i_in,i))); pos=0; continue
+                if i%30==0:
+                    c=day['c'][i-1]
+                    if pos==1 and c<max(ub[i-1],vw[i-1]): out.append(bt.trade(day['date'],1,entry,c,ar,bt.mae(day,1,entry,i_in,i-1))); pos=0
+                    elif pos==-1 and c>min(lb[i-1],vw[i-1]): out.append(bt.trade(day['date'],-1,entry,c,ar,bt.mae(day,-1,entry,i_in,i-1))); pos=0
+                    if pos==0 and i<385:
+                        if c>ub[i-1]: pos,entry,i_in,peak=1,c,i,0.0
+                        elif c<lb[i-1]: pos,entry,i_in,peak=-1,c,i,0.0
+            if pos!=0: out.append(bt.trade(day['date'],pos,entry,day['c'][-1],ar,bt.mae(day,pos,entry,i_in,389)))
+        moves.append(np.abs(day['c']/o-1)); ranges.append(day['h'].max()-day['l'].min())
+    bt.RISK_PER_TRADE=BUDGET; t=bt.to_dollars(out,PV,0.25)
+    r={}
+    for lab,part,dd in (('IS',t[t.date<=bt.IS_END],d_is),('OOS',t[t.date>bt.IS_END],d_oos)):
+        s=bt.stats(part,'pnl'); c=bt.combine_sim(part,dd,60)
+        r[lab]=(round(100*(part.pnl>0).mean()),round(s['avg$']),round(s['PF'],2),round(c['pass%'],1))
+    return r
+print('rule | IS: win%, avg$/trade, PF, pass% | OOS: same')
+for name,a,g,tg in [('NOISE as tested (no lock)',0,0,0),('lock after +$100, exit on 10% giveback (RB idea)',100,0.10,0),
+                    ('lock after +$300, exit on 30% giveback',300,0.30,0),('lock after +$500, exit on 50% giveback',500,0.50,0),
+                    ('fixed target +$500 (1% of 50K)',0,0,500)]:
+    r=run(a,g,tg); print(name.ljust(50),'| IS',r['IS'],'| OOS',r['OOS'])
