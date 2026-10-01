@@ -321,7 +321,7 @@ def summary(t):
               ("  momentum rank 6-10",
                (t.Source == "MOMENTUM") & (t["Rank then"] > 5) &
                (t["Rank then"] <= 10)),
-              ("  momentum rank 11-20",
+              ("  momentum rank 11+ (selected)",
                (t.Source == "MOMENTUM") & (t["Rank then"] > 10)),
               ("In BOTH lists (Super-Buy)",
                (t["Both lists"] == "YES") & (t.Source == "W+TT")),
@@ -332,18 +332,23 @@ def summary(t):
         if not len(g):
             continue
         vs = g["vs Nifty %"].dropna()
+        days = pd.to_numeric(g["Days since found"], errors="coerce").dropna()
         out.append({"Group": name, "Finds": len(g),
+                    "Stocks": int(g["Symbol"].nunique()),
                     "Up now": int((g["Return %"] > 0).sum()),
                     "Down now": int((g["Return %"] <= 0).sum()),
                     "Avg return %": g["Return %"].mean(),
                     "Median %": g["Return %"].median(),
                     "Avg vs Nifty %": vs.mean() if len(vs) else None,
                     "Beat Nifty": "%d of %d" % ((vs > 0).sum(), len(vs)),
-                    "Best %": g["Return %"].max(),
-                    "Worst %": g["Return %"].min(),
+                    "Best now %": g["Return %"].max(),
+                    "Worst now %": g["Return %"].min(),
                     "Avg worst dip %": g["Worst since %"].mean(),
                     "20% stop hit": int(g["Status"].str.startswith(
                         "STOP").sum()),
+                    "Days tracked": ("-" if not len(days) else "%d" %
+                                     days.min() if days.min() == days.max()
+                                     else "%d-%d" % (days.min(), days.max())),
                     "Older than 30 days": int((g["Days since found"] >=
                                                TOO_EARLY).sum())})
     return pd.DataFrame(out)
@@ -498,6 +503,35 @@ def write_sheet(path, summ, t, note, today):
     if len(summ):
         table(wsum, summ, 3, {"Group": 34})
         wsum.freeze_panes = "B4"
+    try:                               # momentum rank 1-5: look here first
+        import momentum_focus as mf
+        gold = PatternFill("solid", fgColor=mf.GOLD_FILL)
+        gfont = Font(bold=True, color=mf.GOLD_TEXT)
+        for r in range(4, 4 + len(summ)):
+            c = wsum.cell(row=r, column=1)
+            if "rank 1-5" in str(c.value):
+                c.fill, c.font = gold, gfont
+        n = 4 + len(summ) + 1
+        for txt in ("Beat Nifty = only finds with a Nifty comparison. Best / "
+                    "Worst now % = today's return (Best since % in "
+                    "Signal_Tracker = the peak). Rank 11+ (selected) = the "
+                    "sector cap can pick ranks above 20.",
+                    "Gold rank 1-5 group = rank WHEN FOUND. Gold symbols in "
+                    "Signal_Tracker = in TODAY's momentum rank 1-5. " +
+                    mf.NOTE):
+            wsum.cell(row=n, column=1, value=txt).font = Font(italic=True,
+                                                               size=10)
+            n += 1
+        now = mf.symbols(mf.load()[0])
+        cols = list(t.columns)
+        if now and "Symbol" in cols and "Source" in cols:
+            for i, x in enumerate(t.itertuples(index=False), 4):
+                if x[cols.index("Source")] == "MOMENTUM" and \
+                        x[cols.index("Symbol")] in now:
+                    c = ws.cell(row=i, column=1)
+                    c.fill, c.font = gold, gfont
+    except Exception:
+        pass                           # highlight only -- never stop a report
     paint_ages(wb)
     try:                               # columns fit their content (layout)
         import xl_fit
@@ -545,7 +579,7 @@ def main():
     if len(summ):
         pd.set_option("display.width", 200)
         print(summ[["Group", "Finds", "Up now", "Down now", "Avg return %",
-                    "Avg vs Nifty %", "Beat Nifty", "Worst %",
+                    "Avg vs Nifty %", "Beat Nifty", "Worst now %",
                     "Older than 30 days"]]
               .to_string(index=False, float_format=lambda x: "%+.1f" % x))
     young = int(t["Status"].astype(str).str.contains("TOO EARLY").sum())

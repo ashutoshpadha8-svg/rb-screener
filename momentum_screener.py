@@ -52,6 +52,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import daily_screener as ds
 import broker_api as ba
+import momentum_focus as mf
 from position_sizing import slot_budget, whole_shares, NAV_DIV_SLOTS
 
 # ------------------------------------------------------------------ config
@@ -416,6 +417,8 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red, banner):
             ("Regime", 20)]
     header(ws, cols)
     age = days_in_top(list(top["symbol"]))
+    gold = mf.symbols(mf.focus(top))               # rank 1-5, display only
+    gfill = PatternFill("solid", fgColor=mf.GOLD_FILL)
     for n, (_, x) in enumerate(top.iterrows(), start=2):
         d0, since = age.get(x["symbol"], (0, ""))
         vals = [x["symbol"], int(x["rank"]), d0, since,
@@ -430,10 +433,14 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red, banner):
             c = put(ws, n, i, v, f)
             if regime_red and i == len(vals):
                 c.fill = red_fill
+            if x["symbol"] in gold and i <= 2:     # Symbol + Mom Rank
+                c.fill = gfill
+                c.font = Font(name=F, bold=True, color=mf.GOLD_TEXT)
     last = ws.max_row
     ws.auto_filter.ref = "A1:%s%d" % (get_column_letter(len(cols)), max(last, 2))
     lines = [
         banner,
+        mf.NOTE,
         "Score = 0.5 z(6m ret/1y vol) + 0.5 z(12m ret/1y vol) among >= Rs 10k "
         "Cr stocks with > Rs 5 Cr median turnover. Max %s per industry."
         % SECTOR_CAP,
@@ -585,6 +592,16 @@ def main():
         print("*" * 70 + "\033[0m")
     else:
         print("\n Market regime OK: Nifty %.1f > 200-DMA %.1f" % (nifty, nifty200))
+    foc = mf.focus(top)
+    print("\n==== MOMENTUM TOP %d = look here first (NOT a buy signal) ===="
+          % mf.TOP_N)
+    for x in foc:
+        print("  #%d %-12s %-30s score %.2f  ~%.1f" % (
+            x["rank"], x["symbol"], str(x["sector"])[:30], x["score"],
+            x["price"]))
+    if len(foc) < mf.TOP_N:
+        print("  (%d of rank 1-%d: the sector cap skipped the rest)"
+              % (len(foc), mf.TOP_N))
     print("\n==== MOMENTUM TOP %d (eligible: %d) ====" % (SLOTS, len(allrank)))
     show = top[["rank", "symbol", "score", "sector", "price", "atr_pct",
                 "shares", "amount"]].copy()

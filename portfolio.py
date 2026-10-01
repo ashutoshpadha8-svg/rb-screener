@@ -454,7 +454,7 @@ SHEET_INFO = [
     ("Momentum_Top20", "master scan: RAMOM top 20 (sector cap 4)"),
     ("Fundamentals", "master scan: Screener.in detail per stock (info only)"),
     ("Signal_Summary", "how the screener's finds did, group by group "
-                       "(W+TT, momentum rank 1-5 / 6-10 / 11-20, both)"),
+                       "(W+TT, momentum rank 1-5 / 6-10 / 11+, both)"),
     ("Signal_Tracker", "every stock the screener ever found: return since, "
                        "vs Nifty, best / worst dip, rule status")]
 TAB = {"Dashboard": "1F4E78", "Holdings": "548235", "Journal": "7030A0",
@@ -567,6 +567,13 @@ def dashboard(ws, d, have):
     for a, b, red in d["todo"]:
         line(a, b, bold=red, color="C00000" if red else None,
              fill="FCE4D6" if red else None)
+    if d.get("focus"):                 # momentum rank 1-5: look here first
+        import momentum_focus as mf
+        section("MOMENTUM TOP 5 (look here first -- NOT a buy signal)")
+        for a, b, link in d["focus"]:
+            line(a, b, fill=mf.GOLD_LIGHT if a.startswith("#") else None,
+                 color=mf.GOLD_TEXT if a.startswith("#") else None,
+                 bold=a.startswith("#"), link=link if link in have else None)
     section("WATCHLIST")
     for a, b in d["watch"]:
         line(a, b)
@@ -1071,6 +1078,16 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     last = table(wa, acols, rows, ("Strategy Overlap",
                                    {"Super-Buy": "C6EFCE"}), widths,
                  freeze="E2")
+    try:                               # momentum rank 1-5 = gold Ticker
+        import momentum_focus as mf
+        gold = mf.symbols(mf.load()[0])
+        for r, x in enumerate(rows, 2):
+            if str(x.get("Ticker", "")).upper() in gold:
+                wa.cell(row=r, column=1).fill = fill(mf.GOLD_FILL)
+                wa.cell(row=r, column=1).font = Font(bold=True,
+                                                     color=mf.GOLD_TEXT)
+    except Exception:
+        pass
     col = L(acols.index("Action") + 1)
     amt = L(acols.index("Amount (Rs)") + 1)
     qty = acols.index("Qty (auto)") + 1
@@ -1093,7 +1110,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     wa.add_data_validation(dv)
     note(wa, last + 2, "Peele columns bharo: Action + Amount (Rs) (khaali = Rs "
          "%s). Qty apne aap. Save karo, phir rbtrack (15:30 ke baad). Hara = "
-         "Super-Buy. Momentum buy sirf mahine ke 1st trading day."
+         "Super-Buy. Gold Ticker = momentum rank 1-5 (pehle dekho, BUY "
+         "signal nahi). Momentum buy sirf mahine ke 1st trading day."
          % format(SLOT_RS, ","))
     note(wa, last + 3, "MTF: Qty (auto) %dx maan ke dikhata hai; rbtrack broker "
          "ka asli leverage leta hai." % MTF_X)
@@ -1308,6 +1326,32 @@ def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
                                     if x["Section"] == "BUY"
                                     and "fills" in str(x.get("Note"))])),
                          False))
+    focus = []
+    try:                               # display only (momentum_focus.py)
+        import momentum_focus as mf
+        rows, day, msg = mf.load()
+        held = {h["Symbol"] for h in hold if h["Mode"] != "WATCH"}
+        for x in rows:
+            price = x.get("price")
+            focus.append(("#%d %s" % (x["rank"], x["symbol"]),
+                          "%s | score %.2f | ~Rs %s%s" % (
+                              x.get("sector", "?"), float(x.get("score", 0)),
+                              format(float(price), ",.1f") if price == price
+                              and price is not None else "n/a",
+                              " | HELD" if x["symbol"] in held else ""),
+                          None))
+        if not rows:
+            focus.append(("Top 5", msg, None))
+        elif len(rows) < mf.TOP_N:
+            focus.append(("", "%d of rank 1-%d: the sector cap skipped the "
+                          "rest" % (len(rows), mf.TOP_N), None))
+        focus.append(("Ranks from", "%s | full list ->" % (day or "?"),
+                      "Momentum_Top20"))
+        focus.append(("So far (rank 1-5 when found)",
+                      mf.cohort_line(mf.load_cohort()), "Signal_Summary"))
+        focus.append(("", mf.NOTE, None))
+    except Exception as e:
+        focus = [("Top 5", "not available (%s)" % type(e).__name__, None)]
     wl = [h for h in hold if h["Mode"] == "WATCH"]
     watch = [(k, names([h["Symbol"] for h in wl
                         if h["Recommendation"] == k]))
@@ -1319,7 +1363,7 @@ def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
                       "backtest, paper first" if regime_red else
                       "OK: Nifty above 200-DMA",
             "regime_red": bool(regime_red), "money": money, "todo": todo,
-            "watch": watch, "warns": list(warns)}
+            "watch": watch, "focus": focus, "warns": list(warns)}
 
 
 # ================================================================== main

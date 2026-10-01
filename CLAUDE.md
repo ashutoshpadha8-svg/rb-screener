@@ -512,6 +512,13 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   22.2/21.2/21.4 post (Codex: +1 session not robust; 0% interest flips it) -> ~0.5-1 pt/yr cost, still accepted.
   Tests: test_execution 37, reports/code_audit independent 6 + followup 3, test_recovery_tax 24, test_sizing_a 9.
   Codex funded backtest (their 535-stock cache, 6% cash): fixed Rs 10k 14.1%, NAV/20 23.3% (+1 session 22.8), DD -36.
+  MOMENTUM TOP 5 HIGHLIGHT (1 Oct, Codex proposal, RB approved A+C; B = 'NEW IN TOP 5' NOT built): momentum_focus.py
+  (display only) focus = selected in_top AND rank 1-5 (cap-skipped rank never replaced by 6). Gold F7E3A5 / text 79601E
+  on Momentum_Top20 Symbol + Mom Rank, Actions Ticker, Signal_Tracker Symbol (MOMENTUM rows in today's focus), the
+  Signal_Summary 'rank 1-5 when found' group; terminal 'TOP 5 = look here first' block; Dashboard section after
+  DO / CHECK TODAY (#rank, sector, score, ~price, HELD, cohort line with signals/stocks/beat-of-compared/days/30+ =
+  TOO EARLY). Signal_Summary C: + Stocks, Days tracked, Best/Worst now %, 'rank 11+ (selected)'. Not a buy signal:
+  RB's 4/5 = 5 finds x 4 days; rank 6-10 also 4/5; rank_study per-stock beat ~50%. tests/test_focus.py 25.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);
