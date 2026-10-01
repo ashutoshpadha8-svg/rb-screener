@@ -1,0 +1,160 @@
+PROP FIRM GUIDE - TOPSTEP vs FUNDEDNEXT (RB ke liye, 1 Oct 2026)
+=================================================================
+Rate: 1 USD = ~Rs 96 (1 Oct 2026). Prices badalte rehte hain - khareedne se pehle site pe check karo.
+"All-in" = base price + 18% GST (Indian card pe checkout mein lagta hai) + ~3.5% bank forex markup.
+Zero-markup forex card (Niyo, Scapia, IDFC First etc.) use karo to ~3.5% bach jayega.
+
+
+---------------------------------------------------------------
+PART A: YEH PROP FIRM KAAM KAISE KARTI HAI (2 minute mein)
+---------------------------------------------------------------
+1. Aap exam (evaluation) ki fees dete ho. Trading SIMULATED account pe hoti hai.
+2. Exam pass = $3,000 profit banao, aur kabhi $2,000 se zyada neeche mat jao.
+3. Pass hone pe "funded" account milta hai (abhi bhi simulated). Wahan jo profit banao,
+   uska 90% firm aapko ASLI paisa bhejti hai (performance fee).
+4. Fail = account khatam, phir se fees / reset.
+Sachai: Topstep ke 2025 data mein sirf 16.8% exams pass hue, aur funded logon mein se
+sirf 33% ko kabhi payout mila. Hamare backtest (NOISE strategy) mein pass rate 29-45%.
+
+
+---------------------------------------------------------------
+PART B: TOPSTEP (hamara #1)
+---------------------------------------------------------------
+Firm: 2012 se, Chicago (US). India ELIGIBLE - support (Irene) ne 29 Sep 2026 ko likhit mein bola.
+
+PAISA (50K account, Standard plan):
+  Kya                         USD      INR base   INR all-in (approx)
+  Combine (exam) per mahina   $49      Rs 4,700   Rs 5,750
+  Pass hone pe activation     $149     Rs 14,300  Rs 17,500  (sirf pass hone pe)
+  API (guard/bot ke liye)     $14.50   Rs 1,400   Rs 1,700   (per mahina)
+  Payout wire fee             $30      payout se katega
+  ---------------------------------------------------------
+  Shuru mein dena:  ~Rs 5,750 (exam) + Rs 1,700 (API)  = ~Rs 7,500 pehle mahine
+  Pass karke payout tak (best case, 1 mahine mein pass): ~Rs 25,000 total
+  Fail hua to: har mahine ~Rs 5,750 jab tak pass na ho ya cancel na karo.
+  Refund: pehle Combine pe 14 din ke andar (agar pass nahi kiya).
+
+EXAM RULES (Combine 50K):
+  - Target: $3,000 profit
+  - Max Loss Limit (MLL): $2,000. Din ke close balance se trail karta hai, $50,000 pe lock.
+    Chalu trade ka loss bhi gina jata hai - floor chhua to turant account fail.
+  - Daily Loss Limit (DLL): $1,000 (hum ON karenge). Hit = us din band, account nahi jata.
+  - Consistency: ek din ka profit total ka 55% se zyada hua to target badh jata hai.
+    Matlab kam se kam 2 din lagenge.
+  - Max size: 5 mini / 50 micro contracts.
+  - Sab positions 3:10 PM CT tak band (IST mein raat ~1:40 baje, Nov se ~2:40 baje).
+
+FUNDED (Express) RULES:
+  - Balance $0 se shuru, MLL -$2,000.
+  - Size: $1,500 se kam = 20 micros, $1,500-2,000 = 30, $2,000+ = 50.
+  - Payout ke liye: 5 din $150+ profit (Standard), ya 3 din with ek din <= 40% (Consistency).
+  - Ek payout: balance ka 50%, max $2,000 (50K).
+  - PEHLE PAYOUT KE BAAD MLL $0 PE FIX - jo balance chhodoge wahi buffer hai.
+  - Split: 90% aapka (12 Jan 2026 ke baad join karne walon ke liye).
+
+PAYOUT KAB (Topstep):
+  Best case:  Exam 2 din + Express 3-5 din + wire 5-10 business din = ~3-4 hafte.
+  Realistic:  Hamare backtest mein median ~1-1.5 mahina per pass, aur 3 mein se ~2 attempts fail.
+              Isliye pehla payout 2-4 mahine mein aana normal maano.
+  Example: Express mein $1,000 profit -> 50% = $500 nikaalo -> 90% = $450 -> minus $30 = $420
+           = ~Rs 40,000 bank mein (SWIFT wire, 5-10 din).
+
+BOT: Combine aur Express mein allowed (official API). Live account mein banned - wahan haath se.
+
+
+---------------------------------------------------------------
+PART C: FUNDEDNEXT RAPID (backup #2)
+---------------------------------------------------------------
+Firm: 2022 se, UAE. Futures side naya (Rapid plan July 2026 mein aaya). India ke log bahut use karte hain.
+
+PAISA (50K Rapid):
+  Exam (ek baar, monthly nahi)  $159.99  Rs 15,350 base  ~Rs 18,750 all-in
+  Activation                     $0
+  Reset (fail hone pe)           ~$85-130 (plan pe depend)
+  Payout fee                     koi nahi likha
+  Shuru mein dena: ~Rs 18,750 ek baar.
+
+EXAM RULES:
+  - Target $3,000, max loss $2,000 (EOD), consistency NAHI - 1 din mein bhi pass.
+  - Max size ~40 micros.
+  - Do plan: PRO (no daily loss limit, funded mein 40% consistency, payout har 3 din)
+             DAILY ($1,000 daily loss limit, koi consistency nahi, payout roz, pehle buffer banana)
+
+PAYOUT KAB (FundedNext):
+  Best case: Exam 1 din + 3 din (Pro) + 24 ghante = ~1 hafta.
+  Har cycle: min $500 profit, max $1,200 (50K). 90% aapka.
+  Methods: Rise, bank transfer, crypto (crypto MAT lena - account freeze ka risk). ~24 ghante.
+
+BOT: Likhit mein allowed (Tradovate ke through). Lekin hamara guard/bot abhi Topstep (ProjectX)
+     ke liye bana hai - FundedNext ke liye dobara likhna padega.
+
+
+---------------------------------------------------------------
+PART D: SEEDHA COMPARISON
+---------------------------------------------------------------
+                       TOPSTEP                    FUNDEDNEXT RAPID
+Shuru ka kharcha       ~Rs 7,500/mahina           ~Rs 18,750 ek baar
+Pass pe extra          ~Rs 17,500 activation      Rs 0
+NOISE pass rate        29-36%                     35-45%
+Pehla payout (best)    ~3-4 hafte                 ~1 hafta
+Payout India           SWIFT wire, $30, 5-10 din  Rise/bank, ~24 ghante
+Max per payout (50K)   $2,000                     $1,200
+Firm kitni purani      2012                       2022 (futures 2024+)
+Hamara code ready?     HAAN                       NAHI (Tradovate ke liye likhna padega)
+Asli capital (Live)    Haan (invite se)           Clear nahi
+
+Faisla: Topstep se shuru. Topstep pe kuch gadbad ho to FundedNext.
+
+
+---------------------------------------------------------------
+PART E: RULES KAISE SAMBHALENGE (bhoolne se kaise bachein)
+---------------------------------------------------------------
+4 layer suraksha - ek bhool jao to doosra pakad le:
+
+LAYER 1 - PLATFORM KHUD ROKEGA (TopstepX settings, ek baar set karo):
+  - Daily Loss Limit $1,000 (purchase pe ON) -> hit hote hi platform positions band kar deta hai.
+  - Personal Daily Loss Limit (TopstepX Risk Settings): $800, "Liquidate and Block" ->
+    $800 loss pe platform khud band karke us din trading block.
+  - Max contracts limit TopstepX mein bhi set karo (jaise 15 micros).
+  - Bracket order default ON: har entry ke saath stop-loss apne aap lage.
+  - 3:10 PM CT pe Topstep khud sab band kar deta hai.
+
+LAYER 2 - RULE GUARD (hamara code, aapke Mac pe, har 5 second):
+  Command: rbfutg --since <account start date>
+  Pehle se alert dega (screen + Mac notification + awaaz):
+  - MLL ke paas (50% / 25% buffer bacha)
+  - Daily loss limit ke paas (75%)
+  - Bina stop ke position
+  - Stop itna door ki hit hua to MLL tootega
+  - Size limit ke paas / pending order se limit tootegi
+  - 3:10 PM CT se 15 min aur 3 min pehle
+  - Consistency: ek din ka profit bahut zyada (55% exam / 40% funded) - pehle hi bata dega
+  - Express mein: winning days ginti, payout eligible hone pe batayega
+  Trade se pehle: rbfutch MNQ 5 20 --since <date>  -> GO / NO-GO
+
+LAYER 3 - AADATEIN (khud ke rules):
+  - Har trade pe stop. Bina stop ke kabhi nahi.
+  - Ek trade mein max $300 risk.
+  - Din ka $800 loss = laptop band.
+  - CPI/FOMC/NFP ke time full size nahi (Topstep ka rule).
+  - VPN kabhi nahi. Do accounts mein ulta trade (hedging) kabhi nahi.
+
+LAYER 4 - CHECKLIST (har raat trading se pehle, 1 minute):
+  [ ] Guard chal raha hai? (rbfutg)
+  [ ] Aaj koi badi news (CPI/FOMC/NFP)? Economic calendar dekha?
+  [ ] Bracket/stop default ON hai?
+  [ ] Mac ka sleep OFF, internet theek?
+  [ ] Kal ka loss/profit dekha - aaj kitna room hai?
+
+Yaad rakho: guard ALERT deta hai, rokta nahi. Asli bachav exchange pe laga stop aur
+platform ki DLL settings hain. Guard ek dost hai jo kaan mein bolta hai "dhyan se".
+
+
+---------------------------------------------------------------
+PART F: AGLE STEPS (ek-ek karke)
+---------------------------------------------------------------
+1. Topstep 50K Standard Combine khareedo, DLL ON. (~Rs 5,750)
+2. Practice account activate (free, Combine ke saath).
+3. API lo ($14.50, code "topstep"), login file banao - commands main dunga.
+4. Guard ko Practice account pe live chalao 1-2 hafte.
+5. Phir Combine mein trade.
