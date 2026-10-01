@@ -122,3 +122,14 @@ intraday open-profit peak does NOT move the MLL, so locking +$90 of a +$100 trad
 - Tradovate only (Python bot needs Tradovate API or a webhook bridge - verify access for prop accounts).
 - NOISE sim on Rapid rules (no consistency, 40 micros, 60-session limit): pass 34.7% (2016-21) / 45.0% (2022-26)
   vs Topstep 28.8% / 35.9%. Median days to pass 18 / 27.5 vs 23 / 31.
+
+## Apex Trader Funding re-check (1 Oct 2026, "Apex 4.0" since 1 Mar 2026) - #3, only for MANUAL trading
+- 50K EOD: $197 eval (often ~90% off, ~$20-49) + $99 PA activation. Intraday-trail 50K: $131 + $79. No monthly fee.
+- Target $3,000, $2,000 EOD trailing, $1,000 DLL (soft). Eval EXPIRES in 30 days, no resets/extensions.
+- PA payouts: 5 qualifying days, no day > 50% of profit since last payout, balance > start + DD + $100.
+  50K ladder: 1st payout cap $1,500 ... 6th $3,000, then the PA CLOSES (lifetime cap). 100% split inside the cap.
+- Automation/AI/bots banned on ALL account types (semi-automated tools only). Max 20 accounts. Metals suspended.
+- International payouts via Plane (Deel/Wise dropped 2026); India support not confirmed.
+- NOISE sim on Apex EOD rules (no eval consistency, $1,000 DLL, 21-session expiry): pass 17.2% / 16.4%
+  (vs Topstep 28.8/35.9, FundedNext 34.7/45.0). The 30-day expiry is the killer.
+- Cheap on promo: ~$20 eval / 0.17 pass + $99 = ~$220 per PA. But no bot, payouts capped, account dies after 6 payouts.
