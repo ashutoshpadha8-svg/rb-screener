@@ -61,6 +61,12 @@ SLOTS = 20                # top N
 BUFFER = 2                # keep a holding while rank <= BUFFER x SLOTS
 SECTOR_CAP = 4            # max picks per NSE industry (None = off)
 ATR_SIZING = False        # True = volatility-scaled slots (see docstring)
+# Cap mix (RB 5 Oct 2026, cap_mix_study.py): new buys fill 12 MID + 5 LARGE +
+# 3 SMALL slots in rank order; a class that cannot fill gives its slots to
+# MID, then LARGE, then SMALL. Class = cap_class.py (AMFI-style rank).
+# Backtest 2013-19 / 2020-26 post-tax: 14.7 / 30.4% vs rank-only 11.7 / 30.3.
+CAP_TARGETS = {"M": 12, "L": 5, "S": 3}   # None = rank only (old rule)
+CAP_ORDER = ("M", "L", "S", "?")
 RANKS_FILE = os.path.join(ds.DATA, "momentum_ranks_latest.csv")
 INDUSTRY_FILE = os.path.join(ds.DATA, "_nse_industry.csv")
 INDUSTRY_URL = ("https://nsearchives.nseindia.com/content/indices/"
@@ -181,31 +187,32 @@ def rebalance_plan(top, full, slot=None):
         # fill exactly like the backtest (strategy_lab.run_rank): go down the
         # FULL ranking, skip held names, max SECTOR_CAP per industry COUNTING
         # the holdings we keep, stop when the free slots are full
-        count = {}
+        count, ccount = {}, {}
         for r in rows:
-            if r["Mode"] == mode and r["Section"] == "HOLD" and \
-                    r["Sector"] not in ("?", None, ""):
-                count[r["Sector"]] = count.get(r["Sector"], 0) + 1
+            if r["Mode"] == mode and r["Section"] == "HOLD":
+                c = cap_of(r["Symbol"])
+                ccount[c] = ccount.get(c, 0) + 1
+                if r["Sector"] not in ("?", None, ""):
+                    count[r["Sector"]] = count.get(r["Sector"], 0) + 1
         cand = full[pd.to_numeric(full["rank"], errors="coerce").notna()] \
             .sort_values("rank")
+        cand = cand[~cand["symbol"].isin(heldset)]
+        secs = [s if isinstance(s, str) and s else "?"
+                for s in cand.get("sector", pd.Series("?", cand.index))]
+        picked, _ = fill_slots(list(zip(cand["symbol"], secs,
+                                        [cap_of(s) for s in cand["symbol"]])),
+                               max(free, 0), count, ccount)
         tops = top.set_index("symbol") if len(top) else None
         n = 0
-        for _, x in cand.iterrows():
-            if n >= free:
-                break
-            if x["symbol"] in heldset:
-                continue
+        for _, x in cand[cand["symbol"].isin(picked)].iterrows():
             sec = x.get("sector", "?")
             sec = sec if isinstance(sec, str) and sec else "?"
-            if SECTOR_CAP and sec != "?" and count.get(sec, 0) >= SECTOR_CAP:
-                continue
             px = x.get("price", np.nan)
             sh = tops.loc[x["symbol"], "shares"] if tops is not None and \
                 x["symbol"] in tops.index and "shares" in tops else np.nan
             if slot or not (sh == sh):       # account slot (sizing A)
                 sh = shares_for(slot or slot_budget(CAPITAL, SLOTS), px)
             n += 1
-            count[sec] = count.get(sec, 0) + 1
             rows.append({"Section": "BUY", "Mode": mode, "Symbol": x["symbol"],
                          "Mom Rank": x["rank"],
                          "Momentum Score": x.get("score", np.nan),
@@ -310,23 +317,70 @@ def compute(P):
     return out, C.index[-1].date(), nifty, nifty200
 
 
+def cap_of(symbol):
+    """'L' / 'M' / 'S' / '?' from cap_class.py (display + cap mix)."""
+    try:
+        import cap_class
+        x = cap_class.of(symbol)
+    except Exception:
+        x = None
+    return {"Large": "L", "Mid": "M", "Small": "S"}.get(x[2], "?") \
+        if x else "?"
+
+
+def fill_slots(cands, free, sec_count=None, cls_count=None):
+    """Same order as strategy_lab.run_rank: cands = [(symbol, sector, cls)]
+    in rank order; held names already left out. Sector cap counts the given
+    holdings. With CAP_TARGETS: each class up to its target first (holdings
+    count), then leftover slots by CAP_ORDER. Returns (picked symbols,
+    skipped-by-sector symbols)."""
+    sec_count = dict(sec_count or {})
+    cls_count = dict(cls_count or {})
+    picked, skipped = [], []
+
+    def take(sym, sec, c):
+        if sym in picked:
+            return False
+        if SECTOR_CAP and sec != "?" and sec_count.get(sec, 0) >= SECTOR_CAP:
+            if sym not in skipped:
+                skipped.append(sym)
+            return False
+        picked.append(sym)
+        sec_count[sec] = sec_count.get(sec, 0) + 1
+        cls_count[c] = cls_count.get(c, 0) + 1
+        return True
+
+    if not CAP_TARGETS:
+        for sym, sec, c in cands:
+            if len(picked) >= free:
+                break
+            take(sym, sec, c)
+        return picked, skipped
+    for sym, sec, c in cands:                      # 1) up to each target
+        if len(picked) >= free:
+            break
+        if cls_count.get(c, 0) < CAP_TARGETS.get(c, 0):
+            take(sym, sec, c)
+    for want in CAP_ORDER:                         # 2) leftovers
+        for sym, sec, c in cands:
+            if len(picked) >= free:
+                break
+            if c == want:
+                take(sym, sec, c)
+    return picked, [x for x in skipped if x not in picked]
+
+
 def select(tab, sectors):
-    """Rank eligible stocks; take the top SLOTS with the sector cap."""
+    """Rank eligible stocks; take SLOTS with the sector cap and cap mix."""
     r = tab[tab["eligible"] & tab["score"].notna()].sort_values(
         "score", ascending=False).reset_index(drop=True)
     r["rank"] = np.arange(1, len(r) + 1)
     r["sector"] = r["symbol"].map(lambda s: sectors.get(s, "?"))
-    picks, count, skipped = [], {}, []
-    for _, x in r.iterrows():
-        if len(picks) >= SLOTS:
-            break
-        sec = x["sector"]
-        if SECTOR_CAP and sec != "?" and count.get(sec, 0) >= SECTOR_CAP:
-            skipped.append(x["symbol"])
-            continue
-        picks.append(x)
-        count[sec] = count.get(sec, 0) + 1
-    return r, pd.DataFrame(picks).reset_index(drop=True), skipped
+    r["cap"] = r["symbol"].map(cap_of)
+    picked, skipped = fill_slots(list(zip(r["symbol"], r["sector"],
+                                          r["cap"])), SLOTS)
+    top = r[r["symbol"].isin(picked)].sort_values("rank")
+    return r, top.reset_index(drop=True), skipped
 
 
 # ================================================================== excel
@@ -441,6 +495,13 @@ def write_sheets(path, top, allrank, swing, fund_status, regime_red, banner):
     lines = [
         banner,
         mf.NOTE,
+        "Cap mix (RB 5 Oct): %s -- new buys fill MID / LARGE / SMALL slots "
+        "in rank order; a class that cannot fill gives its slots to MID, then "
+        "LARGE, then SMALL. Holdings stay by the rank-%d rule." % (
+            "MID %d / LARGE %d / SMALL %d" % (CAP_TARGETS["M"],
+                                              CAP_TARGETS["L"],
+                                              CAP_TARGETS["S"])
+            if CAP_TARGETS else "OFF (rank only)", BUFFER * SLOTS),
         "Score = 0.5 z(6m ret/1y vol) + 0.5 z(12m ret/1y vol) among >= Rs 10k "
         "Cr stocks with > Rs 5 Cr median turnover. Max %s per industry."
         % SECTOR_CAP,
@@ -600,7 +661,7 @@ def main():
             x["rank"], x["symbol"], str(x["sector"])[:30], x["score"],
             x["price"]))
     if len(foc) < mf.TOP_N:
-        print("  (%d of rank 1-%d: the sector cap skipped the rest)"
+        print("  (%d of rank 1-%d: sector cap / cap mix skipped the rest)"
               % (len(foc), mf.TOP_N))
     print("\n==== MOMENTUM TOP %d (eligible: %d) ====" % (SLOTS, len(allrank)))
     show = top[["rank", "symbol", "score", "sector", "price", "atr_pct",
@@ -610,6 +671,14 @@ def main():
     if skipped:
         print("  skipped by the %s-per-sector cap: %s"
               % (SECTOR_CAP, ", ".join(skipped[:10])))
+    if CAP_TARGETS:
+        mix = top["cap"].value_counts()
+        print("  cap mix (target MID %d / LARGE %d / SMALL %d): MID %d, "
+              "LARGE %d, SMALL %d%s" % (
+                  CAP_TARGETS["M"], CAP_TARGETS["L"], CAP_TARGETS["S"],
+                  mix.get("M", 0), mix.get("L", 0), mix.get("S", 0),
+                  ", unknown %d" % mix.get("?", 0) if mix.get("?", 0)
+                  else ""))
     today = ds.now_ist().date()
     first_td = today.day <= 3 and today.weekday() < 5
     print("\n  Rebalance = 1st trading day of the month (%s)." %

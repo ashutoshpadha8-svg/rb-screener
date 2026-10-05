@@ -23,7 +23,7 @@ LARGE, MID = 100, 250
 HEAD_M, HEAD_C = "Mcap (Rs Cr)", "Cap Class"
 COLOR = {"Large": "1F4E78", "Mid": "1E7B34", "Small": "C55A11"}
 SKIP = ("Dashboard", "Holdings", "Journal", "SIP", "Symbols",
-        "Signal_Summary")
+        "Signal_Summary", "Buy_Planner")
 _cache = {}
 
 

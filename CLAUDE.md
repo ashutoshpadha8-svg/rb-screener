@@ -531,6 +531,22 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   + 'Cap Class' appended at the END of every table sheet (skip Dashboard/Holdings/Journal/SIP/Signal_Summary) in the
   master (signal_tracker) + Portfolio (before xl_fit); AMFI-style rank in NSE's full mcap file (2,600 names).
   Dashboard Top-5 lines show the class. tests/test_cap_class.py 12.
+  LIVE 5 Oct (RB approved): (1) CAP MIX in momentum: momentum_screener.CAP_TARGETS {M 12, L 5, S 3}, CAP_ORDER
+  M>L>S>?; fill_slots() = run_rank's logic, used by select() (Momentum_Top20 = in_top) and rebalance_plan() (kept
+  holdings count toward class + sector); class = cap_of() via cap_class.py (NSE full mcap rank); CAP_TARGETS=None
+  = old rank-only rule. Holdings still kept while rank <= 40. (2) BUY PLANNER (buy_planner.py): sheet 'Buy_Planner'
+  right after Dashboard: account (broker cash, holdings value/cost, unrealised, realised = LIVE closed journal
+  NET, 'Kul paise add kiye' typed once -> settings.json money_added, overall), budget (settings planner_budget)
+  split by class % (C21:C23, settings planner_shares) equal inside a class, empty class -> top class present,
+  'Qty (you)' fixes a row and re-splits the rest, whole shares + one +1-share leftover pass down the list.
+  Shortlist = momentum top 20 + W+TT BUY/FIT (no LATE), order Mid > Large > Small, Super-Buy, mom rank, RS.
+  Pick/Qty kept same day only. Live formulas; rbtrack planner_rows() re-reads the INPUTS and recomputes with
+  buy_planner.distribute() (= the formulas, checked with pycel) -> act BUY rows with 'Qty' -> plan() uses that qty
+  (CNC only; momentum 20-slot / 4-industry checks still apply). Planner wins over an Actions BUY for the same stock.
+  (3) Actions dropdown = BUY MTF / WATCH (old BUY rows still read). xl_fit + cap columns skip Buy_Planner.
+  feature_study.py (3,140 monthly top-20 picks 2013-26, 15 technical features, pass = same sign >= 2 pts + t >= 2
+  in both halves): NONE passes; median 3m excess by class Mid +2.3 / +1.8 best in both halves (L +0.7 / -0.4,
+  S 2020-26 -2.2). tests/test_planner.py 23.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);

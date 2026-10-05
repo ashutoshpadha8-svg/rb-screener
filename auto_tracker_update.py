@@ -147,6 +147,37 @@ def action_rows(path):
     return d[d["act"].isin(list(ACTIONS) + ["WATCH"])].copy()
 
 
+def planner_rows(path):
+    """Buy_Planner YES rows -> the same row shape as the Actions sheet, with
+    the FINAL QTY recomputed by buy_planner.distribute() from the sheet's own
+    inputs (never the cached formula values)."""
+    import buy_planner as bp
+    inp, prow = bp.read_sheet(path)
+    if not prow or not any(r["pick"] for r in prow):
+        return pd.DataFrame(), None
+    out, summ = bp.distribute(prow, inp.get("budget"), inp.get("shares"))
+    rows = []
+    for r in out:
+        if r["final"] < 1:
+            continue
+        why = str(r.get("why", ""))
+        ov = "Super-Buy" if why.startswith("Super-Buy") else \
+            "Momentum only" if why.startswith("Momentum") else "W+TT only"
+        rows.append({"Ticker": r["symbol"], "Action": "BUY", "act": "BUY",
+                     "Strategy Overlap": ov, "Amount (Rs)": "",
+                     "Qty": int(r["final"]), "Planner price": r["price"]})
+    print("Buy_Planner: budget Rs %s | Mid / Large / Small %s | planned Rs %s "
+          "| bacha Rs %s" % (
+              format(int(summ["budget"]), ","),
+              " / ".join("%d%%" % round(100 * summ["eff"][c])
+                         for c in bp.ORDER),
+              format(int(summ["total"]), ","), format(int(summ["left"]), ",")))
+    for x in rows:
+        print("  %-12s %4d sh  (%s)" % (x["Ticker"], x["Qty"],
+                                        x["Strategy Overlap"]))
+    return pd.DataFrame(rows), summ
+
+
 def load_watch():
     cols = ["symbol", "added", "price_added", "source"]
     if not os.path.exists(WATCH_FILE):
@@ -281,6 +312,11 @@ def plan(rows, px, sp, sess=None, slot=None):
                     "MTF %gx ASSUMED (%s)" % (MTF_LEVERAGE, lev_note)
         exposure = slot_rs * lev
         shares = ms.shares_for(exposure, price)
+        pq = pd.to_numeric(r.get("Qty"), errors="coerce")
+        if product == "CNC" and pq == pq and pq >= 1:    # Buy_Planner qty
+            shares = int(pq)
+            slot_rs = shares * price
+            src = "Buy_Planner qty | " + src
         if shares < 1:
             skip.append("%s (price %.0f > Rs %d)" % (s, price, exposure))
             continue
@@ -820,6 +856,15 @@ def main():
     rows = action_rows(path)
     watch = rows[rows["act"] == "WATCH"]
     rows = rows[rows["act"] != "WATCH"]
+    prow, _ = planner_rows(path)          # normal BUY = Buy_Planner sheet
+    if len(prow):
+        tick = rows["Ticker"].astype(str).str.upper()
+        dup = sorted(set(prow["Ticker"]) & set(tick[rows["act"] == "BUY"]))
+        if dup:
+            print("  Buy_Planner wins over Actions BUY for: %s"
+                  % ", ".join(dup))
+            rows = rows[~(tick.isin(dup) & (rows["act"] == "BUY"))]
+        rows = pd.concat([rows, prow], ignore_index=True)
     if len(watch):
         added = save_watch(watch) if not dry else []
         print("WATCH (no order, no money): %s -> %s" % (

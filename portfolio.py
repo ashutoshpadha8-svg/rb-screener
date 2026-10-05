@@ -436,12 +436,14 @@ SCAN_SHEETS = ["Swing", "Investing", "Momentum_Top20", "Fundamentals",
                "Signal_Summary", "Signal_Tracker"]
 SHEET_INFO = [
     ("Dashboard", "this page: summary + what to do today"),
+    ("Buy_Planner", "BUY yahan: account, kitna lagana hai, Mid/Large/Small "
+                    "split, YES + Qty -> rbtrack"),
     ("Holdings", "your stocks as cards: ACTION, why, P&L, how far the exit is"),
     ("Sell", "stocks the rules say to SELL today: Sell? YES/NO -> rbtrack "
              "(only if TRADING is ON)"),
     ("Journal", "every trade: P&L after fees, dividends and tax, month by "
                 "month, vs Nifty"),
-    ("Actions", "all buy candidates: pick BUY / BUY MTF / WATCH + Amount (Rs)"),
+    ("Actions", "all candidates: BUY MTF / WATCH (normal BUY = Buy_Planner)"),
     ("SIP", "regular buying plans: Monthly / Weekly / Daily, amount, capital, "
             "BUY / BUY MTF -> rbtrack buys when due"),
     ("Super-Buy", "common stocks: in BOTH the W+TT swing list and momentum "
@@ -457,7 +459,8 @@ SHEET_INFO = [
                        "(W+TT, momentum rank 1-5 / 6-10 / 11+, both)"),
     ("Signal_Tracker", "every stock the screener ever found: return since, "
                        "vs Nifty, best / worst dip, rule status")]
-TAB = {"Dashboard": "1F4E78", "Holdings": "548235", "Journal": "7030A0",
+TAB = {"Dashboard": "1F4E78", "Buy_Planner": "FFC000", "Holdings": "548235",
+       "Journal": "7030A0",
        "Sell": "C00000",
        "Actions": "FFC000", "SIP": "FFC000", "Super-Buy": "00B050", "Rebalance": "2E75B6",
        "Watchlist": "2E75B6"}
@@ -694,7 +697,8 @@ def short_why(t):
 
 def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                old_amount=None, master=None, dash=None, jrep=None,
-               sip_rows=None, sells=None, trading="OFF", symbols=None):
+               sip_rows=None, sells=None, trading="OFF", symbols=None,
+               planner=None):
     old_amount = old_amount or {}
     from openpyxl import Workbook, load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1100,15 +1104,17 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
             '=IF(OR({a}{r}="",{a}{r}="WATCH"),"",IFERROR(INT(IF({m}{r}="",'
             '{d},{m}{r})*IF(ISNUMBER(SEARCH("MTF",{a}{r})),{x},1)/{p}{r}),'
             '""))').format(a=col, m=amt, p=ltp, r=r, d=SLOT_RS, x=MTF_X))
-    dv = DataValidation(type="list", formula1='"%s"' % ",".join(ms.ACTIONS),
+    dv = DataValidation(type="list", formula1='"%s"' % ",".join(
+        a for a in ms.ACTIONS if a != "BUY"),          # BUY = Buy_Planner
                         allow_blank=True, showErrorMessage=True,
                         errorTitle="Action", error="Pick from the list",
                         promptTitle="Action", showInputMessage=True,
-                        prompt="BUY / BUY MTF = real AMO (next open), "
-                               "WATCH = no order, only the watchlist")
+                        prompt="BUY MTF = real MTF AMO (next open), WATCH = "
+                               "no order. Normal BUY: Buy_Planner sheet")
     dv.add("%s2:%s%d" % (col, col, max(last, 2)))
     wa.add_data_validation(dv)
-    note(wa, last + 2, "Peele columns bharo: Action + Amount (Rs) (khaali = Rs "
+    note(wa, last + 2, "Normal BUY ab Buy_Planner sheet se (YES + Qty). Yahan: "
+         "BUY MTF / WATCH. Peele columns bharo: Action + Amount (Rs) (khaali = Rs "
          "%s). Qty apne aap. Save karo, phir rbtrack (15:30 ke baad). Hara = "
          "Super-Buy. Gold Ticker = momentum rank 1-5 (pehle dekho, BUY "
          "signal nahi). Momentum buy sirf mahine ke 1st trading day."
@@ -1241,6 +1247,18 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     last = table(wt, HCOLS, own, ("Recommendation", REC_FILL), WIDTH)
     note(wt, last + 2, banner)
 
+    if planner is not None:          # the ONE sheet to buy from
+        try:
+            import buy_planner
+            import momentum_focus as mf
+            buy_planner.write_sheet(
+                wb, planner["acct"], buy_planner.shortlist(comp, ms.cap_of),
+                planner["inputs"], planner["picks"],
+                "BUY PLANNER | %s" % banner.split(" | master")[0],
+                mf.symbols(mf.load()[0]))
+        except Exception as e:
+            print("! Buy_Planner sheet skipped (%s: %s)" % (type(e).__name__,
+                                                             e))
     dashboard(wb.create_sheet("Dashboard"), dash or {
         "title": banner, "prices": "", "master": "", "regime": "",
         "regime_red": False, "money": [], "todo": [], "watch": [],
@@ -1257,7 +1275,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         import cap_class               # Mcap + Large/Mid/Small columns
         cap_class.add_columns(wb)
         import xl_fit
-        xl_fit.fit_workbook(wb, skip=("Dashboard", "Holdings"))
+        xl_fit.fit_workbook(wb, skip=("Dashboard", "Holdings",
+                                      "Buy_Planner"))
     except ImportError:
         pass
     try:
@@ -1348,7 +1367,7 @@ def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
         if not rows:
             focus.append(("Top 5", msg, None))
         elif len(rows) < mf.TOP_N:
-            focus.append(("", "%d of rank 1-%d: the sector cap skipped the "
+            focus.append(("", "%d of rank 1-%d: sector cap / cap mix skipped the "
                           "rest" % (len(rows), mf.TOP_N), None))
         focus.append(("Ranks from", "%s | full list ->" % (day or "?"),
                       "Momentum_Top20"))
@@ -1444,6 +1463,23 @@ def main():
         except Exception:
             pass
     trading = settings.load()["trading"]
+    import buy_planner
+    plan_picks = {}
+    pin, prow = buy_planner.read_sheet(prev) if os.path.exists(prev) \
+        else ({}, [])
+    st_ = settings.load()           # deposit + budget + class % are kept
+    for k, v in (("money_added", pin.get("money_added")),
+                 ("planner_budget", pin.get("budget"))):
+        if v is not None:
+            st_[k] = v
+    if pin.get("shares"):
+        st_["planner_shares"] = pin["shares"]
+    if pin:
+        settings.save(st_)
+    if same_day:                    # YES / Qty picks: only today's
+        plan_picks = {r["symbol"]: ("YES" if r["pick"] else "",
+                                    r["qty_you"]) for r in prow
+                      if r["pick"] or r["qty_you"] is not None}
     if os.path.exists(prev):        # SIP sheet edits -> sip.csv
         for pr in sip.read_sheet(prev):
             warns.append("SIP: " + pr)
@@ -1622,11 +1658,31 @@ def main():
         dash["todo"].append(("SIP", "%d plan(s) active | aaj due: %s" % (
             sum(r["Active"] == "YES" for r in sip_rows),
             ", ".join(sdue) or "-"), False))
+    cash = None
+    if sess:
+        try:
+            import broker_api as bapi
+            cash, _ = bapi.available_funds(sess)
+        except Exception:
+            cash = None
+    live = [h for h in hold if h["Mode"] == "LIVE"]
+    realised = sum(c.get("NET (tax se pehle)") or 0 for c in
+                   ((jrep or {}).get("LIVE") or {}).get("closed", []))
+    planner = {"acct": {
+        "cash": cash, "hold_value": sum(h.get("Value (Rs)") or 0
+                                        for h in live),
+        "hold_cost": sum((h.get("Entry") or 0) * h["Qty"] for h in live
+                         if h.get("Value (Rs)")),
+        "realised": realised},
+        "inputs": {"money_added": st_.get("money_added"),
+                   "budget": st_.get("planner_budget"),
+                   "shares": st_.get("planner_shares")},
+        "picks": plan_picks}
     path = write_book(path_for(), hold, rebal, comp, held_modes, old_actions,
                       "Portfolio %s | %s | master %s | prices: %s"
                       % (acc.label, today, os.path.basename(master), note),
                       old_amount, master, dash, jrep, sip_rows, sells,
-                      trading, sip.symbol_choices(sess))
+                      trading, sip.symbol_choices(sess), planner)
     if sells:
         print("\nSELL sheet (TRADING %s): %s" % (trading, ", ".join(
             "%s %s x%d = %s" % (x["Symbol"], x["Product"], x["Qty"],
