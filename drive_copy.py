@@ -17,7 +17,7 @@ edits the .xlsx directly.
 ONLY these report files are ever copied. token.txt, credentials.json, keys,
 split.csv and data/ never leave ~/RB_Screener.
 
-Picks you make in Google Sheets (Actions sheet: Action / Amount) come back:
+Picks you make in Google Sheets (Buy_Planner: Pick / Qty / budget) come back:
 rbport and rbtrack first check if the Drive copy was edited after it was
 copied there, and if so take it over the local file (local copy saved as
 data/_drive_backup/).

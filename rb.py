@@ -85,7 +85,8 @@ def main():
     if r != 0:
         sys.exit(r)
     print("\nDONE. File kholo (Dashboard pehli tab). Kuch khareedna hai to "
-          "Actions sheet bharo, phir 15:30 ke baad: rbtrack")
+          "Buy_Planner (doosri tab) bharo: budget + Pick BUY / MTF / WATCH, "
+          "save + close, phir 15:30 ke baad: rbtrack")
 
 
 if __name__ == "__main__":

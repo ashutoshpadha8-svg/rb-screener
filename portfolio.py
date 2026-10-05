@@ -66,6 +66,7 @@ SLOT_RS = int(ms.CAPITAL / ms.SLOTS)   # own money per stock; main() sets it
 SLOT_NOTE = "default Rs %s (no broker value)" % format(SLOT_RS, ",")  # to
 # account value / 20 (sizing A, RB 30 Sep 2026 -- same as the backtest)
 MTF_X = 4                              # = auto_tracker_update.MTF_LEVERAGE
+ACTIONS_SHEET = False   # RB 6 Oct: BUY / MTF / WATCH all in Buy_Planner
 LEG_ORDER = {"EXIT": 0, "SELL@REBAL": 1, "SELL": 1, "WATCH": 2, "WEAK": 2,
              "HOLD": 3, "KEEP": 3, "AVOID": 4, "STRONG": 4, "SIP": 5}
 WATCH_WORD = {"KEEP": "STRONG", "WEAK": "WEAK", "SELL": "AVOID"}
@@ -437,13 +438,13 @@ SCAN_SHEETS = ["Swing", "Investing", "Momentum_Top20", "Fundamentals",
 SHEET_INFO = [
     ("Dashboard", "this page: summary + what to do today"),
     ("Buy_Planner", "BUY yahan: account, kitna lagana hai, Mid/Large/Small "
-                    "split, YES + Qty -> rbtrack"),
+                    "split; Pick YES / MTF / WATCH + Qty -> rbtrack"),
     ("Holdings", "your stocks as cards: ACTION, why, P&L, how far the exit is"),
     ("Sell", "stocks the rules say to SELL today: Sell? YES/NO -> rbtrack "
              "(only if TRADING is ON)"),
     ("Journal", "every trade: P&L after fees, dividends and tax, month by "
                 "month, vs Nifty"),
-    ("Actions", "all candidates: BUY MTF / WATCH (normal BUY = Buy_Planner)"),
+    ("Actions", "old: now Buy_Planner (set ACTIONS_SHEET = True to show)"),
     ("SIP", "regular buying plans: Monthly / Weekly / Daily, amount, capital, "
             "BUY / BUY MTF -> rbtrack buys when due"),
     ("Super-Buy", "common stocks: in BOTH the W+TT swing list and momentum "
@@ -1064,63 +1065,64 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
          "YYYY-MM-DD")
 
     # ------------------------------------------------------------ Actions
-    wa = wb.create_sheet("Actions")
-    extra = [c for c in comp.columns if c not in ACOLS and c not in
-             ("Regime", "Shares (Rs slot)")] if len(comp) else []
-    acols = ACOLS + extra
-    rows = []
-    for _, x in comp.iterrows():
-        d = dict(x)
-        t = str(d.get("Ticker", "")).upper()
-        d["Held here"] = ", ".join(sorted(held_modes.get(t, [])))
-        d["Action"] = old_actions.get(t, "")
-        d["Amount (Rs)"] = old_amount.get(t)
-        rows.append(d)
-    widths = {"Ticker": 13, "Strategy Overlap": 14, "Sector / Industry": 24,
-              "Action": 12, "Held here": 10, "Amount (Rs)": 12,
-              "Qty (auto)": 9, "Fundamental Status": 12, "W+TT Status": 9}
-    last = table(wa, acols, rows, ("Strategy Overlap",
-                                   {"Super-Buy": "C6EFCE"}), widths,
-                 freeze="E2")
-    try:                               # momentum rank 1-5 = gold Ticker
-        import momentum_focus as mf
-        gold = mf.symbols(mf.load()[0])
-        for r, x in enumerate(rows, 2):
-            if str(x.get("Ticker", "")).upper() in gold:
-                wa.cell(row=r, column=1).fill = fill(mf.GOLD_FILL)
-                wa.cell(row=r, column=1).font = Font(bold=True,
-                                                     color=mf.GOLD_TEXT)
-    except Exception:
-        pass
-    col = L(acols.index("Action") + 1)
-    amt = L(acols.index("Amount (Rs)") + 1)
-    qty = acols.index("Qty (auto)") + 1
-    ltp = L(acols.index("LTP") + 1)
-    for r in range(2, last + 1):
-        for c in (col, amt):
-            wa["%s%d" % (c, r)].fill = fill("FFF2CC")
-        wa["%s%d" % (amt, r)].number_format = "#,##0"
-        wa.cell(row=r, column=qty, value=(
-            '=IF(OR({a}{r}="",{a}{r}="WATCH"),"",IFERROR(INT(IF({m}{r}="",'
-            '{d},{m}{r})*IF(ISNUMBER(SEARCH("MTF",{a}{r})),{x},1)/{p}{r}),'
-            '""))').format(a=col, m=amt, p=ltp, r=r, d=SLOT_RS, x=MTF_X))
-    dv = DataValidation(type="list", formula1='"%s"' % ",".join(
-        a for a in ms.ACTIONS if a != "BUY"),          # BUY = Buy_Planner
-                        allow_blank=True, showErrorMessage=True,
-                        errorTitle="Action", error="Pick from the list",
-                        promptTitle="Action", showInputMessage=True,
-                        prompt="BUY MTF = real MTF AMO (next open), WATCH = "
-                               "no order. Normal BUY: Buy_Planner sheet")
-    dv.add("%s2:%s%d" % (col, col, max(last, 2)))
-    wa.add_data_validation(dv)
-    note(wa, last + 2, "Normal BUY ab Buy_Planner sheet se (YES + Qty). Yahan: "
-         "BUY MTF / WATCH. Peele columns bharo: Action + Amount (Rs) (khaali = Rs "
-         "%s). Qty apne aap. Save karo, phir rbtrack (15:30 ke baad). Hara = "
-         "Super-Buy. Gold Ticker = momentum rank 1-5 (pehle dekho, BUY "
-         "signal nahi). Momentum buy sirf mahine ke 1st trading day."
-         % format(SLOT_RS, ","))
-    note(wa, last + 3, "MTF: Qty (auto) %dx maan ke dikhata hai; rbtrack broker "
-         "ka asli leverage leta hai." % MTF_X)
+    if ACTIONS_SHEET:              # 6 Oct: all of it now in Buy_Planner
+        wa = wb.create_sheet("Actions")
+        extra = [c for c in comp.columns if c not in ACOLS and c not in
+                 ("Regime", "Shares (Rs slot)")] if len(comp) else []
+        acols = ACOLS + extra
+        rows = []
+        for _, x in comp.iterrows():
+            d = dict(x)
+            t = str(d.get("Ticker", "")).upper()
+            d["Held here"] = ", ".join(sorted(held_modes.get(t, [])))
+            d["Action"] = old_actions.get(t, "")
+            d["Amount (Rs)"] = old_amount.get(t)
+            rows.append(d)
+        widths = {"Ticker": 13, "Strategy Overlap": 14, "Sector / Industry": 24,
+                  "Action": 12, "Held here": 10, "Amount (Rs)": 12,
+                  "Qty (auto)": 9, "Fundamental Status": 12, "W+TT Status": 9}
+        last = table(wa, acols, rows, ("Strategy Overlap",
+                                       {"Super-Buy": "C6EFCE"}), widths,
+                     freeze="E2")
+        try:                               # momentum rank 1-5 = gold Ticker
+            import momentum_focus as mf
+            gold = mf.symbols(mf.load()[0])
+            for r, x in enumerate(rows, 2):
+                if str(x.get("Ticker", "")).upper() in gold:
+                    wa.cell(row=r, column=1).fill = fill(mf.GOLD_FILL)
+                    wa.cell(row=r, column=1).font = Font(bold=True,
+                                                         color=mf.GOLD_TEXT)
+        except Exception:
+            pass
+        col = L(acols.index("Action") + 1)
+        amt = L(acols.index("Amount (Rs)") + 1)
+        qty = acols.index("Qty (auto)") + 1
+        ltp = L(acols.index("LTP") + 1)
+        for r in range(2, last + 1):
+            for c in (col, amt):
+                wa["%s%d" % (c, r)].fill = fill("FFF2CC")
+            wa["%s%d" % (amt, r)].number_format = "#,##0"
+            wa.cell(row=r, column=qty, value=(
+                '=IF(OR({a}{r}="",{a}{r}="WATCH"),"",IFERROR(INT(IF({m}{r}="",'
+                '{d},{m}{r})*IF(ISNUMBER(SEARCH("MTF",{a}{r})),{x},1)/{p}{r}),'
+                '""))').format(a=col, m=amt, p=ltp, r=r, d=SLOT_RS, x=MTF_X))
+        dv = DataValidation(type="list", formula1='"%s"' % ",".join(
+            a for a in ms.ACTIONS if a != "BUY"),          # BUY = Buy_Planner
+                            allow_blank=True, showErrorMessage=True,
+                            errorTitle="Action", error="Pick from the list",
+                            promptTitle="Action", showInputMessage=True,
+                            prompt="BUY MTF = real MTF AMO (next open), WATCH = "
+                                   "no order. Normal BUY: Buy_Planner sheet")
+        dv.add("%s2:%s%d" % (col, col, max(last, 2)))
+        wa.add_data_validation(dv)
+        note(wa, last + 2, "Normal BUY ab Buy_Planner sheet se (YES + Qty). Yahan: "
+             "BUY MTF / WATCH. Peele columns bharo: Action + Amount (Rs) (khaali = Rs "
+             "%s). Qty apne aap. Save karo, phir rbtrack (15:30 ke baad). Hara = "
+             "Super-Buy. Gold Ticker = momentum rank 1-5 (pehle dekho, BUY "
+             "signal nahi). Momentum buy sirf mahine ke 1st trading day."
+             % format(SLOT_RS, ","))
+        note(wa, last + 3, "MTF: Qty (auto) %dx maan ke dikhata hai; rbtrack broker "
+             "ka asli leverage leta hai." % MTF_X)
 
     # ------------------------------------------------------------ SIP
     import sip as sipm
@@ -1214,7 +1216,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                                         "Held here": 10, "Mom Rank": 8,
                                         "Fundamental Status": 12})
     note(wsb, last + 2, "%d stock(s) W+TT swing list AUR momentum top %d dono "
-         "mein. Khareedna: Actions sheet (wahi stocks, hare). Sirf overlap "
+         "mein. Khareedna: Buy_Planner sheet (Pick BUY). Sirf overlap "
          "khareedna alag se backtest NAHI hua." % (len(sb), ms.SLOTS)
          if sb else "Aaj koi stock dono list mein nahi.")
 
@@ -1380,7 +1382,7 @@ def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
     watch = [(k, names([h["Symbol"] for h in wl
                         if h["Recommendation"] == k]))
              for k in ("STRONG", "WEAK", "AVOID")] if wl else \
-        [("Watchlist", "empty -- pick WATCH in the Actions sheet")]
+        [("Watchlist", "empty -- Pick WATCH in the Buy_Planner sheet")]
     return {"title": "RB_Screener | %s | %s" % (acc.label, today),
             "prices": note, "master": os.path.basename(master),
             "regime": "RED: Nifty below 200-DMA -- new buys did worse in the "
@@ -1474,12 +1476,18 @@ def main():
             st_[k] = v
     if pin.get("shares"):
         st_["planner_shares"] = pin["shares"]
+    if pin.get("mtf_lev"):
+        st_["planner_mtf_lev"] = pin["mtf_lev"]
     if pin:
         settings.save(st_)
-    if same_day:                    # YES / Qty picks: only today's
-        plan_picks = {r["symbol"]: ("YES" if r["pick"] else "",
-                                    r["qty_you"]) for r in prow
+    if same_day:                    # YES / MTF / WATCH + Qty: only today's
+        plan_picks = {r["symbol"]: (r["pick"], r["qty_you"]) for r in prow
                       if r["pick"] or r["qty_you"] is not None}
+    wl_new = add_watch([(r["symbol"], r["price"], r["why"]) for r in prow
+                        if r["pick"] == "WATCH"])
+    if wl_new:
+        print("  WATCH (Buy_Planner) added to the watchlist: %s"
+              % ", ".join(wl_new))
     if os.path.exists(prev):        # SIP sheet edits -> sip.csv
         for pr in sip.read_sheet(prev):
             warns.append("SIP: " + pr)
@@ -1676,7 +1684,8 @@ def main():
         "realised": realised},
         "inputs": {"money_added": st_.get("money_added"),
                    "budget": st_.get("planner_budget"),
-                   "shares": st_.get("planner_shares")},
+                   "shares": st_.get("planner_shares"),
+                   "mtf_lev": st_.get("planner_mtf_lev") or MTF_X},
         "picks": plan_picks}
     path = write_book(path_for(), hold, rebal, comp, held_modes, old_actions,
                       "Portfolio %s | %s | master %s | prices: %s"
@@ -1701,7 +1710,7 @@ def main():
     except Exception as e:
         print("  ! Telegram alert skipped (%s)" % type(e).__name__)
     print("\nExcel (the ONE file to open): %s" % path)
-    print("  Dashboard | Holdings | Sell | Journal | Actions | SIP | Super-Buy | Rebalance | "
+    print("  Dashboard | Buy_Planner | Holdings | Sell | Journal | SIP | Super-Buy | Rebalance | "
           "Watchlist | Holdings_Table | Swing | Investing | Momentum_Top20 | "
           "Fundamentals | Signal_Summary | Signal_Tracker")
     if drive_copy:
@@ -1739,8 +1748,8 @@ def main():
     if old_actions:
         print("  kept your Action picks: %s" % ", ".join(
             "%s=%s" % kv for kv in old_actions.items()))
-    print("Next: pick Actions in the Actions sheet -> save + close -> rbtrack "
-          "(after 15:30)")
+    print("Next: Buy_Planner sheet -> budget + Pick BUY / MTF / WATCH -> save + "
+          "close -> rbtrack (after 15:30)")
     account.banner(acc)
 
 

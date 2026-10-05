@@ -547,6 +547,11 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   feature_study.py (3,140 monthly top-20 picks 2013-26, 15 technical features, pass = same sign >= 2 pts + t >= 2
   in both halves): NONE passes; median 3m excess by class Mid +2.3 / +1.8 best in both halves (L +0.7 / -0.4,
   S 2020-26 -2.2). tests/test_planner.py 23.
+  6 Oct (RB): Actions sheet GONE from the Portfolio file (portfolio.ACTIONS_SHEET = False; rbtrack still reads an old
+  file's Actions). Buy_Planner Pick dropdown = BUY / MTF / WATCH, blank = not taken (old 'YES' read as BUY, never
+  offered). MTF rows: own money per share = price / 'MTF leverage (andaaza)' E19 (default 4, settings planner_mtf_lev);
+  auto MTF -> rbtrack 'BUY MTF' with own Rs as Amount (broker leverage sets qty), own Qty -> exactly that qty.
+  WATCH -> watchlist (rbport + rbtrack). tests/test_planner.py 29.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);

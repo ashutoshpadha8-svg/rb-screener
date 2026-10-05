@@ -3,7 +3,8 @@
 AUTO TRACKER UPDATE + BROKER AMO BRIDGE  (rbtrack)
 ==================================================
 
-Reads the "Action" column of the Actions sheet in today's
+Reads the Buy_Planner sheet (Pick BUY / MTF / WATCH + Qty; 6 Oct 2026 -- old
+files: the "Action" column of the Actions sheet) in today's
 accounts/<BROKER>_<ID>/reports/Portfolio_<...>_YYYY-MM-DD.xlsx (made by
 rbport; save + close Excel first):
 
@@ -126,16 +127,19 @@ def held(sp, mode):
 
 # ================================================================== excel
 def action_rows(path):
+    """Old Portfolio files' Actions sheet (6 Oct 2026: everything moved to
+    Buy_Planner) -- missing sheet = no rows, not an error."""
+    empty = pd.DataFrame(columns=["Ticker", "Action", "act",
+                                  "Strategy Overlap", "Amount (Rs)"])
+    if not os.path.exists(path):
+        print("! %s not found -- run rb first." % path)
+        sys.exit(1)
     try:
         d = pd.read_excel(path, sheet_name="Actions")
-    except Exception as e:
-        print("! Could not read the Actions sheet from %s (%s)."
-              % (os.path.basename(path), e))
-        print("  Run rbport first (it makes Portfolio_..xlsx with Actions).")
-        sys.exit(1)
+    except Exception:
+        return empty
     if "Ticker" not in d or "Action" not in d:
-        print("! Actions sheet has no Ticker/Action column.")
-        sys.exit(1)
+        return empty
     # "buy  mtf" / "Buy MTF" -> "BUY MTF"; anything else is ignored
     d["act"] = d["Action"].fillna("").astype(str).str.upper().str.split() \
         .str.join(" ")
@@ -148,24 +152,37 @@ def action_rows(path):
 
 
 def planner_rows(path):
-    """Buy_Planner YES rows -> the same row shape as the Actions sheet, with
+    """Buy_Planner BUY / MTF / WATCH rows -> the old Actions row shape, with
     the FINAL QTY recomputed by buy_planner.distribute() from the sheet's own
     inputs (never the cached formula values)."""
     import buy_planner as bp
     inp, prow = bp.read_sheet(path)
     if not prow or not any(r["pick"] for r in prow):
         return pd.DataFrame(), None
-    out, summ = bp.distribute(prow, inp.get("budget"), inp.get("shares"))
+    out, summ = bp.distribute(prow, inp.get("budget"), inp.get("shares"),
+                              inp.get("mtf_lev"))
     rows = []
     for r in out:
-        if r["final"] < 1:
-            continue
         why = str(r.get("why", ""))
         ov = "Super-Buy" if why.startswith("Super-Buy") else \
             "Momentum only" if why.startswith("Momentum") else "W+TT only"
-        rows.append({"Ticker": r["symbol"], "Action": "BUY", "act": "BUY",
-                     "Strategy Overlap": ov, "Amount (Rs)": "",
-                     "Qty": int(r["final"]), "Planner price": r["price"]})
+        if r["pick"] == "WATCH":
+            rows.append({"Ticker": r["symbol"], "Action": "WATCH",
+                         "act": "WATCH", "Strategy Overlap": ov,
+                         "LTP": r["price"], "Amount (Rs)": "", "Qty": None})
+            continue
+        if r["final"] < 1:
+            continue
+        mtf = r["pick"] == "MTF"
+        rows.append({"Ticker": r["symbol"], "Action": "BUY MTF" if mtf
+                     else "BUY", "act": "BUY MTF" if mtf else "BUY",
+                     "Strategy Overlap": ov,
+                     # auto MTF: own money fixed, broker leverage sets qty;
+                     # your own Qty (or a normal BUY) = exactly that qty
+                     "Amount (Rs)": round(r["amount"], 2)
+                     if mtf and r["qty_you"] is None else "",
+                     "Qty": None if mtf and r["qty_you"] is None
+                     else int(r["final"]), "Planner price": r["price"]})
     print("Buy_Planner: budget Rs %s | Mid / Large / Small %s | planned Rs %s "
           "| bacha Rs %s" % (
               format(int(summ["budget"]), ","),
@@ -173,8 +190,11 @@ def planner_rows(path):
                          for c in bp.ORDER),
               format(int(summ["total"]), ","), format(int(summ["left"]), ",")))
     for x in rows:
-        print("  %-12s %4d sh  (%s)" % (x["Ticker"], x["Qty"],
-                                        x["Strategy Overlap"]))
+        print("  %-12s %-7s %s  (%s)" % (
+            x["Ticker"], x["act"], "%d sh" % x["Qty"] if x["Qty"] else
+            ("own Rs %s, broker leverage" % format(int(x["Amount (Rs)"]), ",")
+             if x["act"] == "BUY MTF" else "no order"),
+            x["Strategy Overlap"]))
     return pd.DataFrame(rows), summ
 
 
@@ -313,9 +333,9 @@ def plan(rows, px, sp, sess=None, slot=None):
         exposure = slot_rs * lev
         shares = ms.shares_for(exposure, price)
         pq = pd.to_numeric(r.get("Qty"), errors="coerce")
-        if product == "CNC" and pq == pq and pq >= 1:    # Buy_Planner qty
+        if pq == pq and pq >= 1:                        # Buy_Planner qty
             shares = int(pq)
-            slot_rs = shares * price
+            slot_rs = shares * price / lev
             src = "Buy_Planner qty | " + src
         if shares < 1:
             skip.append("%s (price %.0f > Rs %d)" % (s, price, exposure))
@@ -845,7 +865,7 @@ def main():
     today = ds.now_ist().date().isoformat()
     rd = pf.report_date(path)
     if rd != today:
-        print("\n!! %s is from %s, NOT today (%s): Actions / Sell picks are "
+        print("\n!! %s is from %s, NOT today (%s): Buy_Planner / Sell picks are "
               "old. Run rb first." % (os.path.basename(path), rd or "?",
                                       today))
     try:                            # copy in Google Drive (Sheets edits)
@@ -853,18 +873,17 @@ def main():
         drive_copy.pull(path)       # Action picks made in Google Sheets
     except ImportError:
         pass
-    rows = action_rows(path)
-    watch = rows[rows["act"] == "WATCH"]
-    rows = rows[rows["act"] != "WATCH"]
-    prow, _ = planner_rows(path)          # normal BUY = Buy_Planner sheet
+    rows = action_rows(path)              # old files only (6 Oct: gone)
+    prow, _ = planner_rows(path)          # BUY / MTF / WATCH = Buy_Planner
     if len(prow):
         tick = rows["Ticker"].astype(str).str.upper()
-        dup = sorted(set(prow["Ticker"]) & set(tick[rows["act"] == "BUY"]))
+        dup = sorted(set(prow["Ticker"]) & set(tick))
         if dup:
-            print("  Buy_Planner wins over Actions BUY for: %s"
-                  % ", ".join(dup))
-            rows = rows[~(tick.isin(dup) & (rows["act"] == "BUY"))]
+            print("  Buy_Planner wins over Actions for: %s" % ", ".join(dup))
+            rows = rows[~tick.isin(dup)]
         rows = pd.concat([rows, prow], ignore_index=True)
+    watch = rows[rows["act"] == "WATCH"]
+    rows = rows[rows["act"] != "WATCH"]
     if len(watch):
         added = save_watch(watch) if not dry else []
         print("WATCH (no order, no money): %s -> %s" % (
@@ -898,7 +917,7 @@ def main():
             place_sells(sess, sells, dry)
     if rows.empty and not sdue:
         if not len(watch) and not sells:
-            print("Nothing to do: no BUY / BUY MTF in the Actions sheet, no "
+            print("Nothing to do: no BUY / MTF in the Buy_Planner sheet, no "
                   "SIP due, no SELL = YES (%s)." % os.path.basename(path))
         account.banner(acc)
         return

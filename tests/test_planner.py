@@ -95,7 +95,7 @@ def main():
     sl = [{"symbol": s, "why": "Momentum #%d" % (i + 1), "overlap": "",
            "mom_rank": i + 1, "rs_rank": None, "cls": c, "price": p}
           for i, (s, c, p, k, qq) in enumerate(SAMPLE)]
-    picks = {s: ("YES" if k else "NO", qq) for s, c, p, k, qq in SAMPLE}
+    picks = {s: ("BUY" if k else "", qq) for s, c, p, k, qq in SAMPLE}
     bp.write_sheet(wb, {"cash": 50000, "hold_value": 35591,
                         "hold_cost": 47601, "realised": -1200},
                    sl, {"money_added": 100000, "budget": 30000,
@@ -107,9 +107,9 @@ def main():
           round(inp["shares"]["M"], 2) == 0.6, inp)
     check("rows + picks read back", [(r["symbol"], r["pick"], r["qty_you"])
                                      for r in back][:5] ==
-          [("STLTECH", True, None), ("CUPID", True, None),
-           ("WELCORP", True, None), ("HFCL", True, None),
-           ("INFY", True, 2)], back[:5])
+          [("STLTECH", "BUY", None), ("CUPID", "BUY", None),
+           ("WELCORP", "BUY", None), ("HFCL", "BUY", None),
+           ("INFY", "BUY", 2)], back[:5])
     outb, _ = bp.distribute(back, inp["budget"], inp["shares"])
     check("same qty from the sheet's inputs", {r["symbol"]: r["final"]
                                                for r in outb} == q)
@@ -127,7 +127,7 @@ def main():
         print("  (pycel not installed -- Excel formula check skipped)")
     import auto_tracker_update as at
     pr, _ = at.planner_rows(path)
-    check("rbtrack planner rows: YES with qty only, act BUY",
+    check("rbtrack planner rows: BUY rows with qty only, act BUY",
           set(pr["Ticker"]) == {"STLTECH", "CUPID", "WELCORP", "HFCL",
                                 "INFY", "LAURUSLABS", "SIGMAADV",
                                 "SHILPAMED"} and (pr["act"] == "BUY").all())
@@ -140,6 +140,47 @@ def main():
     got = {x["symbol"]: x["shares"] for x in new}
     check("plan() sends exactly the planner qty (not slot / price)",
           got == {k: v for k, v in q.items() if v}, (got, skip))
+
+    print("4b) MTF + WATCH in the same sheet")
+    r7 = rows()
+    r7[1]["pick"] = "MTF"                     # CUPID on margin
+    r7[3]["pick"] = "watch"                   # HFCL only watched
+    r7[6]["pick"] = "yes"                     # old word -> BUY
+    out7, sm7 = bp.distribute(r7, 30000, None, 4)
+    d7 = {r["symbol"]: r for r in out7}
+    check("old 'yes' = BUY, 'watch' = WATCH (no money)",
+          d7["SIGMAADV"]["pick"] == "BUY" and d7["HFCL"]["pick"] == "WATCH"
+          and d7["HFCL"]["final"] == 0)
+    check("MTF row: own money = qty x price / 4, ~4x the shares",
+          abs(d7["CUPID"]["amount"] - d7["CUPID"]["final"] * 312.5 / 4) <
+          1e-6 and d7["CUPID"]["final"] >= 3 * q["CUPID"], d7["CUPID"])
+    check("own money never above budget", sm7["total"] <= 30000, sm7)
+    wb7 = Workbook()
+    picks7 = dict(picks, CUPID=("MTF", None), HFCL=("WATCH", None))
+    bp.write_sheet(wb7, {}, sl, {"budget": 30000, "mtf_lev": 4}, picks7,
+                   "T7")
+    p7 = os.path.join(d, "Portfolio_T7.xlsx")
+    wb7.save(p7)
+    try:
+        from pycel import ExcelCompiler
+        x7 = ExcelCompiler(filename=p7)
+        e7 = {x7.evaluate("%s!B%d" % (bp.SHEET, r)):
+              x7.evaluate("%s!L%d" % (bp.SHEET, r))
+              for r in range(bp.R0, bp.R0 + len(SAMPLE))}
+        inp7, back7 = bp.read_sheet(p7)
+        py7 = {r["symbol"]: r["final"] for r in
+               bp.distribute(back7, 30000, None, inp7["mtf_lev"])[0]}
+        check("Excel = Python with MTF + WATCH rows", e7 == py7, (e7, py7))
+    except ImportError:
+        pass
+    pr7, _ = at.planner_rows(p7)
+    a7 = dict(zip(pr7["Ticker"], pr7["act"]))
+    check("rbtrack: CUPID -> BUY MTF (own Rs, broker leverage), HFCL -> "
+          "WATCH, rest BUY", a7.get("CUPID") == "BUY MTF" and
+          a7.get("HFCL") == "WATCH" and a7.get("STLTECH") == "BUY", a7)
+    m7 = pr7[pr7["Ticker"] == "CUPID"].iloc[0]
+    check("auto MTF row sends own money, no fixed qty",
+          float(m7["Amount (Rs)"]) > 0 and pd.isna(m7["Qty"]), m7.to_dict())
 
     print("5) cap mix in the momentum selection (fill_slots)")
     cands = ([("M%d" % i, "sec%d" % i, "M") for i in range(3)] +
