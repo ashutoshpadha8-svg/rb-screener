@@ -683,29 +683,23 @@ def sync(sess):
 
 # ================================================================== sells
 def read_sells(path):
-    """Sell sheet rows with Sell? = YES: [{symbol, product, qty}]."""
-    try:
-        d = pd.read_excel(path, sheet_name="Sell", header=2, dtype=str)
-    except Exception:
-        return []
+    """Sell? = SELL in the Holdings cards (6 Oct; older files: the Sell
+    sheet's YES rows): [{symbol, product, qty}]. Blank qty = all held."""
     out = []
-    for _, x in d.fillna("").iterrows():
-        if str(x.get("Sell?", "")).upper().strip() != "YES":
+    for x in pf.read_sell_table(path):
+        if x["Sell?"] != "SELL":
             continue
-        sym = str(x.get("Symbol", "")).upper().strip()
-        try:
-            q = int(float(x.get("Qty", 0)))
-        except ValueError:
-            q = 0
-        if sym and " " not in sym and q > 0:
-            out.append({"symbol": sym, "qty": q, "product": "MTF" if str(
-                x.get("Product", "")).upper().strip() == "MTF" else "CNC"})
+        sym = x["Symbol"]
+        q = x["Qty"] if x["Qty"] is not None else (x["Held qty"] or 0)
+        if sym and " " not in sym and q and q > 0:
+            out.append({"symbol": sym, "qty": int(q),
+                        "product": x["Product"]})
     return out
 
 
 def place_sells(sess, sells, dry):
-    """SELL AMOs for the Sell sheet's YES rows (checked against the demat
-    right now). Needs the typed confirmation YES SELL."""
+    """SELL AMOs for Sell? = SELL in the Holdings cards (checked against the
+    demat right now, never more than held). Needs the typed YES SELL."""
     if ds.market_open():
         print("\n! Market is open -- SELL AMOs only after 15:30.")
         return []
@@ -918,7 +912,7 @@ def main():
     if rows.empty and not sdue:
         if not len(watch) and not sells:
             print("Nothing to do: no BUY / MTF in the Buy_Planner sheet, no "
-                  "SIP due, no SELL = YES (%s)." % os.path.basename(path))
+                  "SIP due, no Sell? = SELL in the Holdings cards (%s)." % os.path.basename(path))
         account.banner(acc)
         return
     sp = read_split()

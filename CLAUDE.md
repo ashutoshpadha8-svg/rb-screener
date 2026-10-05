@@ -552,6 +552,13 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   offered). MTF rows: own money per share = price / 'MTF leverage (andaaza)' E19 (default 4, settings planner_mtf_lev);
   auto MTF -> rbtrack 'BUY MTF' with own Rs as Amount (broker leverage sets qty), own Qty -> exactly that qty.
   WATCH -> watchlist (rbport + rbtrack). tests/test_planner.py 29.
+  6 Oct (RB): SELL from the Holdings CARDS -- no Sell sheet (portfolio.SELL_SHEET = False). Every LIVE demat card gets
+  2 rows: caption SELL_CAP + 'Sell qty (held N, CNC|MTF)', then inputs Sell? (dropdown SELL / blank) + Sell qty
+  (whole >= 1). sell_rows(): rule rows first (EXIT / SELL@REBAL / SELL, default SELL only if backtested + TRADING
+  ON, qty = firing legs) + every other LIVE demat stock (blank, qty = all held); same-day picks (pick, qty) kept,
+  qty capped at held. read_sell_table() finds the caption cells (symbol 9 rows above); old files' Sell sheet still
+  read (YES -> SELL). rbtrack read_sells(): SELL rows, blank qty = all held; place_sells still re-checks the demat.
+  tests/test_holdings_sell.py 13.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);
