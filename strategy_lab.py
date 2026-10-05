@@ -106,7 +106,8 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
              cash_rate=CASH_RATE, picks=None, sector=None, sector_cap=None,
              atr=None, atr_sizing=False, trail_atr=None, breakeven=None,
              regime_blocks_buys_only=False, buy_delay=0,
-             allocation_mode=NAV_DIV_SLOTS):
+             allocation_mode=NAV_DIV_SLOTS, cap_class=None, cap_targets=None,
+             cap_order=("M", "L", "S")):
     """buy_delay: new buys N sessions after the rebalance sells (live
     rbtrack buys once sells are confirmed = 1).
     sector: array col -> sector label; sector_cap: max holdings per sector.
@@ -114,6 +115,9 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
     trail_atr: stop = max(entry - k*ATR, highest close - k*ATR); breakeven:
     once close >= entry*(1+breakeven) the stop is at least the entry.
     regime_blocks_buys_only: red market -> keep holdings, no new buys.
+    cap_class: 2-D array [day, col] of 'L' / 'M' / 'S' (cap_mix_study.py);
+    cap_targets e.g. {'M': 12, 'L': 5, 'S': 3}: new buys fill each class up
+    to its target in rank order, then leftover slots go by cap_order.
     Sizing (Codex fixes 1-3, 30 Sep): slot = portfolio value / N (NAV/N,
     the research default = RB's live sizing A) or allocation_mode=FIXED_SLOT
     (capital / N); whole shares incl. buy cost; accrued modeled tax is kept
@@ -152,25 +156,24 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
         if sector is not None:
             for j in pos:
                 count[sector[j]] = count.get(sector[j], 0) + 1
-        for j in ranked:
-            if len(pos) >= N:
-                break
+        def try_buy(j):
+            nonlocal cash
             if j in pos or not O[t, j] > 0:
-                continue
+                return False
             if sector_cap is not None and sector[j] != "?" and \
                     count.get(sector[j], 0) >= sector_cap:
-                continue
+                return False
             amt = slot_budget(capital, N, allocation_mode, nav=mark)
             if med is not None and A[t - 1, j] > 0:
                 amt *= float(np.clip(med / A[t - 1, j], 0.5, 2.0))
             reserve = book.due() if tax else 0.0
             amt = min(amt, max(0.0, cash - reserve))
             if amt < 1000:
-                continue
+                return False
             a = A[t - 1, j] if A is not None and A[t - 1, j] > 0 else 0.0
             sh = whole_shares(amt, O[t, j], CASH_BUY + CASH_SLIP)
             if sh < 1:
-                continue
+                return False
             spent = sh * O[t, j] * (1 + CASH_BUY + CASH_SLIP)
             pos[j] = {"sh": sh,
                       "k": t, "basis": spent, "px": O[t, j],
@@ -180,6 +183,30 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
             cash -= spent
             if sector is not None:
                 count[sector[j]] = count.get(sector[j], 0) + 1
+            return True
+
+        if cap_targets is None:
+            for j in ranked:
+                if len(pos) >= N:
+                    break
+                try_buy(j)
+            return
+        cls = cap_class[t - 1]
+        held = {}
+        for j in pos:
+            held[cls[j]] = held.get(cls[j], 0) + 1
+        for j in ranked:                       # 1) each class up to target
+            if len(pos) >= N:
+                break
+            if held.get(cls[j], 0) < cap_targets.get(cls[j], 0) and \
+                    try_buy(j):
+                held[cls[j]] = held.get(cls[j], 0) + 1
+        for c in cap_order:                    # 2) leftovers by preference
+            for j in ranked:
+                if len(pos) >= N:
+                    break
+                if cls[j] == c and try_buy(j):
+                    held[c] = held.get(c, 0) + 1
 
     pending = None
     for t in range(start_k, n):

@@ -1254,6 +1254,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     wb.active = 0
     wb.worksheets[0].sheet_view.tabSelected = True
     try:                               # columns fit their content (layout)
+        import cap_class               # Mcap + Large/Mid/Small columns
+        cap_class.add_columns(wb)
         import xl_fit
         xl_fit.fit_workbook(wb, skip=("Dashboard", "Holdings"))
     except ImportError:
@@ -1331,10 +1333,13 @@ def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
         import momentum_focus as mf
         rows, day, msg = mf.load()
         held = {h["Symbol"] for h in hold if h["Mode"] != "WATCH"}
+        import cap_class
         for x in rows:
             price = x.get("price")
+            cp = cap_class.of(x["symbol"])
             focus.append(("#%d %s" % (x["rank"], x["symbol"]),
-                          "%s | score %.2f | ~Rs %s%s" % (
+                          "%s | %s | score %.2f | ~Rs %s%s" % (
+                              cp[2] + " cap" if cp else "cap ?",
                               x.get("sector", "?"), float(x.get("score", 0)),
                               format(float(price), ",.1f") if price == price
                               and price is not None else "n/a",

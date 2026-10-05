@@ -519,6 +519,18 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   DO / CHECK TODAY (#rank, sector, score, ~price, HELD, cohort line with signals/stocks/beat-of-compared/days/30+ =
   TOO EARLY). Signal_Summary C: + Stocks, Days tracked, Best/Worst now %, 'rank 11+ (selected)'. Not a buy signal:
   RB's 4/5 = 5 finds x 4 days; rank 6-10 also 4/5; rank_study per-stock beat ~50%. tests/test_focus.py 25.
+  CAP MIX STUDY (5 Oct, cap_mix_study.py, RB's 60/25/15 Mid/Large/Small idea, pre-registered): run_rank(cap_class,
+  cap_targets, cap_order) = fill 12 MID / 5 LARGE / 3 SMALL in rank order, leftovers MID > LARGE > SMALL. Class =
+  rank by est. mcap among loaded NSE stocks (1-100 L, 101-250 M, 251+ S). Post-tax 2013-19 / 2020-26 / FULL / DD /
+  trades: BASE 11.7 / 30.3 / 22.0 / -33.9 / 44; MIX 60/25/15 14.7 / 30.4 / 23.6 / -35.2 / 56. Post-hoc checks:
+  50/30/20 14.3 / 31.3 / 23.0; 70/20/10 15.7 / 30.3 / 21.3; mid-first no target 14.3 / 26.7 / 21.8. Raw top 20:
+  2013-19 L 12.8 / M 7.0 / S 0 (no smallcaps were >= 10k then), 2020-26 L 5.5 / M 7.7 / S 6.1. -> gain = less
+  LARGE in 2013-19; 2020-26 equal. NOT live yet (RB decides). ChatGPT technical research (5 Oct, 20 finds of 26 Sep):
+  no pre-signal common rule (35 indicators, BH q>=0.13); later pullback->reversal->continuation fits the 4 winners
+  in hindsight only; short-horizon (5/10 session) momentum unstable by period. cap_class.py (display): 'Mcap (Rs Cr)'
+  + 'Cap Class' appended at the END of every table sheet (skip Dashboard/Holdings/Journal/SIP/Signal_Summary) in the
+  master (signal_tracker) + Portfolio (before xl_fit); AMFI-style rank in NSE's full mcap file (2,600 names).
+  Dashboard Top-5 lines show the class. tests/test_cap_class.py 12.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);

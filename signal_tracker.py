@@ -532,6 +532,11 @@ def write_sheet(path, summ, t, note, today):
                     c.fill, c.font = gold, gfont
     except Exception:
         pass                           # highlight only -- never stop a report
+    try:                               # Mcap + Large/Mid/Small, every sheet
+        import cap_class
+        cap_class.add_columns(wb)
+    except Exception:
+        pass
     paint_ages(wb)
     try:                               # columns fit their content (layout)
         import xl_fit
