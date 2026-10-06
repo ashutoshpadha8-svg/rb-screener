@@ -564,6 +564,10 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   last session -> card label 'Last session DD Mon'). Card line 1 'Aaj' (green/red), Holdings_Table columns, Holdings
   P&L box + Dashboard holdings line + terminal 'aaj +Rs X'. Cards are 1 row taller: Sell caption at r0+10 (symbol 10
   rows above; read_sell_table also accepts 9 for the first v11 files). tests/test_holdings_sell.py 17.
+  6 Oct: RB's screenshot (Ashish G Angel, 37 stocks) -> prices checked vs NSE bhavcopy 29 Sep: DISHTV 2.15 (554 sh =
+  Rs 1,163, entry 21.97 = -90% is REAL), IRFC 80.26, IRCON 102.47 -> correct. Day change now uses the last bar of a
+  strictly EARLIER date (two bars for today -> was 0.00%); LIVE/PAPER band on Holdings shows 'AAJ +/-Rs X (y%)'.
+  tests/test_holdings_sell.py 19.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);

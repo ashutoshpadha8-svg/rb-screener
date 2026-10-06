@@ -120,6 +120,21 @@ def main():
     check("Holdings_Table has Aaj % + Aaj (Rs)", "Aaj %" in heads and
           "Aaj (Rs)" in heads, heads)
 
+    print("2c) day change uses the last EARLIER day (two bars for today)")
+    import numpy as np
+    idx = list(pd.bdate_range(end="2026-10-05", periods=259)) + [
+        pd.Timestamp("2026-10-06"), pd.Timestamp("2026-10-06 15:30")]
+    c = pd.Series(np.linspace(1, 3, 261), index=pd.DatetimeIndex(idx))
+    c.iloc[-3], c.iloc[-2], c.iloc[-1] = 2.10, 2.15, 2.15
+    pos = {"symbol": "X", "mode": "LIVE", "qty": 554, "entry": 21.97,
+           "entry_date": "2025-01-01", "legs": {}, "note": ""}
+    h = pf.analyse(pos, {"X": c}, {"X": c}, {"X": c}, {}, {}, {}, {}, {})
+    check("2.10 -> 2.15 = +2.38% (+Rs 28), not 0.00%",
+          pf.day_txt(h) == "+2.38%  (+Rs 28)", pf.day_txt(h))
+    band = [str(ws.cell(row=r, column=1).value) for r in range(1, 12)]
+    check("LIVE band shows the account's AAJ total", any(
+        "AAJ -Rs" in b for b in band), band)
+
     print("3) old file with a Sell sheet still works")
     old = os.path.join(d, "old.xlsx")
     w = Workbook()

@@ -384,8 +384,9 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
                                       e[4] if e[4] is not None else 1e9))
     ex = ex[0] if ex else (rec, "", "-", "-", None)
     fl = (filings or {}).get(s) or []
-    prev = float(c.iloc[-2]) if len(c) > 1 else None
     day = c.index[-1].date()
+    before = c[[d.date() < day for d in c.index]].dropna()   # a strictly
+    prev = float(before.iloc[-1]) if len(before) else None  # earlier day
     base.update({
         "Aaj %": round((px_now / prev - 1) * 100, 2) if prev else None,
         "Aaj (Rs)": round((px_now - prev) * pos["qty"]) if prev else None,
@@ -1064,8 +1065,12 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         if not rows:
             continue
         p = pnl(mode)
-        band(ws, row, "%s  --  %d stock(s)%s" % (
-            label, len(rows), "  |  P&L " + txt(p) if p else ""), ncol,
+        a_ = sum(h.get("Aaj (Rs)") or 0 for h in rows)
+        v_ = sum(h.get("Value (Rs)") or 0 for h in rows)
+        band(ws, row, "%s  --  %d stock(s)%s  |  AAJ %sRs %s (%+.2f%%)" % (
+            label, len(rows), "  |  P&L " + txt(p) if p else "",
+            "+" if a_ >= 0 else "-", format(int(abs(a_)), ","),
+            a_ / (v_ - a_) * 100 if v_ - a_ else 0), ncol,
             color="548235" if mode == "LIVE" else "8EA9C1")
         row += 2
         for n in range(0, len(rows), PER):
