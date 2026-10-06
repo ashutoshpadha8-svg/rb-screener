@@ -591,6 +591,13 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   -> targets WORSE in both halves (-4 to -9 pts/yr), DD only ~4-5 pts better -> REJECTED. Hit rates (top 20 monthly
   picks 2013-26): touch +25% within 6m ~43% (rank 1 59%, 157 picks), -20% first ~30%; Mid 52% vs Large 38% (both
   halves), Small 54% but 46% hit -20% first; median ~2 months to +25%.
+  DAILY TOP-5 STUDY (6 Oct, RB: "har scan nayi ranking, rank 1-5 khareedo, SL 10%, dobara signal pe lo, max target
+  ka wait"; daily_top5_study.py, pre-registered; run_rank stop_pct / trail_pct / buy_within, freq "D"). Post-tax
+  2013-19 / 2020-26 / FULL / maxDD / trades/yr / Rs 2L -> / worst yr: C live 14.7 / 30.4 / 23.6 / -35 / 56 / 36.6 L /
+  -17; M5 monthly top5 no SL 11.6 / 33.4 / 21.3 / -51 / 9 / 28.3 L / -21; D1 RB daily top5 SL10 + rank>40 8.0 / 22.0 /
+  14.4 / -70 / 23 / 12.6 L / -50; D2 daily top5 trailing 10% -11.6 / -6.4 / -9.3 / -90 / 68 / 0.5 L; D3 daily top5 no
+  SL rank>40 12.7 / 37.2 / 23.0 / -55 / 11 / 34.5 L / -33. -> 10% SL costs ~9 pts/yr (D3 vs D1), trailing 10% loses
+  money; D3 = C overall but worse 2013-19 and DD -55 vs -35 with 5 stocks -> NOT adopted, live C stays.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);
