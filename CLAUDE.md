@@ -598,6 +598,10 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   14.4 / -70 / 23 / 12.6 L / -50; D2 daily top5 trailing 10% -11.6 / -6.4 / -9.3 / -90 / 68 / 0.5 L; D3 daily top5 no
   SL rank>40 12.7 / 37.2 / 23.0 / -55 / 11 / 34.5 L / -33. -> 10% SL costs ~9 pts/yr (D3 vs D1), trailing 10% loses
   money; D3 = C overall but worse 2013-19 and DD -55 vs -35 with 5 stocks -> NOT adopted, live C stays.
+  REBALANCE FREQUENCY (6 Oct, RB: "ranking daily badalti hai to daily act karo?"; rebal_freq_study.py, pre-registered,
+  live rules top20 + cap mix + sector cap 4 + rank<40). Post-tax 2013-19 / 2020-26 / FULL / DD / trades/yr / Rs 2L ->:
+  MONTHLY 14.7 / 30.4 / 23.6 / -35 / 56 / 36.6 L; WEEKLY 10.8 / 29.6 / 20.1 / -34 / 122 / 24.8 L; DAILY 2.8 / 22.6 /
+  13.2 / -40 / 352 / 10.9 L -> monthly best in both halves; ranking is recomputed daily but acted on monthly.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);
