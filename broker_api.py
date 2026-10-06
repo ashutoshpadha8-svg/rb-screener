@@ -902,6 +902,8 @@ def holdings(sess):
     if sess.broker in ("DHAN", "ANGEL"):
         path = "/positions" if sess.broker == "DHAN" else "/rest/secure/angelbroking/order/v1/getPosition"
         positions = _call(sess, "GET", path)
+        if positions is None:  # Angel: status true + "data": null = no open
+            positions = []     # positions (an error raises inside _call)
         if not isinstance(positions, list):
             raise BrokerError("positions unavailable; MTF/holding exposure unknown")
         by = {h["symbol"]: h for h in out}
@@ -1248,6 +1250,8 @@ def pending_orders(sess):
         if isinstance(rows, dict):rows = rows.get("data")
     elif sess.broker == "ANGEL":
         rows = _call(sess, "GET", "/rest/secure/angelbroking/order/v1/getOrderBook")
+        if rows is None:       # status true + "data": null = no orders today
+            rows = []
     else:
         rows = _call(sess, "GET", "/orders")
     if not isinstance(rows, list):

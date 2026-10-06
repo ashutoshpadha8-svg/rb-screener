@@ -152,6 +152,21 @@ class SafetyTests(unittest.TestCase):
         h=self.hold('ANGEL',[dict(tradingsymbol='ABC-EQ',quantity=3,product='MARGIN')],[dict(tradingsymbol='ABC-EQ',netqty=3,producttype='MARGIN',exchange='NSE')])[0]
         self.assertEqual(h['qty'],3);self.assertEqual(h['sellable_by_product']['MTF'],3)
 
+    def test_angel_no_open_positions_null_ok(self):
+        # RB 6 Oct: Angel getPosition = status true + data null when nothing
+        # is open -> holdings still come from getHolding (rbport stopped)
+        with patch.object(ba,'_call',side_effect=[[dict(tradingsymbol='ABC-EQ',quantity=5,product='DELIVERY')],None]):
+            h=ba.holdings(NS(broker='ANGEL'))
+        self.assertEqual([(x['symbol'],x['qty']) for x in h],[('ABC',5)])
+        with patch.object(ba,'_call',side_effect=[[dict(tradingsymbol='ABC-EQ',quantity=5)],{}]):
+            with self.assertRaises(ba.BrokerError):ba.holdings(NS(broker='ANGEL'))
+
+    def test_angel_empty_order_book_null_ok(self):
+        with patch.object(ba,'_call',return_value=None),patch.object(ba,'symbol_map',return_value={}):
+            self.assertEqual(ba.pending_orders(NS(broker='ANGEL')),set())
+        with patch.object(ba,'_call',return_value={}),patch.object(ba,'symbol_map',return_value={}):
+            with self.assertRaises(ba.BrokerError):ba.pending_orders(NS(broker='ANGEL'))
+
     def test_kite_nested_mtf_and_used_qty(self):
         h=self.hold('ZERODHA',[dict(tradingsymbol='ABC',quantity=5,used_quantity=2,mtf=dict(quantity=4,used_quantity=1))])[0]
         self.assertEqual(h['qty'],9);self.assertEqual(h['sellable_by_product'],{'CNC':3,'MTF':3})
