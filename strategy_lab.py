@@ -107,7 +107,8 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
              atr=None, atr_sizing=False, trail_atr=None, breakeven=None,
              regime_blocks_buys_only=False, buy_delay=0,
              allocation_mode=NAV_DIV_SLOTS, cap_class=None, cap_targets=None,
-             cap_order=("M", "L", "S"), target=None, stats=None):
+             cap_order=("M", "L", "S"), target=None, stats=None,
+             stop_pct=None, trail_pct=None, buy_within=None):
     """buy_delay: new buys N sessions after the rebalance sells (live
     rbtrack buys once sells are confirmed = 1).
     sector: array col -> sector label; sector_cap: max holdings per sector.
@@ -121,7 +122,12 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
     target (profit_target_study.py, 6 Oct): sell when the day's HIGH reaches
     entry x (1 + target) -- at that price, or at the open if it gaps above
     (= a resting limit / GTT sell); the cash waits for the next rebalance.
-    stats: dict -> 'target_exits' count.
+    stats: dict -> 'target_exits' / 'stop_exits' counts.
+    stop_pct: fixed stop entry x (1 - stop_pct); trail_pct: stop follows the
+    highest close x (1 - trail_pct) (day's LOW touches -> sold at the stop,
+    or the open if it gaps below). buy_within: new buys only from the top
+    `buy_within` of the ranking (default: whole ranking, as before).
+    (daily_top5_study.py, 6 Oct)
     Sizing (Codex fixes 1-3, 30 Sep): slot = portfolio value / N (NAV/N,
     the research default = RB's live sizing A) or allocation_mode=FIXED_SLOT
     (capital / N); whole shares incl. buy cost; accrued modeled tax is kept
@@ -184,12 +190,16 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
                       "k": t, "basis": spent, "px": O[t, j],
                       "hi": O[t, j],
                       "stop": O[t, j] * (1 - (trail_atr or 0) * a)
-                      if trail_atr else -1.0}
+                      if trail_atr else
+                      O[t, j] * (1 - (stop_pct or trail_pct))
+                      if (stop_pct or trail_pct) else -1.0}
             cash -= spent
             if sector is not None:
                 count[sector[j]] = count.get(sector[j], 0) + 1
             return True
 
+        if buy_within:
+            ranked = ranked[:buy_within]
         if cap_targets is None:
             for j in ranked:
                 if len(pos) >= N:
@@ -221,7 +231,8 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
         if pending is not None and t == pending[0]:
             buys(t, pending[1])
             pending = None
-        if (trail_atr is not None or breakeven is not None) and t > start_k:
+        if (trail_atr is not None or breakeven is not None or stop_pct or
+                trail_pct) and t > start_k:
             for j in list(pos):
                 p = pos[j]
                 if p["k"] >= t:
@@ -229,8 +240,12 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
                 if Lo[t, j] > 0 and Lo[t, j] <= p["stop"]:
                     px = min(O[t, j], p["stop"]) if O[t, j] > 0 else p["stop"]
                     sell(j, px, t)
+                    if stats is not None:
+                        stats["stop_exits"] = stats.get("stop_exits", 0) + 1
                     continue
                 p["hi"] = max(p["hi"], C[t, j])
+                if trail_pct:
+                    p["stop"] = max(p["stop"], p["hi"] * (1 - trail_pct))
                 if trail_atr is not None:
                     a = A[t, j] if A[t, j] == A[t, j] else 0.0
                     p["stop"] = max(p["stop"], p["hi"] * (1 - trail_atr * a))
