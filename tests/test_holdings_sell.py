@@ -91,8 +91,10 @@ def main():
     check("read back: AAA SELL 6, BBB blank 40", got["AAA"]["Sell?"] ==
           "SELL" and got["AAA"]["Qty"] == 6 and got["BBB"]["Sell?"] == ""
           and got["BBB"]["Held qty"] == 40, got)
-    r, c = [rc for rc in caps if ws.cell(row=rc[0] - 10, column=rc[1]).value
+    r, c = [rc for rc in caps if ws.cell(row=rc[0] - 11, column=rc[1]).value
             == "BBB"][0]
+    check("caption carries the symbol", str(ws.cell(row=r, column=c + 1)
+                                            .value).startswith("BBB sell qty"))
     ws.cell(row=r + 1, column=c, value="sell")      # you pick it, lower case
     ws.cell(row=r + 1, column=c + 1, value=12)
     wb.save(path)
@@ -108,10 +110,8 @@ def main():
     print("2b) today's gain / loss on the card")
     txt = [ws.cell(row=rc[0] - 8, column=rc[1] + 1).value for rc in caps]
     lab = [ws.cell(row=rc[0] - 8, column=rc[1]).value for rc in caps]
-    check("card line: -1.50%  (-Rs 135) for AAA (qty 10)",
-          "-1.50%  (-Rs 135)" in txt, txt)
-    check("label says the session date when it is not today",
-          all(str(x).startswith("Last session 05 Oct") for x in lab), lab)
+    check("Angel line: Shares 10 | 05 Oct -₹135 (-1.50%) (not today)",
+          "05 Oct -₹135 (-1.50%)" in txt and "Shares 10" in lab, (txt, lab))
     check("day_txt +/- and no data", pf.day_txt({"Aaj %": 2.0,
                                                  "Aaj (Rs)": 1234}) ==
           "+2.00%  (+Rs 1,234)" and pf.day_txt({}) == "-")
@@ -119,9 +119,20 @@ def main():
     heads = [c.value for c in wt[1]]
     check("Holdings_Table has Aaj % + Aaj (Rs)", "Aaj %" in heads and
           "Aaj (Rs)" in heads, heads)
-    top = [ws.cell(row=rc[0] - 9, column=rc[1] + 1).value for rc in caps]
-    check("card says invested -> value now (AAA 10 x 100 = 1,000 -> 900)",
-          "Lagaya Rs 1,000 -> Ab Rs 900" in top, top)
+    inv = [(ws.cell(row=rc[0] - 7, column=rc[1]).value,
+            ws.cell(row=rc[0] - 7, column=rc[1] + 1).value) for rc in caps]
+    check("Angel line: Invested ₹1,000 | Current ₹900 (AAA 10 x 100)",
+          ("Invested ₹1,000", "Current ₹900") in inv, inv)
+    avg = [ws.cell(row=rc[0] - 9, column=rc[1]).value for rc in caps]
+    pl = [ws.cell(row=rc[0] - 10, column=rc[1] + 1).value for rc in caps]
+    check("Avg ₹100.00 + P&L -₹100 on the card", "Avg ₹100.00" in avg and
+          "P&L -₹100" in pl, (avg, pl))
+    summ = {ws.cell(row=3, column=k).value: ws.cell(row=4, column=k).value
+            for k in (1, 4, 7, 10)}
+    check("summary: current ₹4,500, overall -₹500, aaj -₹675",
+          summ.get("CURRENT VALUE (LIVE)") == "₹4,500" and
+          summ.get("OVERALL GAIN") == "-₹500" and
+          summ.get("AAJ (TODAY'S)") == "-₹675", summ)
     check("Holdings_Table has Invested (Rs)", "Invested (Rs)" in heads)
 
     print("2c) day change uses the last EARLIER day (two bars for today)")
@@ -135,7 +146,7 @@ def main():
     h = pf.analyse(pos, {"X": c}, {"X": c}, {"X": c}, {}, {}, {}, {}, {})
     check("2.10 -> 2.15 = +2.38% (+Rs 28), not 0.00%",
           pf.day_txt(h) == "+2.38%  (+Rs 28)", pf.day_txt(h))
-    band = [str(ws.cell(row=r, column=1).value) for r in range(1, 12)]
+    band = [str(ws.cell(row=r, column=1).value) for r in range(1, 16)]
     check("LIVE band shows the account's AAJ total", any(
         "AAJ -Rs" in b for b in band), band)
 

@@ -570,6 +570,12 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   tests/test_holdings_sell.py 19.
   6 Oct (RB: "1,163 invested hai kya?"): card row 2 = 'Lagaya Rs <entry x qty> -> Ab Rs <value>' (mode is on the band),
   line 'Qty: buy -> aaj' = 'N sh @ entry -> LTP'; Holdings_Table + 'Invested (Rs)'. tests/test_holdings_sell.py 21.
+  6 Oct (RB, Angel One screenshot): Holdings = ANGEL STYLE. Top boxes row 3: CURRENT VALUE (LIVE) + 'Invested Rs',
+  OVERALL GAIN Rs + %, AAJ (TODAY'S) Rs + %, AAJ BECHNA; row 7: EXIT KE PAAS / RED FLAG / PAPER P&L or STOCKS.
+  Cards from row 11: symbol|action, P&L % big | 'P&L +-Rs', then Angel lines 'Avg Rs|LTP Rs (day %)', 'Shares N|Aaj
+  (or DD Mon) +-Rs (%)', 'Invested Rs|Current Rs', then Kyun / Exit se door / Exit level / Stage-RSI / Rank-W+TT /
+  News; Sell caption r0+11 = 'SYM sell qty (held N, CNC)' (reader takes the symbol from it; older cards r-10 / r-9),
+  inputs r0+12, step 14. Rs shown as the rupee sign on cards + boxes. tests/test_holdings_sell.py 23.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);

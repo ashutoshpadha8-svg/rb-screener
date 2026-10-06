@@ -627,7 +627,8 @@ def _pick_sell(v):
 def read_sell_table(path):
     """Sell picks of a saved Portfolio file: [{Symbol, Product, Sell?, Qty,
     Held qty}]. 6 Oct layout: inside each Holdings card (caption SELL_CAP,
-    inputs one row below, symbol 9 rows above). Older files: the Sell
+    inputs one row below; v15: symbol in the right caption 'SYM sell qty
+    (held N, CNC)', older cards: symbol 10 / 9 rows above). Older files: the Sell
     sheet's table. [] if none."""
     import re
     try:
@@ -651,7 +652,9 @@ def read_sell_table(path):
                 r, k = c.row, c.column
                 cap = str(ws.cell(row=r, column=k + 1).value or "")
                 m = re.search(r"held (\d+), (\w+)", cap)
-                sym = ws.cell(row=r - 10, column=k).value
+                s_ = re.match(r"(\S+) sell qty", cap)
+                sym = s_.group(1) if s_ else \
+                    ws.cell(row=r - 10, column=k).value     # v12-v14 files
                 if not sym or str(sym).startswith("Sell?"):
                     sym = ws.cell(row=r - 9, column=k).value  # 1st v11 files
                 out.append({"Symbol": str(sym or "").upper().strip(),
@@ -784,6 +787,13 @@ def day_txt(h):
         return "-"
     return "%+.2f%%  (%sRs %s)" % (p, "+" if (r or 0) >= 0 else "-",
                                    format(int(abs(r or 0)), ","))
+
+
+def rs(x, sign=False):
+    """Rs amount Angel style: '₹1,234' / '+₹1,234' / '-₹1,234'."""
+    x = float(x or 0)
+    return "%s₹%s" % (("+" if x >= 0 else "-") if sign else
+                      ("-" if x < 0 else ""), format(int(round(abs(x))), ","))
 
 
 def short_why(t):
@@ -950,24 +960,34 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         cost = sum((h.get("Entry") or 0) * h["Qty"] for h in rows)
         return (val - cost, (val / cost - 1) * 100 if cost else 0) \
             if rows else None
-    lp, pp = pnl("LIVE"), pnl("PAPER")
+    pp = pnl("PAPER")
     _a = sum(h.get("Aaj (Rs)") or 0 for h in own if h["Mode"] == "LIVE")
-    aaj_txt = "%sRs %s" % ("+" if _a >= 0 else "-", format(int(abs(_a)), ","))
     txt = lambda p: "-" if p is None else "%s%s (%+.1f%%)" % (      # noqa
         "+" if p[0] >= 0 else "-", format(int(abs(p[0])), ","), p[1])
     names = lambda xs: ", ".join(xs[:8]) + (" +%d" % (len(xs) - 8)   # noqa
                                             if len(xs) > 8 else "")
-    boxes(ws, 3, [
+    lv = [h for h in own if h["Mode"] == "LIVE" and h.get("Value (Rs)")]
+    cur_ = sum(h["Value (Rs)"] for h in lv)
+    inv_ = sum((h.get("Entry") or 0) * h["Qty"] for h in lv)
+    gcol = lambda x: "1E7B34" if x > 0 else "C00000" if x < 0 \
+        else "1F1F1F"                                              # noqa
+    boxes(ws, 3, [                     # 6 Oct (RB): Angel One style summary
+        ("CURRENT VALUE (LIVE)", rs(cur_) if lv else "-", "1F1F1F",
+         "Invested %s" % rs(inv_) if lv else "demat mein kuch nahi"),
+        ("OVERALL GAIN", rs(cur_ - inv_, True) if lv else "-",
+         gcol(cur_ - inv_), "%+.2f%%" % ((cur_ / inv_ - 1) * 100)
+         if inv_ else "-"),
+        ("AAJ (TODAY'S)", rs(_a, True) if lv else "-", gcol(_a),
+         "%+.2f%%" % (_a / (cur_ - _a) * 100) if cur_ - _a else "-"),
         ("AAJ BECHNA", len(sell), "C00000" if sell else "1E7B34",
-         names(sell)),
+         names(sell))], width=W)
+    boxes(ws, 7, [
         ("EXIT KE PAAS (<5%)", len(near), "9C6500" if near else "1E7B34",
          names(near)),
         ("RED FLAG (NSE filing)", len(flags), "C00000" if flags else "1E7B34",
          names(flags)),
-        ("P&L (LIVE)", txt(lp), "1E7B34" if lp and lp[0] > 0 else
-         "C00000" if lp and lp[0] < 0 else "1F1F1F",
-         "aaj %s%s" % (aaj_txt, "  |  paper %s" % txt(pp) if pp else ""))],
-        width=W)
+        ("PAPER P&L", txt(pp), "1F1F1F", "practice, asli paisa nahi")
+        if pp else ("STOCKS (LIVE)", len(lv), "1F1F1F", "")], width=W)
 
     sell_by = {}                       # symbol -> sell row (defaults)
     for x in sells or []:
@@ -998,28 +1018,43 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                       else "C00000" if (p or 0) < 0 else "1F1F1F")
         v = clean(h.get("Value (Rs)"))
         inv = (h.get("Entry") or 0) * (h.get("Qty") or 0)
-        b = ws.cell(row=r0 + 1, column=c0 + 1, value="Lagaya Rs %s -> Ab Rs %s"
-                    % (format(int(inv), ",") if inv else "-",
-                       format(int(v), ",") if v else "-"))
-        b.font = Font(color=GREY_TXT)
+        g = (v or 0) - inv if v and inv else None
+        b = ws.cell(row=r0 + 1, column=c0 + 1, value="P&L %s" % (
+            rs(g, True) if g is not None else "-"))
+        b.font = Font(bold=True, size=13, color=gcol(g or 0))
         b.alignment = Alignment(horizontal="right", vertical="center")
+        dp, dr = h.get("Aaj %"), h.get("Aaj (Rs)")
+        today = h.get("_day") == ds.now_ist().date()
+        dlab = "Aaj" if today or not h.get("_day") else \
+            h["_day"].strftime("%d %b")
+        angel = [                      # 6 Oct (RB): like the Angel One card
+            ("Avg ₹%.2f" % h["Entry"] if h.get("Entry") else "Avg -",
+             "LTP ₹%.2f%s" % (h["LTP"], " (%+.2f%%)" % dp if dp is not None
+                              else "") if h.get("LTP") else "LTP -"),
+            ("Shares %g" % (h.get("Qty") or 0),
+             "%s %s (%+.2f%%)" % (dlab, rs(dr, True), dp) if dp is not None
+             else "%s -" % dlab),
+            ("Invested %s" % rs(inv) if inv else "Invested -",
+             "Current %s" % rs(v) if v else "Current -")]
+        for n, (l_, r_) in enumerate(angel, 2):
+            a = ws.cell(row=r0 + n, column=c0, value=l_)
+            b = ws.cell(row=r0 + n, column=c0 + 1, value=r_)
+            a.font = Font(size=10, color="404040")
+            b.font = Font(bold=True, size=10)
+            b.alignment = Alignment(horizontal="right")
+            if n == 3 and dr:                         # today's gain / loss
+                b.font = Font(bold=True, size=10, color=gcol(dr))
         lines = [
-            ("Aaj" if h.get("_day") == ds.now_ist().date() else
-             "Last session %s" % (h["_day"].strftime("%d %b")
-                                  if h.get("_day") else ""), day_txt(h)),
             ("Kyun", short_why(h.get("Kyun") or h.get("Why", ""))),
             ("Exit se door", h.get("Exit se door", "-")),
             ("Exit level", h.get("Exit level", "-")),
-            ("Qty: buy -> aaj", "%g sh @ %s -> %s" % (
-                h.get("Qty") or 0, "%.2f" % h["Entry"] if h.get("Entry")
-                else "-", "%.2f" % h["LTP"] if h.get("LTP") else "-")),
             ("Stage / RSI", "%s / %s" % (str(h.get("Stage", "-")).split(" (")[0],
                                          "%.0f" % h["RSI 14"] if h.get(
                                              "RSI 14") is not None else "-")),
             ("Rank / W+TT", "%s / %s" % (h.get("Mom Rank") if h.get(
                 "Mom Rank") is not None else "-", h.get("W+TT today", "-"))),
             ("News / filing", cut(h.get("Headline") or "-", 115))]
-        for n, (lab, val) in enumerate(lines, 2):
+        for n, (lab, val) in enumerate(lines, 5):
             a = ws.cell(row=r0 + n, column=c0, value=lab)
             b = ws.cell(row=r0 + n, column=c0 + 1, value=val)
             a.font = Font(size=9, color=GREY_TXT)
@@ -1033,34 +1068,32 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                                                      color="C00000")
             if lab == "News / filing" and str(val).startswith("!!"):
                 b.font = Font(bold=True, color="C00000")
-            if n == 2 and h.get("Aaj (Rs)"):        # today's gain / loss
-                b.font = Font(bold=True, color="1E7B34" if h["Aaj (Rs)"] > 0
-                              else "C00000")
         x = sell_by.get(h["Symbol"]) if h.get("Mode") == "LIVE" else None
         if x:                          # 6 Oct (RB): sell from the card
-            a = ws.cell(row=r0 + 10, column=c0, value=SELL_CAP)
-            b = ws.cell(row=r0 + 10, column=c0 + 1, value="Sell qty  (held %d, "
-                        "%s)" % (x.get("Held qty") or 0, x["Product"]))
+            a = ws.cell(row=r0 + 11, column=c0, value=SELL_CAP)
+            b = ws.cell(row=r0 + 11, column=c0 + 1, value="%s sell qty  (held "
+                        "%d, %s)" % (h["Symbol"], x.get("Held qty") or 0,
+                                     x["Product"]))
             for c in (a, b):
                 c.font = Font(size=9, bold=True, color="C00000" if str(
                     x.get("Rule", "")).split(" ")[0] in ("EXIT", "SELL@REBAL",
                                                          "SELL")
                     else GREY_TXT)
             b.alignment = Alignment(horizontal="right")
-            a = ws.cell(row=r0 + 11, column=c0, value=x.get("Sell?") or None)
-            b = ws.cell(row=r0 + 11, column=c0 + 1, value=x.get("Qty"))
+            a = ws.cell(row=r0 + 12, column=c0, value=x.get("Sell?") or None)
+            b = ws.cell(row=r0 + 12, column=c0 + 1, value=x.get("Qty"))
             for c in (a, b):
                 c.fill = fill("FFF2CC")
                 c.font = Font(bold=True, size=12, color="C00000")
             b.alignment = Alignment(horizontal="right")
             dv_s.add(a.coordinate)
             dv_q.add(b.coordinate)
-        for rr in range(r0, r0 + (12 if x else 10)):
+        for rr in range(r0, r0 + (13 if x else 11)):
             for cc in (c0, c0 + 1):
                 ws.cell(row=rr, column=cc).border = box
-        return 12
+        return 13
 
-    row = 7
+    row = 11
     for mode, label in (("LIVE", "LIVE (demat, asli paisa)"),
                         ("PAPER", "PAPER (practice)")):
         rows = sorted([h for h in own if h["Mode"] == mode],
@@ -1082,13 +1115,13 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
             for k, h in enumerate(rows[n:n + PER]):
                 card(row, 1 + k * W, h)
             chunk = rows[n:n + PER]                   # Kyun / News: fit text
-            for rr, key in ((row + 3, "Kyun"), (row + 9, "News / filing")):
+            for rr, key in ((row + 5, "Kyun"), (row + 10, "News / filing")):
                 txts = [short_why(h.get("Kyun") or h.get("Why", ""))
                         if key == "Kyun" else cut(h.get("Headline") or "-",
                                                   115) for h in chunk]
                 nl = max(math.ceil(len(t) / (CW + 2)) for t in txts)
                 ws.row_dimensions[rr].height = max(18, 15 * min(nl, 4) + 4)
-            row += 13
+            row += 14
     if not own:
         ws.cell(row=6, column=1, value="Koi holding nahi (demat khaali, koi "
                 "SIP / trade abhi).").font = Font(size=12, italic=True)
