@@ -21,6 +21,7 @@
   fusion_backtest.py    # Fusion vs W+TT, cash + stock futures, real Dhan costs + Indian tax
   fno_data.py           # downloads NSE F&O bhavcopy history (2013+) into data/fno/
   buy_delay_study.py    # live 1-session buy delay vs backtest (30 Sep): ~ -0.5 pt/yr
+  strategy_tester.py    # RB's own tests: one command, any momentum variant vs LIVE, both halves (6 Oct)
   strategy_lab.py       # 16 pre-registered strategies (momentum, low-vol, mean reversion, timing) vs baselines
   momentum_screener.py  # LIVE momentum (RAMOM top 20, sector cap 4) -> Momentum_Top20 + Strategy_Comparison sheets
   auto_tracker_update.py# rbtrack: Action BUY -> Dhan AMO (CNC, MARKET @ open, type YES) -> split.csv LIVE;
@@ -607,6 +608,11 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   36.6 L / -17; M10 monthly rank>20 12.6 / 28.1 / 19.4 / -43 / 37 / 22.8 L / -23; W10a weekly rank>20 6.8 / 26.1 /
   16.2 / -44 / 83 / 15.7 L / -23; W10b weekly rank>40 8.9 / 31.2 / 20.0 / -36 / 37 / 24.5 L / -22 -> none beats live
   top 20 monthly in both halves (W10b +0.8 in 2020-26 only, -5.8 in 2013-19) -> rejected.
+  STRATEGY_TESTER.PY (6 Oct, RB: "ek file do, khud test karoon"): `python3 strategy_tester.py [--slots N --freq M|W|D
+  --keep K --buy-top T --sl P --trail P --target P --mix M/L/S|none --sector-cap C --capital RS --no-live]` = LIVE row +
+  YOURS row (both halves, DD, worst yr, trades, final), verdict 'better in BOTH halves?', appends data/strategy_tests.csv.
+  Default = live (23.6% checked). Note: weekly top10 with mix rounding 6/2/2 = 11.2 / 36.8 / 23.1 vs 6/3/1 (top10_study)
+  8.9 / 31.2 / 20.0 -> one slot of mix moves results 3-6 pts = noise; still fails 2013-19.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);
