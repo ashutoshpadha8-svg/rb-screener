@@ -328,13 +328,24 @@ def _call(sess, method, path, body=None, params=None, form=None, retries=2,
             raise BrokerError("HTTP %d: %s" % (r.status_code, msg))
         return j
     if sess.broker == "ANGEL":
-        if not isinstance(j, dict) or j.get("status") is False or \
-                r.status_code >= 400:
+        if not isinstance(j, dict) or j.get("status") is False or r.status_code >= 400:
             code = str(j.get("errorcode", "")) if isinstance(j, dict) else ""
             if code in ("AG8001", "AG8002", "AG8003", "AB1010"):
                 raise AuthError("Angel token rejected: %s" % _err(j))
+            if once and r.status_code < 400 and not isinstance(j, dict):
+                raise BrokerError("ORDER STATUS UNKNOWN (malformed Angel envelope)")
             raise BrokerError("HTTP %d: %s" % (r.status_code, _err(j)))
-        return j.get("data")
+        # Empty is known only after an explicit successful envelope. Missing
+        # status/data or contradictory error fields are not an empty portfolio.
+        if j.get("status") is not True or "data" not in j or j.get("errorcode") not in (None, "", 0, "0"):
+            prefix = "ORDER STATUS UNKNOWN" if once else "Invalid Angel response"
+            raise BrokerError("%s (success/status/data/errorcode unverified)" % prefix)
+        data = j["data"]
+        empty_paths = {"/rest/secure/angelbroking/order/v1/getPosition",
+                       "/rest/secure/angelbroking/order/v1/getOrderBook"}
+        if data is None and method == "GET" and path in empty_paths:
+            return []
+        return data
     if not isinstance(j, dict) or j.get("status") == "error" or \
             r.status_code >= 400:
         if isinstance(j, dict) and j.get("error_type") == "TokenException":
@@ -902,7 +913,7 @@ def holdings(sess):
     if sess.broker in ("DHAN", "ANGEL"):
         path = "/positions" if sess.broker == "DHAN" else "/rest/secure/angelbroking/order/v1/getPosition"
         positions = _call(sess, "GET", path)
-        if positions is None:  # Angel: status true + "data": null = no open
+        if sess.broker == "ANGEL" and positions is None:  # only Angel empty positions
             positions = []     # positions (an error raises inside _call)
         if not isinstance(positions, list):
             raise BrokerError("positions unavailable; MTF/holding exposure unknown")

@@ -636,6 +636,11 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   v20 (RB's Mac 6 Oct: rbport stopped "Angel One error: positions unavailable; MTF/holding exposure unknown"): Angel
   answers status true + "data": null when NOTHING is open -> getPosition null and getOrderBook null now = empty list
   (holdings null still fails closed = Codex's rule). tests/test_execution_safety.py +2 (run_offline 246).
+  v21 (Codex review of v20, zip from RB, applied as-is after SHA check): Angel envelope must be status True (bool) +
+  'data' key + empty errorcode, else 'Invalid Angel response' (orders: ORDER STATUS UNKNOWN); data null -> [] ONLY for
+  GET getPosition / getOrderBook; Dhan null positions = error again. tests/test_angel_response_envelopes.py 14.
+  run_offline here 260 (Mac without pycel = 257: planner 26 not 29 -- same reason Codex counted 243 vs our 246).
+  If a real Angel reply ever lacks 'data' or sends status as a string, rb now stops with 'Invalid Angel response'.
   RE-RUN ON THE FIXED ENGINE (6 Oct, strategy_tester, post-tax 2013-19 / 2020-26 / FULL / DD / Rs 2L ->): LIVE 15.8 /
   28.2 / 23.6 / -34 / 36.6 L (halves moved ~1-2 pts, FULL same); target +25% 10.8 / 20.1 / 15.1 / -30 / 13.9 L (still
   rejected); daily top5 (NAV/5) SL 10% 15.5 / 28.6 / 21.8 / -56 / 30.1 L (OLD engine said 8.0 / 22.0 / 14.4 -> the
