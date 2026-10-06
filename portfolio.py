@@ -384,7 +384,12 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
                                       e[4] if e[4] is not None else 1e9))
     ex = ex[0] if ex else (rec, "", "-", "-", None)
     fl = (filings or {}).get(s) or []
+    prev = float(c.iloc[-2]) if len(c) > 1 else None
+    day = c.index[-1].date()
     base.update({
+        "Aaj %": round((px_now / prev - 1) * 100, 2) if prev else None,
+        "Aaj (Rs)": round((px_now - prev) * pos["qty"]) if prev else None,
+        "_day": day,
         "Kyun": ex[1], "Exit level": ex[2], "Exit se door": ex[3],
         "_door": ex[4], "_legv": legv,
         "Headline": ("!! " + fl[0][2]) if fl and fl[0][3] else
@@ -419,7 +424,7 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
 
 # ================================================================== excel
 HCOLS = ["Recommendation", "Mode", "Symbol", "Qty", "Entry", "LTP", "P&L %",
-         "Value (Rs)", "Basis", "Why", "Stage", "40w MA", "vs 40w %", "30w MA",
+         "Aaj %", "Aaj (Rs)", "Value (Rs)", "Basis", "Why", "Stage", "40w MA", "vs 40w %", "30w MA",
          "50 DMA", "RSI 14", "From 52w High %", "ATR %", "6m Ret %",
          "12m Ret %", "Mom Rank", "W+TT today", "P/E", "ROCE %", "ROE %", "D/E",
          "Qtr Profit YoY %", "Qtr Sales YoY %", "Fund (swing)", "Fund (invest)",
@@ -473,12 +478,12 @@ ACT_COL = {"EXIT": ("C00000", "FFFFFF"), "SELL": ("C00000", "FFFFFF"),
            "HOLD": ("1E7B34", "FFFFFF"), "KEEP": ("1E7B34", "FFFFFF"),
            "STRONG": ("1E7B34", "FFFFFF"), "NO DATA": ("7F7F7F", "FFFFFF"),
            "SIP": ("2E75B6", "FFFFFF")}
-MONEY = ("Value (Rs)", "Amount (Rs)", "Gross", "Gross P&L", "Dividend", "Fees",
+MONEY = ("Value (Rs)", "Aaj (Rs)", "Amount (Rs)", "Gross", "Gross P&L", "Dividend", "Fees",
          "Fees (buy)", "NET", "NET (tax se pehle)", "Ab tak kul NET",
          "Tax (andaaza)", "Unrealised", "Agar aaj becho: NET")
 PRICE = ("Entry", "LTP", "Buy", "Sell", "40w MA", "30w MA", "50 DMA",
          "Added @")
-SIGNED = ("P&L %", "Net %", "vs 40w %", "Promoter Δ", "FII Δ", "DII Δ",
+SIGNED = ("P&L %", "Aaj %", "Net %", "vs 40w %", "Promoter Δ", "FII Δ", "DII Δ",
           "Nifty same period %", "Nifty same mahina %") + MONEY
 # Watchlist: fewer, clearer columns (header shown -> data key)
 WCOLS = [("Mom Rank", "Mom Rank"), ("Symbol", "Symbol"),
@@ -643,8 +648,10 @@ def read_sell_table(path):
                 r, k = c.row, c.column
                 cap = str(ws.cell(row=r, column=k + 1).value or "")
                 m = re.search(r"held (\d+), (\w+)", cap)
-                out.append({"Symbol": str(ws.cell(row=r - 9, column=k).value
-                                          or "").upper().strip(),
+                sym = ws.cell(row=r - 10, column=k).value
+                if not sym or str(sym).startswith("Sell?"):
+                    sym = ws.cell(row=r - 9, column=k).value  # 1st v11 files
+                out.append({"Symbol": str(sym or "").upper().strip(),
                             "Product": "MTF" if m and m.group(2).upper() ==
                             "MTF" else "CNC",
                             "Sell?": _pick_sell(ws.cell(row=r + 1,
@@ -765,6 +772,15 @@ def sell_rows(hold, sp, demat, trading, picks, today):
 def cut(t, n):
     t = " ".join(str(t).split())
     return t if len(t) <= n else t[:n - 1].rstrip() + "…"
+
+
+def day_txt(h):
+    """'+1.24%  (+Rs 345)' -- today's move x qty (or the last session's)."""
+    p, r = h.get("Aaj %"), h.get("Aaj (Rs)")
+    if p is None:
+        return "-"
+    return "%+.2f%%  (%sRs %s)" % (p, "+" if (r or 0) >= 0 else "-",
+                                   format(int(abs(r or 0)), ","))
 
 
 def short_why(t):
@@ -932,6 +948,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         return (val - cost, (val / cost - 1) * 100 if cost else 0) \
             if rows else None
     lp, pp = pnl("LIVE"), pnl("PAPER")
+    _a = sum(h.get("Aaj (Rs)") or 0 for h in own if h["Mode"] == "LIVE")
+    aaj_txt = "%sRs %s" % ("+" if _a >= 0 else "-", format(int(abs(_a)), ","))
     txt = lambda p: "-" if p is None else "%s%s (%+.1f%%)" % (      # noqa
         "+" if p[0] >= 0 else "-", format(int(abs(p[0])), ","), p[1])
     names = lambda xs: ", ".join(xs[:8]) + (" +%d" % (len(xs) - 8)   # noqa
@@ -945,7 +963,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
          names(flags)),
         ("P&L (LIVE)", txt(lp), "1E7B34" if lp and lp[0] > 0 else
          "C00000" if lp and lp[0] < 0 else "1F1F1F",
-         "paper %s" % txt(pp) if pp else "")], width=W)
+         "aaj %s%s" % (aaj_txt, "  |  paper %s" % txt(pp) if pp else ""))],
+        width=W)
 
     sell_by = {}                       # symbol -> sell row (defaults)
     for x in sells or []:
@@ -980,6 +999,9 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         b.font = Font(color=GREY_TXT)
         b.alignment = Alignment(horizontal="right", vertical="center")
         lines = [
+            ("Aaj" if h.get("_day") == ds.now_ist().date() else
+             "Last session %s" % (h["_day"].strftime("%d %b")
+                                  if h.get("_day") else ""), day_txt(h)),
             ("Kyun", short_why(h.get("Kyun") or h.get("Why", ""))),
             ("Exit se door", h.get("Exit se door", "-")),
             ("Exit level", h.get("Exit level", "-")),
@@ -1005,10 +1027,13 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                                                      color="C00000")
             if lab == "News / filing" and str(val).startswith("!!"):
                 b.font = Font(bold=True, color="C00000")
+            if n == 2 and h.get("Aaj (Rs)"):        # today's gain / loss
+                b.font = Font(bold=True, color="1E7B34" if h["Aaj (Rs)"] > 0
+                              else "C00000")
         x = sell_by.get(h["Symbol"]) if h.get("Mode") == "LIVE" else None
         if x:                          # 6 Oct (RB): sell from the card
-            a = ws.cell(row=r0 + 9, column=c0, value=SELL_CAP)
-            b = ws.cell(row=r0 + 9, column=c0 + 1, value="Sell qty  (held %d, "
+            a = ws.cell(row=r0 + 10, column=c0, value=SELL_CAP)
+            b = ws.cell(row=r0 + 10, column=c0 + 1, value="Sell qty  (held %d, "
                         "%s)" % (x.get("Held qty") or 0, x["Product"]))
             for c in (a, b):
                 c.font = Font(size=9, bold=True, color="C00000" if str(
@@ -1016,18 +1041,18 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                                                          "SELL")
                     else GREY_TXT)
             b.alignment = Alignment(horizontal="right")
-            a = ws.cell(row=r0 + 10, column=c0, value=x.get("Sell?") or None)
-            b = ws.cell(row=r0 + 10, column=c0 + 1, value=x.get("Qty"))
+            a = ws.cell(row=r0 + 11, column=c0, value=x.get("Sell?") or None)
+            b = ws.cell(row=r0 + 11, column=c0 + 1, value=x.get("Qty"))
             for c in (a, b):
                 c.fill = fill("FFF2CC")
                 c.font = Font(bold=True, size=12, color="C00000")
             b.alignment = Alignment(horizontal="right")
             dv_s.add(a.coordinate)
             dv_q.add(b.coordinate)
-        for rr in range(r0, r0 + (11 if x else 9)):
+        for rr in range(r0, r0 + (12 if x else 10)):
             for cc in (c0, c0 + 1):
                 ws.cell(row=rr, column=cc).border = box
-        return 11
+        return 12
 
     row = 7
     for mode, label in (("LIVE", "LIVE (demat, asli paisa)"),
@@ -1047,13 +1072,13 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
             for k, h in enumerate(rows[n:n + PER]):
                 card(row, 1 + k * W, h)
             chunk = rows[n:n + PER]                   # Kyun / News: fit text
-            for rr, key in ((row + 2, "Kyun"), (row + 8, "News / filing")):
+            for rr, key in ((row + 3, "Kyun"), (row + 9, "News / filing")):
                 txts = [short_why(h.get("Kyun") or h.get("Why", ""))
                         if key == "Kyun" else cut(h.get("Headline") or "-",
                                                   115) for h in chunk]
                 nl = max(math.ceil(len(t) / (CW + 2)) for t in txts)
                 ws.row_dimensions[rr].height = max(18, 15 * min(nl, 4) + 4)
-            row += 12
+            row += 13
     if not own:
         ws.cell(row=6, column=1, value="Koi holding nahi (demat khaali, koi "
                 "SIP / trade abhi).").font = Font(size=12, italic=True)
@@ -1447,12 +1472,14 @@ def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
         val = sum(h.get("Value (Rs)") or 0 for h in rows)
         cost = sum((h.get("Entry") or 0) * h["Qty"] for h in rows
                    if h.get("Value (Rs)"))
+        aaj = sum(h.get("Aaj (Rs)") or 0 for h in rows)
         money.append(("%s holdings" % m, "%d stock(s) | value ~Rs %s | cost "
-                      "~Rs %s | P&L %s" % (
+                      "~Rs %s | P&L %s | aaj %sRs %s" % (
                           len(rows), format(int(val), ","),
                           format(int(cost), ","),
                           "%+.1f%%" % ((val / cost - 1) * 100) if cost
-                          else "n/a")))
+                          else "n/a", "+" if aaj >= 0 else "-",
+                          format(int(abs(aaj)), ","))))
     own = [h for h in hold if h["Mode"] != "WATCH"]
     sell = [h["Symbol"] + " (%s %s)" % (h["Mode"], h["Recommendation"])
             for h in own if h["Recommendation"] in
@@ -1713,19 +1740,24 @@ def main():
     print(" PORTFOLIO %s | master scan %s" % (acc.label,
                                               os.path.basename(master)))
     print(" prices: %s" % note)
+    aaj = sum(h.get("Aaj (Rs)") or 0 for h in live_rows)
     if val:
-        print(" LIVE value ~Rs %s | cost ~Rs %s | P&L %+.1f%%"
-              % (format(int(val), ","), format(int(cost), ","),
-                 (val / cost - 1) * 100 if cost else 0))
+        print(" LIVE value ~Rs %s | cost ~Rs %s | P&L %+.1f%% | aaj %sRs %s "
+              "(%+.2f%%)" % (format(int(val), ","), format(int(cost), ","),
+                             (val / cost - 1) * 100 if cost else 0,
+                             "+" if aaj >= 0 else "-",
+                             format(int(abs(aaj)), ","),
+                             aaj / (val - aaj) * 100 if val - aaj else 0))
     print("=" * 78)
     watch_rows = sorted([h for h in hold if h["Mode"] == "WATCH"],
                         key=lambda h: h.get("Mom Rank") if h.get("Mom Rank")
                         is not None else 10 ** 6)
     for h in [h for h in hold if h["Mode"] != "WATCH"]:
-        print("\n %-10s %-5s %-12s qty %-6g P&L %s  %s | RSI %s | rank %s | "
-              "W+TT %s" % (h["Recommendation"], h["Mode"], h["Symbol"],
-                           h["Qty"], "%+.1f%%" % h["P&L %"]
-                           if h.get("P&L %") is not None else "  n/a",
+        print("\n %-10s %-5s %-12s qty %-6g P&L %s  aaj %s  %s | RSI %s | "
+              "rank %s | W+TT %s" % (h["Recommendation"], h["Mode"],
+                                     h["Symbol"], h["Qty"], "%+.1f%%" %
+                                     h["P&L %"] if h.get("P&L %") is not None
+                                     else "  n/a", day_txt(h),
                            h.get("Stage", ""), h.get("RSI 14", "-"),
                            h.get("Mom Rank") if h.get("Mom Rank") is not None
                            else "-", h.get("W+TT today", "-")))

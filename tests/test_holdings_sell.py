@@ -28,7 +28,9 @@ def check(name, cond, detail=""):
 def holding(sym, rec, qty, legv=None):
     return {"Symbol": sym, "Mode": "LIVE", "Recommendation": rec, "Qty": qty,
             "Entry": 100.0, "Value (Rs)": 90.0 * qty, "P&L %": -10.0,
-            "_door": 8.0, "_legv": legv or {}, "Kyun": "test", "Why": "test"}
+            "_door": 8.0, "_legv": legv or {}, "Kyun": "test", "Why": "test",
+            "Aaj %": -1.5, "Aaj (Rs)": -135 * qty // 10,
+            "_day": pd.Timestamp("2026-10-05").date()}
 
 
 def main():
@@ -89,7 +91,7 @@ def main():
     check("read back: AAA SELL 6, BBB blank 40", got["AAA"]["Sell?"] ==
           "SELL" and got["AAA"]["Qty"] == 6 and got["BBB"]["Sell?"] == ""
           and got["BBB"]["Held qty"] == 40, got)
-    r, c = [rc for rc in caps if ws.cell(row=rc[0] - 9, column=rc[1]).value
+    r, c = [rc for rc in caps if ws.cell(row=rc[0] - 10, column=rc[1]).value
             == "BBB"][0]
     ws.cell(row=r + 1, column=c, value="sell")      # you pick it, lower case
     ws.cell(row=r + 1, column=c + 1, value=12)
@@ -102,6 +104,21 @@ def main():
     wb.save(path)
     s = {x["symbol"]: x for x in at.read_sells(path)}
     check("blank qty = all held (40)", s["BBB"]["qty"] == 40, s)
+
+    print("2b) today's gain / loss on the card")
+    txt = [ws.cell(row=rc[0] - 8, column=rc[1] + 1).value for rc in caps]
+    lab = [ws.cell(row=rc[0] - 8, column=rc[1]).value for rc in caps]
+    check("card line: -1.50%  (-Rs 135) for AAA (qty 10)",
+          "-1.50%  (-Rs 135)" in txt, txt)
+    check("label says the session date when it is not today",
+          all(str(x).startswith("Last session 05 Oct") for x in lab), lab)
+    check("day_txt +/- and no data", pf.day_txt({"Aaj %": 2.0,
+                                                 "Aaj (Rs)": 1234}) ==
+          "+2.00%  (+Rs 1,234)" and pf.day_txt({}) == "-")
+    wt = wb["Holdings_Table"]
+    heads = [c.value for c in wt[1]]
+    check("Holdings_Table has Aaj % + Aaj (Rs)", "Aaj %" in heads and
+          "Aaj (Rs)" in heads, heads)
 
     print("3) old file with a Sell sheet still works")
     old = os.path.join(d, "old.xlsx")
