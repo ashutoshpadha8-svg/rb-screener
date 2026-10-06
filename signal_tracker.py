@@ -46,6 +46,7 @@ OUT = os.path.join(ds.DATA, "signal_tracker_latest.csv")
 REPORTS = os.path.join(ds.HERE, "reports")
 SHEET = "Signal_Tracker"
 SUMMARY_SHEET = "Signal_Summary"
+PICKS_SHEET = "All_Picks"
 MOM_GAP_DAYS = 20          # out of the top 20 longer than this = new find
 TOO_EARLY = 30             # calendar days
 STOP = 0.20
@@ -204,6 +205,90 @@ def build_log(files):
     log.to_csv(tmp, index=False)
     os.replace(tmp, LOG)
     return log
+
+
+# ================================================================ All_Picks
+def _sheet(path, name):
+    try:
+        d = pd.read_excel(path, sheet_name=name)
+        d["Symbol"] = [str(x).strip().upper() if x == x and x is not None
+                       else "" for x in d["Symbol"]]
+        d = d[d["Symbol"].map(lambda x: bool(SYM_OK.match(str(x))))]
+        if "Mom Rank" in d:
+            return d[pd.to_numeric(d["Mom Rank"], errors="coerce").notna()]
+        return d[[str(x).strip().upper() in ("BUY", "FIT", "LATE")
+                  for x in d["Action"]]]
+    except Exception:
+        return pd.DataFrame(columns=["Symbol"])
+
+
+def all_picks(path, log, today):
+    """6 Oct 2026 (RB: "momentum, swing, investing ek he sheet per + har
+    stock ki age"): today's Momentum top 20 + Swing + Investing as ONE row
+    per stock. Age = calendar days since the stock was first found in this
+    stretch: W+TT = its signal date, momentum = first scan of the current
+    top-20 stretch (signals_log.csv); in both lists = the older one."""
+    sw, iv, mo = (_sheet(path, n) for n in ("Swing", "Investing",
+                                             "Momentum_Top20"))
+    syms = list(mo["Symbol"]) if "Mom Rank" in mo else []
+    for d in (sw, iv):
+        syms += [x for x in d["Symbol"] if x not in syms]
+    if not syms:
+        return pd.DataFrame()
+    mlog = log[log.source == "MOMENTUM"] if len(log) else log
+    t0 = pd.Timestamp(today)
+    first_scan = min(log["first_found"]) if len(log) else ""
+    row_of = lambda d, s: d[d["Symbol"] == s].iloc[0] \
+        if s in set(d["Symbol"]) else None                          # noqa
+    out = []
+    for s in syms:
+        m, w, i = row_of(mo, s), row_of(sw, s), row_of(iv, s)
+        cands = []                      # (date, price then, what)
+        if m is not None:
+            g = mlog[mlog.symbol == s].sort_values("first_found")
+            if len(g):
+                r = g.iloc[-1]
+                cands.append((r.first_found, _num(r.price_found), "MOM"))
+            else:
+                cands.append((today, _num(m.get("LTP")), "MOM"))
+        for x in (w, i):
+            if x is not None:
+                sd = str(x.get("Signal Date", ""))[:10]
+                if re.match(r"\d{4}-\d{2}-\d{2}$", sd):
+                    cands.append((sd, _num(x.get("Signal Price")), "W+TT"))
+        cands.sort(key=lambda c: c[0])
+        found, p0, what = cands[0] if cands else (today, None, "")
+        now = None
+        for x, k in ((m, "LTP"), (w, "Price"), (i, "Price")):
+            if x is not None and now is None:
+                now = _num(x.get(k))
+        lists = []
+        if m is not None:
+            lists.append("MOM #%d" % int(_num(m.get("Mom Rank")) or 0))
+        if w is not None:
+            lists.append("SWING " + str(w.get("Action", "")).upper())
+        if i is not None:
+            lists.append("INV " + str(i.get("Action", "")).upper())
+        wtt = w if w is not None else i
+        age = max(0, (t0 - pd.Timestamp(found)).days)
+        out.append({
+            "Symbol": s, "Age": age_label(age), "Age (din)": age,
+            "Pehli baar mila": found,
+            "Kahan se": " + ".join(lists),
+            "Super-Buy": "YES" if m is not None and wtt is not None and
+            str(wtt.get("Action", "")).upper() != "LATE" else "",
+            "Mom Rank": _num(m.get("Mom Rank")) if m is not None else None,
+            "Swing": str(w.get("Action", "")).upper() if w is not None
+            else "",
+            "Investing": str(i.get("Action", "")).upper() if i is not None
+            else "",
+            "RS Rank": _num((wtt if wtt is not None else m).get("RS Rank")),
+            "Price then": p0, "Price now": now,
+            "Since found %": 100 * (now / p0 - 1) if now and p0 else None,
+            "Age from": "signal date (W+TT)" if what == "W+TT" else
+            ("first scan in top 20" + (" (scans start %s)" % first_scan
+                                       if found == first_scan else ""))})
+    return pd.DataFrame(out)
 
 
 # ================================================================== prices
@@ -378,7 +463,7 @@ TODAY_CELL = "A9D08E"          # the days cell of today's finds: a bit stronger
 OLD_FILLS = ("C6EFCE", "EDEDED")   # screener's old BUY green / tracker grey
 DAY_COLS = {"Swing": "Days Since Signal", "Investing": "Days Since Signal",
             "Momentum_Top20": "Days in Top 20",
-            SHEET: "Days since found"}
+            SHEET: "Days since found", PICKS_SHEET: "Age (din)"}
 
 
 def _rgb(cell):
@@ -433,14 +518,14 @@ def paint_ages(wb):
             r += 1
 
 
-def write_sheet(path, summ, t, note, today):
+def write_sheet(path, summ, t, note, today, picks=None):
     """Two tabs: Signal_Tracker = every find (header + Symbol frozen, filter
     on, so sorting always moves whole rows); Signal_Summary = the groups."""
     from openpyxl import load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter as L
     wb = load_workbook(path)
-    for n in (SHEET, SUMMARY_SHEET):
+    for n in (SHEET, SUMMARY_SHEET, PICKS_SHEET):
         if n in wb.sheetnames:
             del wb[n]
     head = Font(bold=True, color="FFFFFF")
@@ -494,6 +579,33 @@ def write_sheet(path, summ, t, note, today):
     ws.freeze_panes = "C4"           # header row + Symbol + Age always seen
     if len(t):
         ws.auto_filter.ref = "A3:%s%d" % (L(len(t.columns)), last)
+
+    if picks is not None and len(picks):     # ONE list: mom + swing + inv
+        wp = wb.create_sheet(PICKS_SHEET, 0)
+        wp.cell(row=1, column=1, value="ALL PICKS | %s | Momentum top 20 + "
+                "Swing + Investing, ek row per stock" % today).font = \
+            Font(bold=True, size=13)
+        wp.cell(row=2, column=1, value=(
+            "Age = kitne din pehle mila: W+TT = signal date, momentum = top 20 "
+            "mein pehla scan (scans 26 Sep 2026 se, usse pehle ka pata nahi). "
+            "Rang: green = aaj, blue = 1-5 din, beige = 6-29 din (judge karne "
+            "ke liye jaldi), white = 30+ din. Super-Buy = momentum top 20 + "
+            "W+TT dono. Detail: Swing / Investing / Momentum_Top20 tabs. "
+            "Info only -- koi order nahi.")).font = Font(italic=True, size=10)
+        last = table(wp, picks, 3, {"Symbol": 14, "Age": 10, "Kahan se": 30,
+                                    "Pehli baar mila": 12, "Age from": 30})
+        wp.freeze_panes = "C4"
+        wp.auto_filter.ref = "A3:%s%d" % (L(len(picks.columns)), last)
+        try:
+            import momentum_focus as mf
+            top5 = mf.symbols(mf.load()[0])
+            for r in range(4, last + 1):
+                c = wp.cell(row=r, column=1)
+                if c.value in top5:
+                    c.fill = PatternFill("solid", fgColor=mf.GOLD_FILL)
+                    c.font = Font(bold=True, color=mf.GOLD_TEXT)
+        except Exception:
+            pass
 
     wsum = wb.create_sheet(SUMMARY_SHEET)
     wsum.cell(row=1, column=1, value="SIGNAL SUMMARY | %s | every stock: tab "
@@ -570,7 +682,12 @@ def main():
     t.to_csv(OUT, index=False)
     latest = list(files.values())[-1]
     try:
-        write_sheet(latest, summ, t, note, today)
+        picks = all_picks(latest, log, today)
+    except Exception as e:
+        print("  ! All_Picks skipped (%s)" % type(e).__name__)
+        picks = None
+    try:
+        write_sheet(latest, summ, t, note, today, picks)
         print("  sheet '%s' written into %s" % (SHEET, os.path.basename(latest)))
         try:                        # fresh copy in Google Drive (Sheets)
             import drive_copy

@@ -576,6 +576,14 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   (or DD Mon) +-Rs (%)', 'Invested Rs|Current Rs', then Kyun / Exit se door / Exit level / Stage-RSI / Rank-W+TT /
   News; Sell caption r0+11 = 'SYM sell qty (held N, CNC)' (reader takes the symbol from it; older cards r-10 / r-9),
   inputs r0+12, step 14. Rs shown as the rupee sign on cards + boxes. tests/test_holdings_sell.py 23.
+  6 Oct (RB: "momentum, swing, investing ek he sheet per + har stock ki age"): ALL_PICKS = first tab of the master
+  (signal_tracker.all_picks + write_sheet, copied into Portfolio via SCAN_SHEETS, before Swing): one row per stock of
+  today's Momentum_Top20 + Swing + Investing (momentum rank order, then W+TT). Cols Symbol, Age (label), Age (din),
+  Pehli baar mila, Kahan se ('MOM #2 + SWING FIT + INV FIT'), Super-Buy, Mom Rank, Swing, Investing, RS Rank,
+  Price then, Price now, Since found %, Age from. Age = OLDER of W+TT signal date and the first scan of the current
+  top-20 stretch (signals_log.csv); first scan date flagged 'scans start' (nothing known before 26 Sep). Same age
+  colours (paint_ages), gold top 5, filter, freeze C4, cap columns appended. Old tabs unchanged. rb_scan re-runs the
+  tracker once if today's master lacks All_Picks. tests/test_all_picks.py 14.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);

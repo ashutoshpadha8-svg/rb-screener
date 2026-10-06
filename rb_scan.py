@@ -10,6 +10,7 @@ one file a day, reports/RB_Screener_YYYY-MM-DD.xlsx, with the sheets
   Strategy_Comparison
   Fundamentals + columns    fundamentals.py     (Screener.in, info only)
   Signal_Tracker            signal_tracker.py   (every earlier find: how it did)
+  All_Picks                 signal_tracker.py   (momentum + swing + investing, one list + age)
 
 Runs the three steps in order (each only if the previous one worked).
 Already scanned today -> it does NOT scan again, except:
@@ -60,7 +61,8 @@ def has_tracker(path):
     try:
         from openpyxl import load_workbook
         names = load_workbook(path, read_only=True).sheetnames
-        return "Signal_Tracker" in names and "Signal_Summary" in names
+        return all(n in names for n in ("Signal_Tracker", "Signal_Summary",
+                                         "All_Picks"))
     except Exception:
         return False
 

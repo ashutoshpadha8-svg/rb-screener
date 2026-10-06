@@ -441,7 +441,7 @@ REC_FILL = {"EXIT": "F8CBAD", "SELL": "F8CBAD", "SELL@REBAL": "FCE4D6",
             "AVOID": "F8CBAD", "SIP": "DDEBF7"}
 
 
-SCAN_SHEETS = ["Swing", "Investing", "Momentum_Top20", "Fundamentals",
+SCAN_SHEETS = ["All_Picks", "Swing", "Investing", "Momentum_Top20", "Fundamentals",
                "Signal_Summary", "Signal_Tracker"]
 SHEET_INFO = [
     ("Dashboard", "this page: summary + what to do today"),
@@ -461,6 +461,8 @@ SHEET_INFO = [
     ("Rebalance", "momentum SELL / BUY / HOLD (1st trading day of the month)"),
     ("Watchlist", "your WATCH stocks, best momentum rank first"),
     ("Holdings_Table", "the same holdings as one sortable table, all columns"),
+    ("All_Picks", "master scan: momentum top 20 + Swing + Investing in ONE "
+                  "list, with each stock's AGE (kab mila, kitne din)"),
     ("Swing", "master scan: W+TT signals (BUY / FIT / LATE) + fundamentals"),
     ("Investing", "master scan: same signals, Stage-4 exit"),
     ("Momentum_Top20", "master scan: RAMOM top 20 (sector cap 4)"),
@@ -1919,7 +1921,7 @@ def main():
         print("  ! Telegram alert skipped (%s)" % type(e).__name__)
     print("\nExcel (the ONE file to open): %s" % path)
     print("  Dashboard | Buy_Planner | Holdings | Sell | Journal | SIP | Super-Buy | Rebalance | "
-          "Watchlist | Holdings_Table | Swing | Investing | Momentum_Top20 | "
+          "Watchlist | Holdings_Table | All_Picks | Swing | Investing | Momentum_Top20 | "
           "Fundamentals | Signal_Summary | Signal_Tracker")
     if drive_copy:
         drive_copy.push(path)
