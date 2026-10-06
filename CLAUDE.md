@@ -584,6 +584,13 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   top-20 stretch (signals_log.csv); first scan date flagged 'scans start' (nothing known before 26 Sep). Same age
   colours (paint_ages), gold top 5, filter, freeze C4, cap columns appended. Old tabs unchanged. rb_scan re-runs the
   tracker once if today's master lacks All_Picks. tests/test_all_picks.py 14.
+  PROFIT TARGET STUDY (6 Oct, RB: "sirf momentum capture, max 25-30%"; profit_target_study.py, pre-registered;
+  run_rank(target=) = sell when the day's HIGH touches entry x (1+t), cash waits for the next rebalance). Live setup
+  (cap mix + sector cap) post-tax 2013-19 / 2020-26 / FULL / DD / trades/yr / Rs 2L ->: C live 14.7 / 30.4 / 23.6 /
+  -35.2 / 56 / 36.6 L; A +25% 10.4 / 21.5 / 15.8 / -30.3 / 94 / 15.0 L; B +30% 12.1 / 20.7 / 16.1 / -31.1 / 87 / 15.6 L.
+  -> targets WORSE in both halves (-4 to -9 pts/yr), DD only ~4-5 pts better -> REJECTED. Hit rates (top 20 monthly
+  picks 2013-26): touch +25% within 6m ~43% (rank 1 59%, 157 picks), -20% first ~30%; Mid 52% vs Large 38% (both
+  halves), Small 54% but 46% hit -20% first; median ~2 months to +25%.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);
