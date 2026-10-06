@@ -568,6 +568,8 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   Rs 1,163, entry 21.97 = -90% is REAL), IRFC 80.26, IRCON 102.47 -> correct. Day change now uses the last bar of a
   strictly EARLIER date (two bars for today -> was 0.00%); LIVE/PAPER band on Holdings shows 'AAJ +/-Rs X (y%)'.
   tests/test_holdings_sell.py 19.
+  6 Oct (RB: "1,163 invested hai kya?"): card row 2 = 'Lagaya Rs <entry x qty> -> Ab Rs <value>' (mode is on the band),
+  line 'Qty: buy -> aaj' = 'N sh @ entry -> LTP'; Holdings_Table + 'Invested (Rs)'. tests/test_holdings_sell.py 21.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);

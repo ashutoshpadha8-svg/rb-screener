@@ -401,6 +401,8 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
         "P&L %": round((t["px"] / pos["entry"] - 1) * 100, 1)
         if pos["entry"] else None,
         "Value (Rs)": round(t["px"] * pos["qty"]),
+        "Invested (Rs)": round(pos["entry"] * pos["qty"]) if pos["entry"]
+        else None,
         "Stage": t["stage"], "40w MA": round(t["ma200"], 1),
         "vs 40w %": round((t["px"] / t["ma200"] - 1) * 100, 1),
         "30w MA": round(t["ma150"], 1), "50 DMA": round(t["ma50"], 1),
@@ -425,7 +427,7 @@ def analyse(pos, closes, lows, highs, prov, ranks, wtt, fund, news,
 
 # ================================================================== excel
 HCOLS = ["Recommendation", "Mode", "Symbol", "Qty", "Entry", "LTP", "P&L %",
-         "Aaj %", "Aaj (Rs)", "Value (Rs)", "Basis", "Why", "Stage", "40w MA", "vs 40w %", "30w MA",
+         "Aaj %", "Aaj (Rs)", "Invested (Rs)", "Value (Rs)", "Basis", "Why", "Stage", "40w MA", "vs 40w %", "30w MA",
          "50 DMA", "RSI 14", "From 52w High %", "ATR %", "6m Ret %",
          "12m Ret %", "Mom Rank", "W+TT today", "P/E", "ROCE %", "ROE %", "D/E",
          "Qtr Profit YoY %", "Qtr Sales YoY %", "Fund (swing)", "Fund (invest)",
@@ -479,7 +481,7 @@ ACT_COL = {"EXIT": ("C00000", "FFFFFF"), "SELL": ("C00000", "FFFFFF"),
            "HOLD": ("1E7B34", "FFFFFF"), "KEEP": ("1E7B34", "FFFFFF"),
            "STRONG": ("1E7B34", "FFFFFF"), "NO DATA": ("7F7F7F", "FFFFFF"),
            "SIP": ("2E75B6", "FFFFFF")}
-MONEY = ("Value (Rs)", "Aaj (Rs)", "Amount (Rs)", "Gross", "Gross P&L", "Dividend", "Fees",
+MONEY = ("Value (Rs)", "Invested (Rs)", "Aaj (Rs)", "Amount (Rs)", "Gross", "Gross P&L", "Dividend", "Fees",
          "Fees (buy)", "NET", "NET (tax se pehle)", "Ab tak kul NET",
          "Tax (andaaza)", "Unrealised", "Agar aaj becho: NET")
 PRICE = ("Entry", "LTP", "Buy", "Sell", "40w MA", "30w MA", "50 DMA",
@@ -995,8 +997,10 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         a.font = Font(bold=True, size=18, color="1E7B34" if (p or 0) > 0
                       else "C00000" if (p or 0) < 0 else "1F1F1F")
         v = clean(h.get("Value (Rs)"))
-        b = ws.cell(row=r0 + 1, column=c0 + 1, value="Rs %s  |  %s" % (
-            format(int(v), ",") if v else "-", h["Mode"]))
+        inv = (h.get("Entry") or 0) * (h.get("Qty") or 0)
+        b = ws.cell(row=r0 + 1, column=c0 + 1, value="Lagaya Rs %s -> Ab Rs %s"
+                    % (format(int(inv), ",") if inv else "-",
+                       format(int(v), ",") if v else "-"))
         b.font = Font(color=GREY_TXT)
         b.alignment = Alignment(horizontal="right", vertical="center")
         lines = [
@@ -1006,8 +1010,9 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
             ("Kyun", short_why(h.get("Kyun") or h.get("Why", ""))),
             ("Exit se door", h.get("Exit se door", "-")),
             ("Exit level", h.get("Exit level", "-")),
-            ("Qty @ Entry", "%g @ %s" % (h.get("Qty") or 0, "%.2f" %
-                                         h["Entry"] if h.get("Entry") else "-")),
+            ("Qty: buy -> aaj", "%g sh @ %s -> %s" % (
+                h.get("Qty") or 0, "%.2f" % h["Entry"] if h.get("Entry")
+                else "-", "%.2f" % h["LTP"] if h.get("LTP") else "-")),
             ("Stage / RSI", "%s / %s" % (str(h.get("Stage", "-")).split(" (")[0],
                                          "%.0f" % h["RSI 14"] if h.get(
                                              "RSI 14") is not None else "-")),

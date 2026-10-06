@@ -119,6 +119,10 @@ def main():
     heads = [c.value for c in wt[1]]
     check("Holdings_Table has Aaj % + Aaj (Rs)", "Aaj %" in heads and
           "Aaj (Rs)" in heads, heads)
+    top = [ws.cell(row=rc[0] - 9, column=rc[1] + 1).value for rc in caps]
+    check("card says invested -> value now (AAA 10 x 100 = 1,000 -> 900)",
+          "Lagaya Rs 1,000 -> Ab Rs 900" in top, top)
+    check("Holdings_Table has Invested (Rs)", "Invested (Rs)" in heads)
 
     print("2c) day change uses the last EARLIER day (two bars for today)")
     import numpy as np
