@@ -613,6 +613,31 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   YOURS row (both halves, DD, worst yr, trades, final), verdict 'better in BOTH halves?', appends data/strategy_tests.csv.
   Default = live (23.6% checked). Note: weekly top10 with mix rounding 6/2/2 = 11.2 / 36.8 / 23.1 vs 6/3/1 (top10_study)
   8.9 / 31.2 / 20.0 -> one slot of mix moves results 3-6 pts = noise; still fails 2013-19.
+  CODEX 'FINAL EXECUTION + MTF' MERGED (6 Oct, zip from RB, built on v17; EXECUTION_FIX_REVIEW.md): (A) run_rank engine
+  fixes: intraday stop/target proceeds can no longer fund that day's earlier open buy, entry-day stop/target now
+  checked, opening gaps through target fill at the open, missing open -> exit queued (no prior-close sale), LT losses
+  only offset LT gains; buy_delay locks sale proceeds 1 session; new run_rank args max_positions / exit_freq,
+  tester --max-positions --exit-freq --buy-delay --allocation. tests/test_rank_engine_causality.py 27.
+  (B) execution safety (execution_safety.py): workflow lock (rbtrack/rbport/rbpos), report identity + today's date,
+  ranking manifest (publish_ranks/read_ranks: sha + row count + date) -> portfolio/rbtrack/position_tracker refuse a
+  stale/partial ranking ("run rbscan"); caps >= 10k checked from a <= 5-day NSE cap cache before BUY; cash buffer +
+  batch reservation; LIMIT prices on the broker's tick. order_inputs.quantity = strict whole-number Qty (blank = all
+  for SELL, 0 = skip, text/fraction = error). (C) broker_mtf.py: per-stock broker MTF snapshot for the Buy_Planner
+  shortlist only (cols R/S/T 'MTF x (broker)', 'MTF updated IST', 'MTF status', sheet MTF_Rates); failure = UNKNOWN
+  (never a guessed 4x), 0 or UNKNOWN blocks MTF; re-checked after typed YES MTF. settings.read_dashboard: a missing/
+  invalid switch = OFF (never inherits a saved ON). (D) daily_top5_hold40_study.py (offline research, 0% idle cash,
+  NAV/20, no class quota) + research_results/daily_top5_hold40_2026-10-06 (NAV/20 modeled tax FULL 18.0%, 2013-19
+  8.1%, DD -32; not live). tests/run_offline.py = all groups with sockets blocked: 244 checks (+1 ours below).
+  OUR CHANGE ON TOP: execution_safety.ranking_days() also accepts TODAY's ranking date once the session started
+  (09:15 IST) -- rb in market hours ranks on the live price, so the strict check blocked intraday rbport.
+  AFTER INSTALL: run `python3 rb_scan.py --force` once (old ranking has no .meta.json -> rbport would stop).
+  RE-RUN ON THE FIXED ENGINE (6 Oct, strategy_tester, post-tax 2013-19 / 2020-26 / FULL / DD / Rs 2L ->): LIVE 15.8 /
+  28.2 / 23.6 / -34 / 36.6 L (halves moved ~1-2 pts, FULL same); target +25% 10.8 / 20.1 / 15.1 / -30 / 13.9 L (still
+  rejected); daily top5 (NAV/5) SL 10% 15.5 / 28.6 / 21.8 / -56 / 30.1 L (OLD engine said 8.0 / 22.0 / 14.4 -> the
+  big SL penalty was largely the stop-funds-earlier-open bug); daily top5 no SL 15.8 / 36.0 / 25.9 / -52 / 47.1 L
+  (ties live 2013-19, beats 2020-26, but DD -52 vs -34 and 5 stocks) -> NOT adopted yet, candidate for a proper
+  pre-registered study. The 6 Oct SL/target/daily tables above were run on the OLD engine; rebalance-frequency and
+  top-10 tables had no stops (only the tax/missing-open fixes apply) -> treat their halves as +/- ~2 pts.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);
