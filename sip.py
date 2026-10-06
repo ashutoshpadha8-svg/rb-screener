@@ -84,7 +84,7 @@ def load_log():
 def _num(v):
     try:
         x = float(str(v).replace(",", "").strip())
-        return None if x != x else x
+        return None if not __import__("math").isfinite(x) else x
     except (TypeError, ValueError):
         return None
 
@@ -366,6 +366,9 @@ def plan_orders(items, px, lev_of, today):
         price, src = px[s]
         mtf = p["product"] == "BUY MTF"
         lev, lev_note = lev_of(s, price) if mtf else (1.0, "")
+        if lev is None or mtf and lev <= 1:
+            skip.append("SIP %s (MTF leverage unverified: %s)" % (s, lev_note))
+            continue
         shares = int(math.floor(p["amount_now"] * lev / price))
         if shares < 1:
             skip.append("SIP %s (Rs %g buys 0 shares at %.0f)"

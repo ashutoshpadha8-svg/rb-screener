@@ -260,8 +260,13 @@ def load_ranks(warns):
     if not os.path.exists(RANKS_FILE):
         warns.append("no momentum ranking yet -- run rbscan "
                      "(momentum_screener.py) first")
-        return {}, None
-    d = pd.read_csv(RANKS_FILE)
+        return None, None
+    import execution_safety as safety
+    try:
+        d = safety.read_ranks(RANKS_FILE, safety.ranking_days())
+    except ValueError as error:
+        warns.append(str(error))
+        return None, None
     day = str(d["date"].iloc[0]) if "date" in d and len(d) else None
     if day and (pd.Timestamp(ds.now_ist().date()) - pd.Timestamp(day)).days > 5:
         warns.append("momentum ranking is from %s -- run rbscan for fresh "
@@ -273,6 +278,8 @@ def judge_momentum(sym, c, lo, hi, entry, entry_date, ranks):
     """Backtest rule: hold while rank <= 40, sell at the next monthly
     rebalance (1st trading day) once it drops below. Optional smart stop."""
     px = float(c.iloc[-1])
+    if ranks is None:
+        return "CHECK", "ranking missing/stale/incomplete; no rank SELL signal", px, None, None
     rk = ranks.get(sym)
     stop = None
     if MOMENTUM_SMART_SL and entry > 0:
@@ -333,6 +340,10 @@ def mtf_summary(rows):
 def main():
     import account
     acc = account.activate()
+    import execution_safety as safety
+    if not safety.workflow_lock(acc.data):
+        print("! Another account workflow is running; position update stopped.")
+        return
     if not acc.token_ok:
         print("Token in token.txt expired. Paste a fresh one.")
         sys.exit(1)

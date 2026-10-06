@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 STRATEGY TESTER (6 Oct 2026, RB: "mujhe ek file mein do sab, taaki main khud
-test kar sakoon"). ONE command, your own settings, same honest engine as
+test kar sakoon"). ONE command, your own settings, same research engine as
 all the research (strategy_lab.run_rank): RAMOM momentum rank, >= Rs 10,000
-Cr point-in-time universe + Rs 5 Cr liquidity, whole shares, real Dhan costs
+Cr estimated-cap survivor universe + Rs 5 Cr liquidity, whole shares, real Dhan costs
 + 0.1% slippage, STCG/LTCG tax, idle cash 6%, Rs 2 lakh, 2013-01..2026-09.
 Judged like every study: 2013-19 AND 2020-26 separately. An idea is better
 only if it beats LIVE in BOTH halves.
@@ -29,6 +29,10 @@ Settings (default = LIVE):
   --mix M/L/S      Mid/Large/Small % of slots (60/25/15), 'none' = rank only
   --sector-cap C   max stocks per industry (4), 0 = off
   --capital RS     start money (200000)
+  --max-positions N  optional holding ceiling; 0 = cash-only additions
+  --exit-freq D|W|M  optional separate rank-exit check frequency
+  --buy-delay N    lock sale proceeds for N sessions before new buys
+  --allocation nav|fixed  NAV/slots or initial capital/slots budgeting
   --no-live        skip the LIVE comparison row (faster)
 Every result is also appended to data/strategy_tests.csv. No orders, ever.
 """
@@ -72,6 +76,9 @@ def describe(a):
             s += ", " + lab % getattr(a, k)
     s += ", mix " + a.mix + (", sector cap %d" % a.sector_cap
                              if a.sector_cap else ", no sector cap")
+    s += ", max positions %s, exit %s, delay %d, sizing %s" % (
+        getattr(a,"max_positions",None),getattr(a,"exit_freq",None) or a.freq,
+        getattr(a,"buy_delay",0),getattr(a,"allocation","nav"))
     return s
 
 
@@ -84,7 +91,10 @@ def run(P, S, sector, cls, a, label):
               buy_within=a.buy_top or None,
               stop_pct=a.sl / 100.0 if a.sl else None,
               trail_pct=a.trail / 100.0 if a.trail else None,
-              target=a.target / 100.0 if a.target else None)
+              target=a.target / 100.0 if a.target else None,
+              max_positions=getattr(a,"max_positions",None),
+              exit_freq=getattr(a,"exit_freq",None),buy_delay=getattr(a,"buy_delay",0),
+              allocation_mode=sl.NAV_DIV_SLOTS if getattr(a,"allocation","nav")=="nav" else "fixed_Rs10000_live_default")
     cal = P["Close"].index
     r = {"test": label}
     for tag, s0, s1 in fb.periods(cal):
@@ -114,10 +124,16 @@ def main():
     ap.add_argument("--mix", default="60/25/15")
     ap.add_argument("--sector-cap", type=int, default=4)
     ap.add_argument("--capital", type=float, default=200000)
+    ap.add_argument("--max-positions",type=int,default=None)
+    ap.add_argument("--exit-freq",choices=["D","W","M"],default=None)
+    ap.add_argument("--buy-delay",type=int,default=0)
+    ap.add_argument("--allocation",choices=["nav","fixed"],default="nav")
     ap.add_argument("--no-live", action="store_true")
     a = ap.parse_args()
     if a.keep < a.slots:
         sys.exit("--keep must be >= --slots")
+    if a.slots <= 0 or a.capital <= 0 or a.buy_delay < 0 or (a.max_positions is not None and a.max_positions < 0):
+        sys.exit("slots/capital must be positive; delay/max-positions cannot be negative")
     print("Loading price history (first run of the day downloads, ~2-5 "
           "min) ...")
     P, uni = fb.load_pit10k()
@@ -161,8 +177,8 @@ def main():
                              if d1 > 0 and d2 > 0 else
                              "dono halves mein behtar NAHI -> live rule "
                              "hi rakho"))
-    print("(Backtest = past. Survivors-only data makes every row a bit too "
-          "good. Info only, no orders.)")
+    print("(Backtest = past. Current survivors, estimated cap and unverified "
+          "corporate actions can bias results. Research only, no orders.)")
     out = T.reset_index()
     out.insert(0, "run_at", dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
     out.to_csv(LOG, mode="a", header=not os.path.exists(LOG), index=False)

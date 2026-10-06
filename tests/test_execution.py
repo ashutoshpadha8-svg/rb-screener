@@ -85,6 +85,10 @@ class FakeDhan(object):
                                                      "errorMessage": "nf"})
         if method == "GET" and path.startswith("/trades/"):
             return Resp(200, [])
+        if method == "GET" and path == "/holdings":
+            return Resp(200, [])
+        if method == "GET" and path == "/positions":
+            return Resp(200, [])
         raise AssertionError("unexpected call %s %s" % (method, path))
 
 

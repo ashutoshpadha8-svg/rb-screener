@@ -20,6 +20,7 @@ No broker call and no order here.
 import math
 
 import pandas as pd
+from order_inputs import quantity
 
 SHEET = "Buy_Planner"
 SHARES = {"M": 0.60, "L": 0.25, "S": 0.15}
@@ -30,7 +31,7 @@ R0, NROWS = 29, 40                 # first stock row, rows in the table
 INPUT_YEL, NAVY = "FFF2CC", "1F4E78"
 PICKS = ("BUY", "MTF", "WATCH")        # BUY = CNC, MTF = margin buy, WATCH =
 BUYING = ("BUY", "MTF")                 # watchlist only; blank = not taken
-MTF_LEV = 4.0                           # sheet guess; rbtrack asks the broker
+MTF_LEV = None                          # legacy input ignored; per-stock broker value required
 LBL_LEV = "MTF leverage (andaaza)"
 LBL_ADDED = "Kul paise add kiye (deposit)"
 LBL_BUDGET = "Is baar invest (Rs)"
@@ -40,7 +41,7 @@ LBL_BUDGET = "Is baar invest (Rs)"
 def _num(v, default=None):
     try:
         x = float(str(v).replace(",", ""))
-        return default if math.isnan(x) else x
+        return default if not math.isfinite(x) else x
     except (TypeError, ValueError):
         return default
 
@@ -58,20 +59,26 @@ def pick_of(v):
 def distribute(rows, budget, shares=None, lev=None):
     """rows (priority order): dicts symbol, cls ('M'/'L'/'S'/other), price,
     pick (BUY / MTF / WATCH / blank), qty_you (int or None). MTF rows cost only
-    price / lev of your own money per share. Returns (rows with base / extra
+    price / row["mtf_lev"] of your own money per share. Returns (rows with base / extra
     / final / amount (= OWN money), summary). Same arithmetic as the sheet."""
     shares = dict(SHARES, **(shares or {}))
+    if budget not in (None, "") and (_num(budget) is None or _num(budget) < 0):
+        raise ValueError("Planner budget must be a finite non-negative amount")
     budget = max(0.0, _num(budget, 0.0))
-    lev = max(1.0, _num(lev, MTF_LEV))
+    if any(not isinstance(shares[c], (int,float)) or not math.isfinite(shares[c]) or not 0 <= shares[c] <= 1 for c in ORDER) or abs(sum(shares[c] for c in ORDER)-1) > .00001:
+        raise ValueError("Mid / Large / Small percentages must total 100%")
     rows = [dict(r) for r in rows]
     for r in rows:
         r["pick"] = pick_of(r.get("pick"))
         r["buy"] = r["pick"] in BUYING
         r["price"] = _num(r.get("price"))
-        r["unit"] = (r["price"] / (lev if r["pick"] == "MTF" else 1.0)) \
-            if r["price"] and r["price"] > 0 else None
-        q = _num(r.get("qty_you"))
-        r["qty_you"] = int(q) if q is not None and q >= 0 else None
+        leverage = _num(r.get("mtf_lev"))
+        r["mtf_enabled"] = bool(leverage and math.isfinite(leverage) and 1 < leverage <= 10)
+        r["unit"] = (r["price"] / (leverage if r["pick"] == "MTF" else 1.0)) \
+            if r["price"] and r["price"] > 0 and (r["pick"] != "MTF" or r["mtf_enabled"]) else None
+        if r["pick"] == "MTF" and not r["mtf_enabled"]:
+            r["buy"] = False
+        r["qty_you"] = quantity(r.get("qty_you"), "%s BUY Qty" % r.get("symbol", ""))
         r["auto"] = r["buy"] and r["qty_you"] is None and bool(r["unit"])
     n = {c: sum(1 for r in rows if r["auto"] and r["cls"] == c)
          for c in ORDER}
@@ -209,8 +216,8 @@ def write_sheet(wb, acct, rows, inputs, picks, title, gold=()):
     kv(18, "Check", '=IF(N(E17)<=0,"E17 mein amount likho",IF(AND(ISNUMBER('
        'E5),E17>E5),"!! balance se zyada",IF(J25>E17,"!! tumhari Qty budget '
        'se zyada","OK")))', "@")
-    kv(19, LBL_LEV, inputs.get("mtf_lev") or MTF_LEV, "0.0", inp=True,
-       note="sirf MTF rows ke liye; rbtrack broker ka asli leverage leta hai")
+    kv(19, "MTF leverage", "Har stock ka alag (column R)", "@",
+       note="0 / unknown = MTF blocked; rbtrack broker se dobara verify karta hai")
     for k, h in enumerate(["Class", "Target %", "Auto stocks", "Effective %",
                            "Rs"], 2):
         ws.cell(row=20, column=k, value=h).font = Font(bold=True)
@@ -269,7 +276,7 @@ def write_sheet(wb, acct, rows, inputs, picks, title, gold=()):
                 '=IF(AND(OR(G{r}="BUY",G{r}="MTF"),H{r}="",Q{r}>0),IFERROR('
                 'INDEX($E$21:$E$23,MATCH(E{r},$B$21:$B$23,0))/INDEX($D$21:'
                 '$D$23,MATCH(E{r},$B$21:$B$23,0)),0),0)'.format(r=r),
-                '=IF(AND(G{r}<>"BUY",G{r}<>"MTF"),0,IF(H{r}<>"",N(+H{r}),'
+                '=IF(OR(AND(G{r}<>"BUY",G{r}<>"MTF"),AND(G{r}="MTF",N(R{r})<=1)),0,IF(H{r}<>"",N(+H{r}),'
                 'IF(Q{r}>0,INT($J$26*I{r}/Q{r}),0)))'.format(r=r),
                 '=IF(AND(OR(G{r}="BUY",G{r}="MTF"),H{r}="",Q{r}>0,I{r}>0,'
                 'Q{r}<=$J$27-P{p}),1,0)'.format(r=r, p=r - 1),
@@ -292,11 +299,23 @@ def write_sheet(wb, acct, rows, inputs, picks, title, gold=()):
             if k == 5 and x:
                 cell.font = Font(bold=True, color=color.get(v, "7F7F7F"))
         ws.cell(row=r, column=16, value="=P%d+K%d*Q%d" % (r - 1, r, r))
-        ws.cell(row=r, column=17, value='=IF(N(F{r})>0,F{r}/IF(G{r}="MTF",'
-                'MAX(1,N($E$19)),1),0)'.format(r=r))
+        ws.cell(row=r, column=17, value='=IF(N(F{r})>0,IF(G{r}="MTF",'
+                'IF(N(R{r})>1,F{r}/R{r},0),F{r}),0)'.format(r=r))
+        ws.cell(row=r, column=18, value=(x.get("mtf_lev") if x.get("mtf_lev") is not None else "UNKNOWN") if x else None).number_format = '0.00"x"'
+        ws.cell(row=r, column=19, value=x.get("mtf_asof") if x else None)
+        ws.cell(row=r, column=20, value=x.get("mtf_note", "UNKNOWN") if x else None)
         if x and x["symbol"] in gold:
             for k in (2, 4):
                 ws.cell(row=r, column=k).fill = f("F7E3A5")
+    ws["R28"] = "MTF x (broker)"
+    ws["R28"].font = Font(bold=True,color="FFFFFF")
+    ws["R28"].fill = f(NAVY)
+    ws.column_dimensions["R"].width = 17
+    ws["S28"], ws["T28"] = "MTF updated IST", "MTF status (broker)"
+    ws.column_dimensions["S"].width = 25
+    ws.column_dimensions["T"].width = 42
+    for cell in (ws["S28"], ws["T28"]):
+        cell.font = Font(bold=True,color="FFFFFF");cell.fill=f(NAVY)
     ws.column_dimensions["P"].hidden = True
     ws.column_dimensions["Q"].hidden = True
     dv = DataValidation(type="list", formula1='"%s"' % ",".join(PICKS),
@@ -326,12 +345,12 @@ def write_sheet(wb, acct, rows, inputs, picks, title, gold=()):
         "Qty (you) bharoge to woh stock utna hi; baaki budget dusre BUY "
         "stocks mein dobara batta hai. Poore shares -> bacha paisa list mein "
         "upar se +1 share.",
-        "Momentum buys sirf mahine ke 1st trading day; 20 slots + 4 per "
+        "Momentum recommendations monthly; manual BUY needs confirmation. 20 slots + 4 per "
         "industry rbtrack khud check karta hai. Gold = momentum rank 1-5 "
         "(pehle dekho, BUY signal nahi).",
-        "BUY = normal buy (FINAL QTY hi jaayegi). MTF = margin buy: budget "
-        "se sirf apna hissa (price / leverage) katata hai; auto MTF rows ki "
-        "qty rbtrack broker ke asli leverage se banata hai (Own money same). "
+        "BUY = normal buy. MTF: har stock ka broker leverage alag (R); "
+        "4.5x par own money = position/4.5, 0/unknown par MTF blocked. "
+        "rbtrack fresh leverage se quantity aur required cash dobara dikhata hai. "
         "Backtest: 4x MTF ne 1x se KAM kamaya, DD -97%.",
         "WATCH = koi order nahi, sirf watchlist (rbport analyse karta hai). "
         "TRADING OFF = koi order nahi."]
@@ -349,6 +368,7 @@ def read_sheet(xlsx):
     try:
         from openpyxl import load_workbook
         ws = load_workbook(xlsx, data_only=True)[SHEET]
+        raw = load_workbook(xlsx, data_only=False)[SHEET]
     except Exception:
         return {}, []
     labels = {str(ws.cell(row=r, column=2).value or "").strip(): r
@@ -360,6 +380,9 @@ def read_sheet(xlsx):
            "shares": {},
            "mtf_lev": _num(ws.cell(row=labels.get(LBL_LEV, 19),
                                    column=5).value)}
+    budget_raw = raw.cell(row=labels.get(LBL_BUDGET, 17), column=5).value
+    if budget_raw not in (None, "") and (_num(budget_raw) is None or _num(budget_raw) < 0):
+        raise ValueError("Planner budget must be a literal finite non-negative amount")
     for r in range(21, 24):
         c = CODE.get(str(ws.cell(row=r, column=2).value or ""))
         v = _num(ws.cell(row=r, column=3).value)
@@ -376,7 +399,10 @@ def read_sheet(xlsx):
                      "cls": CODE.get(str(ws.cell(row=r, column=5).value), "?"),
                      "price": _num(ws.cell(row=r, column=6).value),
                      "pick": pick,
-                     "qty_you": _num(ws.cell(row=r, column=8).value)})
+                     "mtf_lev": _num(ws.cell(row=r, column=18).value),
+                     # Manual Qty must be literal; a formula cache may be absent/stale.
+                     "qty_you": quantity(raw.cell(row=r, column=8).value,
+                                         "%s BUY Qty" % s) if pick in BUYING else None})
     return inp, rows
 
 

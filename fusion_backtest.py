@@ -242,10 +242,13 @@ class TaxBook:
             # current-year set-off: short-term loss vs any gain, long-term
             # loss vs long-term gain only
             if st < 0:
-                lt, st = lt + st, 0.0
-                if lt < 0:
-                    self.cf_st += -lt
-                    lt = 0.0
+                # Offset only a POSITIVE long-term gain. A negative LT
+                # balance keeps its identity; it cannot become ST carry.
+                use = min(-st, max(0.0, lt))
+                st += use
+                lt -= use
+                self.cf_st += max(0.0, -st)
+                st = 0.0
             if lt < 0:
                 self.cf_lt += -lt
                 lt = 0.0
@@ -253,12 +256,12 @@ class TaxBook:
             use = min(self.cf_st, st)
             st -= use
             self.cf_st -= use
-            use = min(self.cf_st, lt)
-            lt -= use
-            self.cf_st -= use
             use = min(self.cf_lt, lt)
             lt -= use
             self.cf_lt -= use
+            use = min(self.cf_st, lt)
+            lt -= use
+            self.cf_st -= use
             tax += STCG * st + LTCG * max(0.0, lt - LTCG_FREE)
         tax += SLAB * max(0.0, self.interest)
         self.paid += tax
@@ -546,6 +549,9 @@ def table(rows):
 
 # ================================================================== studies
 def load_pit10k():
+    """Legacy name: current survivors + constant-share estimated cap, NOT true PIT.
+    This loader may download data. Offline studies use an explicit cache path.
+    """
     m, asof, src = ds.fetch_mcap()
     mc = m.set_index(m.symbol.str.lower())["mcap_cr"]
     P = bt.load_panels(list(mc[mc >= bt.MIN_LOAD].index),
@@ -560,7 +566,7 @@ def load_pit10k():
 def cash_study(P, uni):
     cal = P["Close"].index
     print("\nComputing Fusion + Weinstein/TT signals on the >= Rs 10,000 Cr "
-          "point-in-time universe ...")
+          "estimated-cap survivor universe ...")
     I = indicators(P)
     rs = rs_rank(P, uni)
     ent, ext = fusion_signals(I, uni, 1)

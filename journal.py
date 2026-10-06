@@ -196,8 +196,10 @@ def _new_row(r, broker, qty, seen):
 
 
 def _qty(r):
-    return sum(_f(r.get(c)) for c in ("swing_qty", "investing_qty",
-                                       "momentum_qty"))
+    q = sum(_f(r.get(c)) for c in ("swing_qty", "investing_qty", "momentum_qty"))
+    if r.get("order_id") and "filled_qty_confirmed" in r and str(r.get("filled_qty_confirmed")) not in ("", "nan", "None"):
+        q = min(q, max(0, _f(r.get("filled_qty_confirmed"))))
+    return q
 
 
 def close_row(j, i, price, date, reason, broker):
@@ -259,7 +261,8 @@ def sync(sp, demat, recs, last_px, sess=None, broker="DHAN", today=None,
             continue
         if rid in have:
             i = j.index[j["id"] == rid][0]
-            if j.at[i, "status"] == "OPEN" and abs(_f(j.at[i, "qty"]) - q) > 1e-9:
+            # Shrinking a BUY lot here erases the difference needed by SELL reconciliation.
+            if j.at[i, "status"] == "OPEN" and q > _f(j.at[i, "qty"]) + 1e-9:
                 j.at[i, "qty"] = "%g" % q             # more fills (3 -> 6)
                 fee, stt = fees(j.at[i, "broker"], "BUY",
                                 q * _f(j.at[i, "buy_price"]))
@@ -306,6 +309,19 @@ def sync(sp, demat, recs, last_px, sess=None, broker="DHAN", today=None,
             msgs.append("! %s left the demat but no sell found in %s's trade "
                         "history -> rbtrack --sold %s PRICE --date YYYY-MM-DD"
                         % (sym, broker, sym))
+            continue
+        booked = j[(j["symbol"] == sym) & (j["mode"] == "LIVE") &
+                   (j["status"] == "CLOSED") & (j["sell_date"] >= min(g["buy_date"]))]
+        used = sum(_f(q) for q in booked["qty"])
+        remaining = []
+        for trade in sorted(sells, key=lambda t: (t["date"], str(t.get("time", "")))):
+            taken = min(used, trade["qty"]); used -= taken
+            if trade["qty"] > taken:
+                remaining.append(dict(trade, qty=trade["qty"]-taken))
+        sells = remaining
+        sq = sum(t["qty"] for t in sells)
+        if sq < 0.5:
+            msgs.append("! %s quantity decreased but no unbooked SELL evidence; review in broker" % sym)
             continue
         avg = sum(t["qty"] * t["price"] for t in sells) / sq
         last = max(t["date"] for t in sells)

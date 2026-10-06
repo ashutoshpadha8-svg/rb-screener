@@ -158,7 +158,8 @@ def last_expected_session():
     d = n.date()
     if n.weekday() >= 5 or (n.hour, n.minute) < (15, 45):
         d = d - dt.timedelta(days=1)
-    while d.weekday() >= 5:
+    import nse_calendar as nc
+    while not nc.is_trading_day(d):
         d = d - dt.timedelta(days=1)
     return d
 
@@ -232,7 +233,8 @@ def fetch_mcap():
         if m is None or m.empty:
             continue
         m["asof"] = d.isoformat()
-        m.to_csv(MCAP_CACHE, index=False)
+        import execution_safety as safety
+        safety.atomic_bytes(MCAP_CACHE, m.to_csv(index=False).encode())
         return m, d, "NSE"
     if os.path.exists(MCAP_CACHE):
         m = pd.read_csv(MCAP_CACHE)

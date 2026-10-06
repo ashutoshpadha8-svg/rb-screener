@@ -1,0 +1,312 @@
+{
+  "cap_asof": "2026-10-05",
+  "loaded": 547,
+  "data_start": "2012-02-21",
+  "data_end": "2026-09-25",
+  "bad_bars": [],
+  "all_stock_gap_dates": [
+    "2022-05-11"
+  ],
+  "global_gaps_retained": false,
+  "capital": 200000.0,
+  "ranking": "RAMOM exact strategy_lab.scores",
+  "check_frequency": "daily prior-close signals; next-open fills",
+  "buys": "raw ranks 1..5; no top-ups; skip if cash below engine minimum Rs1000; no new contributions",
+  "sells": "rank >40 or no longer eligible; final close liquidation is evaluation only",
+  "daily_existing_positions": "held through rank40, not replaced every day",
+  "cap_mix": "not forced for raw Top5 research; prior 60/25/15 amount preference is a separate manual allocation choice",
+  "idle_cash_rate": 0.0,
+  "costs": {
+    "CASH_BUY": 0.001187406,
+    "CASH_SELL": 0.001037406,
+    "CASH_SLIP": 0.001,
+    "DP_CHARGE": 14.75
+  },
+  "diagnostics": {
+    "daily_NAV20_sector4_FULL_before_tax": {
+      "stats": {},
+      "peak_positions": 19,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_NAV20_sector4_FULL_modeled_tax": {
+      "stats": {},
+      "peak_positions": 19,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_NAV20_sector4_2013_2019_before_tax": {
+      "stats": {},
+      "peak_positions": 19,
+      "one_price_entries": 0,
+      "known_demerger_exposures": []
+    },
+    "daily_NAV20_sector4_2013_2019_modeled_tax": {
+      "stats": {},
+      "peak_positions": 19,
+      "one_price_entries": 0,
+      "known_demerger_exposures": []
+    },
+    "daily_NAV20_sector4_2020_2026_before_tax": {
+      "stats": {},
+      "peak_positions": 18,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_NAV20_sector4_2020_2026_modeled_tax": {
+      "stats": {},
+      "peak_positions": 18,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_fixed20_sector4_FULL_before_tax": {
+      "stats": {},
+      "peak_positions": 19,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_fixed20_sector4_FULL_modeled_tax": {
+      "stats": {},
+      "peak_positions": 19,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_NAV20_sell_confirm_delay1_FULL_before_tax": {
+      "stats": {},
+      "peak_positions": 19,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_NAV20_sell_confirm_delay1_FULL_modeled_tax": {
+      "stats": {},
+      "peak_positions": 19,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_NAV20_no_sector_cap_FULL_before_tax": {
+      "stats": {},
+      "peak_positions": 22,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_NAV20_no_sector_cap_FULL_modeled_tax": {
+      "stats": {},
+      "peak_positions": 22,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_NAV5_sector4_FULL_before_tax": {
+      "stats": {},
+      "peak_positions": 13,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-11-05",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        }
+      ]
+    },
+    "daily_NAV5_sector4_FULL_modeled_tax": {
+      "stats": {},
+      "peak_positions": 13,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-11-29",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        }
+      ]
+    },
+    "daily_fixed5_sector4_FULL_before_tax": {
+      "stats": {},
+      "peak_positions": 18,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    },
+    "daily_fixed5_sector4_FULL_modeled_tax": {
+      "stats": {},
+      "peak_positions": 18,
+      "one_price_entries": 2,
+      "known_demerger_exposures": [
+        {
+          "symbol": "STAR",
+          "entry": "2024-10-23",
+          "exit": "2024-12-09",
+          "action_date": "2024-12-06"
+        },
+        {
+          "symbol": "VEDL",
+          "entry": "2026-04-20",
+          "exit": "2026-05-04",
+          "action_date": "2026-04-30"
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "Default omits globally missing stock sessions (2022-05-11) from indicators and execution; that session cannot be independently evaluated",
+    "Current survivors and constant-share market-cap estimates are not point-in-time historical membership",
+    "Cap floor Rs10000 Cr verified only on estimated previous-close cap, not broker execution-time live cap",
+    "Cached prices and all corporate actions not independently validated; known demerger exposures invalidate economic-profit interpretation",
+    "Each modeled signal assumed accepted; unknown manual declines and delayed/missed/partial fills cannot be forecast",
+    "No order-book queue model; one-price entries may not fill",
+    "Current flat tax rates, annual carry and exemptions are simplified, no historical-rate or 8-year carry expiry reconstruction",
+    "Overlapping rolling12 windows are not independent and do not forecast the next12 months",
+    "Cash-only additions: capital/N sizing, no extra position-count ceiling; default current live monthly mode is unchanged"
+  ],
+  "manifest_entries": 606,
+  "private_accounts_included": false,
+  "source_sha256": {
+    "strategy_lab.py": "d84313af7d95ec5b427df2c1fa998f003693d5b29551ba33a877df760d79b024",
+    "fusion_backtest.py": "7c3862ef4b13c61a585242514d9754b0f6202a8db094dbac865d459c0514abfc",
+    "position_sizing.py": "c20d3bd4941d3012d2639eb3575daf7299fee9111035bdec723c0dd14357b8e5",
+    "daily_top5_hold40_study.py": "81e668d10b9f359bcf68f6fdf336fa727e6a777ee50fa069d983b9c2577551f7"
+  }
+}

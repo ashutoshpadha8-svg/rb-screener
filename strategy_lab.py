@@ -3,8 +3,9 @@
 STRATEGY LAB  --  can anything beat Fusion / Weinstein+TT?
 ==========================================================
 
-Same honest setup as fusion_backtest.py: >= Rs 10,000 Cr point-in-time
-universe, 60-day median turnover > Rs 5 Cr, Rs 2 lakh start, real Dhan
+Same setup as fusion_backtest.py: >= Rs 10,000 Cr estimated historical cap
+in a current-survivor universe (NOT true point-in-time membership),
+60-day median turnover > Rs 5 Cr, Rs 2 lakh start, modeled Dhan
 delivery costs + 0.10% slippage per side, Indian tax (STCG 20.8%, LTCG 13%
 over Rs 1.25 lakh, interest 31.2%), idle cash 6%, 2013-01 to 2026-09,
 judged in 2013-19 AND 2020-26 separately (each half starts from cash).
@@ -108,7 +109,8 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
              regime_blocks_buys_only=False, buy_delay=0,
              allocation_mode=NAV_DIV_SLOTS, cap_class=None, cap_targets=None,
              cap_order=("M", "L", "S"), target=None, stats=None,
-             stop_pct=None, trail_pct=None, buy_within=None):
+             stop_pct=None, trail_pct=None, buy_within=None,
+             exit_freq=None, max_positions=None, trade_log=None):
     """buy_delay: new buys N sessions after the rebalance sells (live
     rbtrack buys once sells are confirmed = 1).
     sector: array col -> sector label; sector_cap: max holdings per sector.
@@ -128,33 +130,91 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
     or the open if it gaps below). buy_within: new buys only from the top
     `buy_within` of the ranking (default: whole ranking, as before).
     (daily_top5_study.py, 6 Oct)
+    exit_freq: optional separate rank-exit schedule (D/W/M). max_positions:
+    None keeps the legacy N-holding limit; 0 permits additions only as cash
+    allows, without an extra holding-count ceiling. trade_log: optional list
+    receiving OPEN/INTRADAY/CLOSE execution records. No broker calls here.
     Sizing (Codex fixes 1-3, 30 Sep): slot = portfolio value / N (NAV/N,
     the research default = RB's live sizing A) or allocation_mode=FIXED_SLOT
     (capital / N); whole shares incl. buy cost; accrued modeled tax is kept
     back from buying power so the FY-end payment never borrows cash."""
+    # OPEN orders use only previous-close signals and cash available at OPEN.
+    # Intraday exits cannot fund that day's already-past OPEN buys. Close-based
+    # stop updates become active next session. Same-bar double touches use a
+    # conservative stop-first policy, except decisive opening gaps.
+    if not isinstance(N, (int, np.integer)) or N <= 0:
+        raise ValueError("N must be a positive integer")
+    if not capital > 0 or not np.isfinite(capital):
+        raise ValueError("capital must be positive and finite")
+    if not np.isfinite(buffer) or buffer <= 0 or not np.isfinite(buy_delay) or buy_delay < 0 or int(buy_delay) != buy_delay:
+        raise ValueError("invalid rank buffer or buy delay")
+    for name, value in (("stop_pct", stop_pct), ("trail_pct", trail_pct)):
+        if value is not None and not 0 < value < 1:
+            raise ValueError(name + " must be between 0 and 1")
+    if target is not None and not (np.isfinite(target) and target > 0):
+        raise ValueError("target must be positive and finite")
+    if not np.isfinite(cash_rate) or cash_rate <= -1:
+        raise ValueError("cash_rate must be finite and greater than -1")
+    if buy_within is not None and (not isinstance(buy_within, (int, np.integer)) or buy_within <= 0):
+        raise ValueError("buy_within must be a positive integer")
+    if sector_cap is not None and (sector is None or sector_cap <= 0):
+        raise ValueError("sector cap requires sector labels and a positive cap")
+    if cap_targets is not None and cap_class is None:
+        raise ValueError("cap targets require cap-class data")
+    if trail_atr is not None and (not np.isfinite(trail_atr) or trail_atr <= 0):
+        raise ValueError("trail_atr must be positive and finite")
+    if breakeven is not None and (not np.isfinite(breakeven) or breakeven < 0):
+        raise ValueError("breakeven must be nonnegative and finite")
+    if trail_atr is not None and atr is None:
+        raise ValueError("ATR trailing stop requires ATR data")
+    limit = N if max_positions is None else max_positions
+    if limit < 0 or int(limit) != limit:
+        raise ValueError("max_positions must be an integer >= 0 (0=cash only)")
     O = P["Open"].values
-    C = P["Close"].ffill().values
+    raw_C = P["Close"].values
+    C = P["Close"].ffill().values   # valuation only, NEVER an executable fill
     Lo = P["Low"].values
-    Hi = P["High"].values if target is not None else None
+    Hi = P["High"].values
     A = atr.values if atr is not None else None
     S = score.values
     cal = P["Close"].index
+    for frame in [P[k] for k in ("Open", "High", "Low")] + [score] + ([atr] if atr is not None else []):
+        if not frame.index.equals(cal) or not frame.columns.equals(P["Close"].columns):
+            raise ValueError("price/score/ATR panels must have identical labels")
+    if regime is not None and np.shape(regime) != (len(cal),):
+        raise ValueError("regime must have one value per session")
+    if sector is not None and np.shape(sector) != (len(P["Close"].columns),):
+        raise ValueError("sector must have one label per stock")
+    if cap_class is not None and np.shape(cap_class) != S.shape:
+        raise ValueError("cap_class must align with price panels")
     n = len(cal) if end_k is None else end_k
     reb = rebal_days(cal, start_k, n, freq, offset)
+    exits = reb if exit_freq is None else rebal_days(cal, start_k, n, exit_freq, offset)
+    if not 1 <= start_k < n <= len(cal):
+        raise ValueError("test window needs a previous signal session")
     cash, pos = capital, {}
+    locked_proceeds = []  # (release session, sale proceeds): no spending before confirmation delay
     book = TaxBook(False)
     day_rate = (1 + cash_rate) ** (1 / 252) - 1
     eq = np.full(n, np.nan)
     trades = 0
 
-    def sell(j, px, t):
+    def sell(j, px, t, reason, phase):
         nonlocal cash, trades
+        if not np.isfinite(px) or px <= 0:
+            raise ValueError("cannot execute at missing/nonpositive price")
         p = pos.pop(j)
         gross = p["sh"] * px
         fee = gross * (CASH_SELL + CASH_SLIP) + DP_CHARGE
         cash += gross - fee
+        if buy_delay:
+            locked_proceeds.append((t + int(buy_delay), max(0.0, gross - fee)))
         book.add(gross - fee - p["basis"], (cal[t] - cal[p["k"]]).days)
         trades += 1
+        if trade_log is not None:
+            trade_log.append(dict(date=cal[t].isoformat(), symbol=P["Close"].columns[j],
+                                  side="SELL", price=float(px), shares=int(p["sh"]),
+                                  phase=phase, reason=reason, cash_after=float(cash)))
 
     def buys(t, ranked):
         nonlocal cash
@@ -169,7 +229,9 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
                 count[sector[j]] = count.get(sector[j], 0) + 1
         def try_buy(j):
             nonlocal cash
-            if j in pos or not O[t, j] > 0:
+            if j in pos or j in stopped_at_open or not O[t, j] > 0:
+                return False
+            if not (np.isfinite(O[t, j]) and np.isfinite(raw_C[t - 1, j])):
                 return False
             if sector_cap is not None and sector[j] != "?" and \
                     count.get(sector[j], 0) >= sector_cap:
@@ -178,7 +240,8 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
             if med is not None and A[t - 1, j] > 0:
                 amt *= float(np.clip(med / A[t - 1, j], 0.5, 2.0))
             reserve = book.due() if tax else 0.0
-            amt = min(amt, max(0.0, cash - reserve))
+            locked = sum(value for release, value in locked_proceeds if release > t)
+            amt = min(amt, max(0.0, cash - reserve - locked))
             if amt < 1000:
                 return False
             a = A[t - 1, j] if A is not None and A[t - 1, j] > 0 else 0.0
@@ -194,6 +257,10 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
                       O[t, j] * (1 - (stop_pct or trail_pct))
                       if (stop_pct or trail_pct) else -1.0}
             cash -= spent
+            if trade_log is not None:
+                trade_log.append(dict(date=cal[t].isoformat(), symbol=P["Close"].columns[j],
+                                      side="BUY", price=float(O[t, j]), shares=int(sh),
+                                      phase="OPEN", reason="rank", cash_after=float(cash)))
             if sector is not None:
                 count[sector[j]] = count.get(sector[j], 0) + 1
             return True
@@ -202,7 +269,7 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
             ranked = ranked[:buy_within]
         if cap_targets is None:
             for j in ranked:
-                if len(pos) >= N:
+                if limit and len(pos) >= limit:
                     break
                 try_buy(j)
             return
@@ -211,75 +278,111 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
         for j in pos:
             held[cls[j]] = held.get(cls[j], 0) + 1
         for j in ranked:                       # 1) each class up to target
-            if len(pos) >= N:
+            if limit and len(pos) >= limit:
                 break
             if held.get(cls[j], 0) < cap_targets.get(cls[j], 0) and \
                     try_buy(j):
                 held[cls[j]] = held.get(cls[j], 0) + 1
         for c in cap_order:                    # 2) leftovers by preference
             for j in ranked:
-                if len(pos) >= N:
+                if limit and len(pos) >= limit:
                     break
                 if cls[j] == c and try_buy(j):
                     held[c] = held.get(c, 0) + 1
 
+    # A delayed plan is refreshed against the latest known rank. Do not keep
+    # buying a name that has since left buy_within or disappeared from ranking.
     pending = None
+    pending_exits = set()
     for t in range(start_k, n):
+        locked_proceeds[:] = [(release, value) for release, value in locked_proceeds if release > t]
         intr = cash * day_rate if cash > 0 else 0.0
         cash += intr
         book.interest += intr
-        if pending is not None and t == pending[0]:
-            buys(t, pending[1])
-            pending = None
-        if (trail_atr is not None or breakeven is not None or stop_pct or
-                trail_pct) and t > start_k:
-            for j in list(pos):
-                p = pos[j]
-                if p["k"] >= t:
-                    continue
-                if Lo[t, j] > 0 and Lo[t, j] <= p["stop"]:
-                    px = min(O[t, j], p["stop"]) if O[t, j] > 0 else p["stop"]
-                    sell(j, px, t)
-                    if stats is not None:
-                        stats["stop_exits"] = stats.get("stop_exits", 0) + 1
-                    continue
-                p["hi"] = max(p["hi"], C[t, j])
-                if trail_pct:
-                    p["stop"] = max(p["stop"], p["hi"] * (1 - trail_pct))
-                if trail_atr is not None:
-                    a = A[t, j] if A[t, j] == A[t, j] else 0.0
-                    p["stop"] = max(p["stop"], p["hi"] * (1 - trail_atr * a))
-                if breakeven is not None and C[t, j] >= p["px"] * (1 + breakeven):
-                    p["stop"] = max(p["stop"], p["px"])
-        if target is not None and t > start_k:
-            for j in list(pos):
-                p = pos[j]
-                tp = p["px"] * (1 + target)
-                if p["k"] < t and Hi[t, j] > 0 and Hi[t, j] >= tp:
-                    sell(j, O[t, j] if O[t, j] >= tp else tp, t)
-                    if stats is not None:
-                        stats["target_exits"] = stats.get(
-                            "target_exits", 0) + 1
-        if t in reb and t > 0:
-            s = S[t - 1]
-            valid = ~np.isnan(s)
-            order = np.argsort(-np.where(valid, s, -np.inf))
-            ranked = [j for j in order if valid[j]]
-            rank = {j: i for i, j in enumerate(ranked)}
-            on = regime is None or bool(regime[t - 1])
+        s = S[t - 1]
+        valid = np.isfinite(s)
+        order = np.argsort(-np.where(valid, s, -np.inf), kind="stable")
+        ranked = [int(j) for j in order if valid[j]]
+        rank = {j: i for i, j in enumerate(ranked)}
+        on = regime is None or bool(regime[t - 1])
+        stopped_at_open = set()
+        # Existing resting protections executable at a decisive OPEN gap.
+        for j in list(pos):
+            p = pos[j]
+            if not np.isfinite(O[t, j]) or O[t, j] <= 0:
+                continue
+            tp = p["px"] * (1 + target) if target is not None else np.inf
+            why = "stop" if p["stop"] > 0 and O[t, j] <= p["stop"] else \
+                "target" if O[t, j] >= tp else None
+            if why:
+                sell(j, O[t, j], t, why, "OPEN")
+                stopped_at_open.add(j)
+                pending_exits.discard(j)
+                if stats is not None:
+                    stats[why + "_exits"] = stats.get(why + "_exits", 0) + 1
+        if t in exits:
             sell_all = not on and not regime_blocks_buys_only
-            for j in list(pos):
-                if sell_all or rank.get(j, 10 ** 9) >= buffer * N:
-                    px = O[t, j] if O[t, j] > 0 else C[t - 1, j]
-                    sell(j, px, t)
+            pending_exits.update(j for j in pos if sell_all or rank.get(j, 10 ** 9) >= buffer * N)
+        # A rank exit that lacked an OPEN remains queued until a real OPEN.
+        for j in list(pending_exits):
+            if j not in pos:
+                pending_exits.discard(j)
+            elif np.isfinite(O[t, j]) and O[t, j] > 0:
+                sell(j, O[t, j], t, "rank_or_regime", "OPEN")
+                pending_exits.discard(j)
+            elif stats is not None:
+                stats["deferred_missing_open"] = stats.get("deferred_missing_open", 0) + 1
+        if pending is not None and t >= pending:
+            if on:
+                buys(t, ranked)
+            pending = None
+        if t in reb:
             if on:
                 if buy_delay:
-                    pending = (t + buy_delay, ranked)
+                    # Do not perpetually postpone daily delayed plans.
+                    if pending is None:
+                        pending = t + int(buy_delay)
                 else:
                     buys(t, ranked)
+        # Intraday phase includes positions bought at THIS session's OPEN.
+        for j in list(pos):
+            p = pos[j]
+            # Absent OPEN / range means no supported executable bar.
+            if not (np.isfinite(O[t, j]) and O[t, j] > 0 and
+                    np.isfinite(Hi[t, j]) and np.isfinite(Lo[t, j]) and
+                    Hi[t, j] >= Lo[t, j] > 0):
+                continue
+            tp = p["px"] * (1 + target) if target is not None else np.inf
+            hit_stop = p["stop"] > 0 and Lo[t, j] <= p["stop"]
+            hit_target = Hi[t, j] >= tp
+            if hit_stop or hit_target:
+                why = "stop" if hit_stop else "target"
+                px = p["stop"] if hit_stop else tp
+                if hit_stop and hit_target and stats is not None:
+                    stats["ambiguous_intraday_bars"] = stats.get("ambiguous_intraday_bars", 0) + 1
+                sell(j, px, t, why, "INTRADAY")
+                pending_exits.discard(j)
+                if stats is not None:
+                    stats[why + "_exits"] = stats.get(why + "_exits", 0) + 1
+        # CLOSE updates affect future sessions only; never that day's low.
+        for j, p in pos.items():
+            if not np.isfinite(raw_C[t, j]) or raw_C[t, j] <= 0:
+                if stats is not None:
+                    stats["stale_valuation_days"] = stats.get("stale_valuation_days", 0) + 1
+                continue
+            p["hi"] = max(p["hi"], raw_C[t, j])
+            if trail_pct:
+                p["stop"] = max(p["stop"], p["hi"] * (1 - trail_pct))
+            if trail_atr is not None and A is not None and np.isfinite(A[t, j]) and A[t, j] > 0:
+                p["stop"] = max(p["stop"], p["hi"] * (1 - trail_atr * A[t, j]))
+            if breakeven is not None and raw_C[t, j] >= p["px"] * (1 + breakeven):
+                p["stop"] = max(p["stop"], p["px"])
         if t == n - 1:
             for j in list(pos):
-                sell(j, C[t, j], t)
+                if np.isfinite(raw_C[t, j]) and raw_C[t, j] > 0:
+                    sell(j, raw_C[t, j], t, "window_end", "CLOSE")
+            if pos and stats is not None:
+                stats["unliquidated_positions"] = len(pos)
         if tax and _fy_end(cal, t, n):
             cash -= book.settle()
         if cash < -1e-6:

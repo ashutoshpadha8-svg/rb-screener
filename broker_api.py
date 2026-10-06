@@ -52,6 +52,7 @@ COMMAND LINE
 """
 
 import os
+import math
 import re
 import sys
 import json
@@ -408,6 +409,10 @@ def symbol_map(sess):
                 for s, i in zip(m[c["SEM_TRADING_SYMBOL"]].astype(str),
                                 m[c["SEM_SMST_SECURITY_ID"]].astype(str)):
                     out[s.upper()] = {"id": i, "tsym": s.upper()}
+                if "SEM_TICK_SIZE" in c:
+                    for _, row in m.iterrows():
+                        try: out[str(row[c["SEM_TRADING_SYMBOL"]]).upper()]["tick"] = float(row[c["SEM_TICK_SIZE"]])/100
+                        except (ValueError, TypeError): pass
             else:
                 print("  ! Dhan scrip master format changed -- fill disabled")
         out[INDEX] = {"id": "13", "tsym": INDEX}
@@ -423,6 +428,8 @@ def symbol_map(sess):
                 key = s[:-3].upper()
                 if s.endswith("-EQ") or key not in out:
                     out[key] = {"id": str(x.get("token")), "tsym": s}
+                    try: out[key]["tick"] = float(x.get("tick_size"))/100
+                    except (ValueError, TypeError): pass
         out[INDEX] = {"id": "99926000", "tsym": "Nifty 50"}
     else:
         if _stale(KITE_SCRIP_FILE):
@@ -438,6 +445,10 @@ def symbol_map(sess):
             for s, i in zip(k["tradingsymbol"].astype(str),
                             k["instrument_token"].astype(str)):
                 out[s.upper()] = {"id": i, "tsym": s.upper()}
+            if "tick_size" in k:
+                for _, row in k.iterrows():
+                    try: out[str(row["tradingsymbol"]).upper()]["tick"] = float(row["tick_size"])
+                    except (ValueError, TypeError): pass
         out[INDEX] = {"id": "256265", "tsym": "NIFTY 50"}
     _MAPS[sess.broker] = out
     return out
@@ -819,6 +830,11 @@ def verify_identity(sess):
 
 def holdings(sess):
     """[{symbol, qty, avg_price}] of the demat account."""
+    def number(value):
+        try: n = float(value or 0)
+        except (TypeError, ValueError): raise BrokerError("Invalid numeric holdings/position response")
+        if not math.isfinite(n): raise BrokerError("Non-finite holdings/position response")
+        return n
     out = []
     if sess.broker == "DHAN":
         try:
@@ -827,32 +843,100 @@ def holdings(sess):
             raise
         except BrokerError as e:
             if "1111" in str(e) or "No holdings" in str(e):
-                return []
-            raise
+                d = []
+            else:
+                raise
         d = d.get("data", []) if isinstance(d, dict) else d
-        for h in d or []:
-            q = float(h.get("totalQty") or h.get("availableQty") or 0)
+        if not isinstance(d, list):
+            raise BrokerError("invalid Dhan holdings response; holdings unknown")
+        for h in d:
+            if not isinstance(h, dict): raise BrokerError("Invalid holding row")
+            q = number(h.get("totalQty") or h.get("availableQty") or 0)
             if q > 0:
                 out.append({"symbol": str(h.get("tradingSymbol") or
                                           h.get("symbol") or "").upper(),
                             "qty": q,
-                            "avg_price": float(h.get("avgCostPrice") or 0)})
+                            "avg_price": number(h.get("avgCostPrice") or 0),
+                            # Do not substitute totalQty when availableQty is explicitly zero.
+                            "sellable_qty": max(0, number(h.get("availableQty") or 0)),
+                            "sellable_by_product": {"CNC": max(0, number(h.get("availableQty") or 0))},
+                            "_collateral": number(h.get("collateralQty") or 0)})
     elif sess.broker == "ANGEL":
         d = _call(sess, "GET", "/rest/secure/angelbroking/portfolio/v1/getHolding")
-        for h in d or []:
-            q = float(h.get("quantity") or 0) + float(h.get("t1quantity") or 0)
+        if not isinstance(d, list):
+            raise BrokerError("invalid Angel holdings response; holdings unknown")
+        for h in d:
+            if not isinstance(h, dict): raise BrokerError("Invalid holding row")
+            q = number(h.get("quantity") or 0) + number(h.get("t1quantity") or 0)
             if q > 0:
                 out.append({"symbol": re.sub(r"-EQ$", "", str(
                     h.get("tradingsymbol") or "").upper()), "qty": q,
-                    "avg_price": float(h.get("averageprice") or 0)})
+                    "avg_price": number(h.get("averageprice") or 0),
+                    # Conservative settled delivery quantity; no guess about T1/MTF.
+                    "sellable_qty": max(0, number(h.get("quantity") or 0) -
+                                        number(h.get("collateralquantity") or 0)),
+                    "sellable_by_product": {"CNC": max(0, number(h.get("quantity") or 0) -
+                                               number(h.get("collateralquantity") or 0))}
+                    if str(h.get("product") or "DELIVERY").upper() in ("DELIVERY", "CNC") else
+                    {"MTF": max(0, number(h.get("quantity") or 0) - number(h.get("collateralquantity") or 0))}
+                    if str(h.get("product")).upper() in ("MARGIN", "MTF") else {}})
     else:
         d = _call(sess, "GET", "/portfolio/holdings")
-        for h in d or []:
-            q = float(h.get("quantity") or 0) + float(h.get("t1_quantity") or 0)
+        if not isinstance(d, list):
+            raise BrokerError("invalid Kite holdings response; holdings unknown")
+        for h in d:
+            if not isinstance(h, dict): raise BrokerError("Invalid holding row")
+            q = number(h.get("quantity") or 0) + number(h.get("t1_quantity") or 0) + number((h.get("mtf") or {}).get("quantity") or 0)
             if q > 0:
                 out.append({"symbol": str(h.get("tradingsymbol") or "").upper(),
                             "qty": q,
-                            "avg_price": float(h.get("average_price") or 0)})
+                            "avg_price": number(h.get("average_price") or 0),
+                            "sellable_qty": max(0, number(h.get("quantity") or 0) -
+                                number(h.get("used_quantity") or 0) - number(h.get("collateral_quantity") or 0)),
+                            "sellable_by_product": {
+                                "CNC": max(0, number(h.get("quantity") or 0) - number(h.get("used_quantity") or 0)
+                                           - number(h.get("collateral_quantity") or 0)),
+                                "MTF": max(0, number((h.get("mtf") or {}).get("quantity") or 0)
+                                           - number((h.get("mtf") or {}).get("used_quantity") or 0))}})
+    # MTF can live in positions rather than the delivery holdings endpoint.
+    if sess.broker in ("DHAN", "ANGEL"):
+        path = "/positions" if sess.broker == "DHAN" else "/rest/secure/angelbroking/order/v1/getPosition"
+        positions = _call(sess, "GET", path)
+        if not isinstance(positions, list):
+            raise BrokerError("positions unavailable; MTF/holding exposure unknown")
+        by = {h["symbol"]: h for h in out}
+        for pos in positions:
+            if not isinstance(pos, dict): raise BrokerError("Invalid position row")
+            prod = str(pos.get("productType") or pos.get("producttype") or "").upper()
+            exchange = str(pos.get("exchangeSegment") or pos.get("exchange") or "").upper()
+            if prod not in ("MTF", "MARGIN") or exchange not in ("NSE_EQ", "NSE"):
+                continue
+            q = number(pos.get("netQty") or pos.get("netqty") or 0)
+            if q <= 0:
+                continue
+            sym = re.sub(r"-(EQ|BE)$", "", str(pos.get("tradingSymbol") or pos.get("tradingsymbol") or "").upper())
+            if not sym:
+                raise BrokerError("MTF position symbol missing")
+            avg = number(pos.get("costPrice") or pos.get("buyavgprice") or pos.get("buyAvg") or 0)
+            h = by.setdefault(sym, {"symbol": sym, "qty": 0, "avg_price": 0,
+                                    "sellable_qty": 0, "sellable_by_product": {"CNC": 0}})
+            product_qty = h.setdefault("sellable_by_product", {"CNC": h.get("sellable_qty", 0)})
+            if sess.broker == "DHAN" and h.get("_collateral", 0) > 0:
+                raise BrokerError("Overlapping collateral/MTF quantities require broker verification")
+            old = product_qty.get("MTF", 0)
+            add = max(0, q-old)
+            total = h["qty"] + add
+            h["avg_price"] = (h["qty"]*h["avg_price"] + add*avg)/total if total else 0
+            h["qty"] = total
+            product_qty["MTF"] = max(old,q)
+            h["sellable_qty"] = sum(product_qty.values())
+        out = list(by.values())
+    for h in out:
+        if not h["symbol"] or h["qty"] < 0 or h["qty"] != int(h["qty"]):
+            raise BrokerError("Invalid holding symbol/quantity")
+        for q in h.get("sellable_by_product", {}).values():
+            if q < 0 or q != int(q): raise BrokerError("Invalid sellable quantity")
+        h.pop("_collateral", None)
     return out
 
 
@@ -888,7 +972,11 @@ def available_funds(sess):
             d = _call(sess, "GET", "/user/margins/equity")
             a = (d or {}).get("available", {})
             val = a.get("live_balance", a.get("cash"))
-        return float(val), ""
+        import math
+        value = float(val)
+        if not math.isfinite(value) or value < 0:
+            return None, "funds balance is invalid"
+        return value, ""
     except BrokerError as e:
         return None, str(e)
     except (TypeError, ValueError):
@@ -977,11 +1065,11 @@ def mtf_leverage(sess, symbol, price):
       Dhan    POST /v2/margincalculator  productType MTF  -> leverage
       Angel   POST .../margin/v1/batch   productType MARGIN -> totalMarginRequired
       Zerodha POST /margins/orders       product MTF -> leverage / total
-    Anything odd -> (None, why) and the caller assumes 4x."""
+    Anything unverified -> (None, why); callers block MTF, with no guessed leverage."""
     if sess is None:
         return None, "no broker session"
     x = symbol_map(sess).get(str(symbol).upper())
-    if not x or not price or price <= 0:
+    if not x or not price or not math.isfinite(float(price)) or price <= 0:
         return None, "not in the %s symbol list / no price" % sess.label
     qty = max(1, int(100000 // price))       # ~Rs 1 lakh -> precise ratio
     value = qty * float(price)
@@ -993,9 +1081,12 @@ def mtf_leverage(sess, symbol, price):
                 "transactionType": "BUY", "quantity": qty,
                 "productType": "MTF", "securityId": str(x["id"]),
                 "price": float(price), "triggerPrice": 0.0})
-            nums = re.findall(r"\d+(?:\.\d+)?", str(d.get("leverage", "")))
-            lev = float(nums[-1]) if nums else None   # "4.55" / "1:4.55"
+            raw = str(d.get("leverage", "")).strip()
+            match = re.fullmatch(r"(?:1\s*:\s*)?(\d+(?:\.\d+)?)", raw)
+            lev = float(match.group(1)) if match else None
             margin = d.get("totalMargin")
+            if lev == 0:
+                return 0.0, "%s explicitly reports MTF 0x (not available)" % sess.label
         elif sess.broker == "ANGEL":
             d = _call(sess, "POST",
                       "/rest/secure/angelbroking/margin/v1/batch", body={
@@ -1015,7 +1106,7 @@ def mtf_leverage(sess, symbol, price):
             d = d[0] if isinstance(d, list) and d else {}
             lev = d.get("leverage")
             margin = d.get("total")
-    except BrokerError as e:
+    except (BrokerError, TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         return None, "%s margin calculator: %s" % (sess.label, e)
     try:
         lev = float(lev) if lev else None
@@ -1047,7 +1138,11 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
     except BrokerError as e:
         return False, str(e), "ERROR"
     sym = str(symbol).upper()
-    qty = int(quantity)
+    from order_inputs import quantity as parse_quantity
+    try:
+        qty = parse_quantity(quantity, "order Qty") or 0
+    except ValueError as error:
+        return False, str(error), "ERROR"
     side = str(side).upper()
     tag = tag or new_tag(side)
     if side not in ("BUY", "SELL"):
@@ -1065,7 +1160,16 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
     if not x or sym == INDEX:
         return False, "%s not in the %s symbol list" % (sym, sess.label), \
             "ERROR"
-    lim = float(price) if order_type == "LIMIT" else 0.0
+    lim = 0.0
+    if order_type == "LIMIT":
+        try:
+            from execution_safety import finite_positive
+            lim = finite_positive(price, "limit price")
+            tick = finite_positive(x.get("tick"), "broker instrument tick")
+            if abs(lim/tick - round(lim/tick)) > 1e-6:
+                return False, "Limit price does not match broker instrument tick", "ERROR"
+        except ValueError as error:
+            return False, str(error), "ERROR"
     try:
         if sess.broker == "DHAN":
             body = {"dhanClientId": sess.client_id,
@@ -1078,7 +1182,7 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
                     "afterMarketOrder": True, "amoTime": "OPEN"}
             d = _call(sess, "POST", "/orders", body=body, once=True)
             status = str(d.get("orderStatus", "")).upper()
-            oid = str(d.get("orderId", ""))
+            oid = str(d.get("orderId") or "").strip()
             if status == "REJECTED":
                 return False, "order rejected (%s)" % (
                     d.get("omsErrorDescription") or _err(d)), "REJECTED"
@@ -1087,7 +1191,8 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
                                   "order id)")
             return True, oid, status
         if sess.broker == "ANGEL":
-            body = {"variety": "AMO", "tradingsymbol": x["tsym"],
+            # SmartAPI treats after-hours NORMAL orders as AMO.
+            body = {"variety": "NORMAL", "tradingsymbol": x["tsym"],
                     "symboltoken": str(x["id"]), "transactiontype": side,
                     "exchange": "NSE", "ordertype": order_type,
                     "producttype": "MARGIN" if is_mtf else "DELIVERY",
@@ -1114,6 +1219,12 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
             raise BrokerError("ORDER STATUS UNKNOWN (reply without an "
                               "order id)")
         return True, oid, "AMO"
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
+        # A malformed success reply cannot prove that the POST was rejected.
+        found, oid, st = find_order_by_tag(sess, tag)
+        if found:
+            return True, oid, st or "AMO"
+        return False, "ORDER STATUS UNKNOWN (malformed reply: %s)" % type(e).__name__, "UNKNOWN"
     except BrokerError as e:
         if "STATUS UNKNOWN" in str(e):          # reply lost: ask the book
             time.sleep(3)
@@ -1128,6 +1239,32 @@ def place_amo_order(symbol, quantity, is_mtf, broker=None, token=None,
 
 _STATUS = {"TRADED": "TRADED", "COMPLETE": "TRADED", "REJECTED": "REJECTED",
            "CANCELLED": "CANCELLED", "EXPIRED": "EXPIRED"}
+
+
+def pending_orders(sess):
+    """Stocks with open or filled orders in the current broker book, including manual orders."""
+    if sess.broker == "DHAN":
+        rows = _call(sess, "GET", "/orders")
+        if isinstance(rows, dict):rows = rows.get("data")
+    elif sess.broker == "ANGEL":
+        rows = _call(sess, "GET", "/rest/secure/angelbroking/order/v1/getOrderBook")
+    else:
+        rows = _call(sess, "GET", "/orders")
+    if not isinstance(rows, list):
+        raise BrokerError("order book unavailable/invalid")
+    names = {str(x["id"]): s for s, x in symbol_map(sess).items()}
+    pending = set()
+    for row in rows:
+        status = str(row.get("orderStatus") or row.get("status") or row.get("orderstatus") or "").upper()
+        if not status:
+            raise BrokerError("order book contains an order with unknown status")
+        if status in _STATUS and _STATUS[status] != "TRADED":
+            continue
+        sym = row.get("tradingSymbol") or row.get("tradingsymbol") or names.get(str(row.get("securityId") or row.get("symboltoken")))
+        if not sym:
+            raise BrokerError("open broker order cannot be mapped to a stock")
+        pending.add(re.sub(r"-(EQ|BE)$", "", str(sym).upper()))
+    return pending
 
 
 def check_order_status(order_id, broker=None, token=None, sess=None):
@@ -1256,6 +1393,16 @@ def load_intents():
             d[c] = ""
     if "tracked" in d and len(d):          # v5 ledger (strategy/leg/price/
         d = d.apply(_from_v5, axis=1)      # tracked) -> position_data
+    if len(d):
+        from order_inputs import quantity
+        states = set(UNRESOLVED) | {"ACCEPTED", "REJECTED", "CLOSED", "DONE", "NOT_PLACED"}
+        if d["tag"].eq("").any() or d["tag"].duplicated().any() or not d["state"].isin(states).all() or not d["side"].isin(["BUY", "SELL"]).all():
+            raise BrokerError("Intent ledger identity/state invalid; orders blocked for manual review")
+        try:
+            if any(not quantity(q, "intent Qty") for q in d["qty"]):
+                raise ValueError("zero intent Qty")
+        except ValueError as error:
+            raise BrokerError("Intent ledger quantity invalid; orders blocked: %s" % error)
     return d[INTENT_COLS]
 
 

@@ -65,7 +65,6 @@ KEEP_RANK = ms.BUFFER * ms.SLOTS
 SLOT_RS = int(ms.CAPITAL / ms.SLOTS)   # own money per stock; main() sets it
 SLOT_NOTE = "default Rs %s (no broker value)" % format(SLOT_RS, ",")  # to
 # account value / 20 (sizing A, RB 30 Sep 2026 -- same as the backtest)
-MTF_X = 4                              # = auto_tracker_update.MTF_LEVERAGE
 ACTIONS_SHEET = False   # RB 6 Oct: BUY / MTF / WATCH all in Buy_Planner
 LEG_ORDER = {"EXIT": 0, "SELL@REBAL": 1, "SELL": 1, "WATCH": 2, "WEAK": 2,
              "HOLD": 3, "KEEP": 3, "AVOID": 4, "STRONG": 4, "SIP": 5}
@@ -633,17 +632,15 @@ def read_sell_table(path):
     (held N, CNC)', older cards: symbol 10 / 9 rows above). Older files: the Sell
     sheet's table. [] if none."""
     import re
+    from order_inputs import quantity
     try:
         from openpyxl import load_workbook
-        wb = load_workbook(path, data_only=True)
+        wb = load_workbook(path, data_only=False)
     except Exception:
         return []
 
     def num(v):
-        try:
-            return int(float(str(v).replace(",", "")))
-        except (TypeError, ValueError):
-            return None
+        return quantity(v, "SELL Qty")
     out = []
     if "Holdings" in wb.sheetnames:
         ws = wb["Holdings"]
@@ -1055,7 +1052,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                                              "RSI 14") is not None else "-")),
             ("Rank / W+TT", "%s / %s" % (h.get("Mom Rank") if h.get(
                 "Mom Rank") is not None else "-", h.get("W+TT today", "-"))),
-            ("News / filing", cut(h.get("Headline") or "-", 115))]
+            ("News / filing", cut(h.get("Headline") or "-", 115)),
+            ("Available MTF (broker)", h.get("MTF available", "UNKNOWN"))]
         for n, (lab, val) in enumerate(lines, 5):
             a = ws.cell(row=r0 + n, column=c0, value=lab)
             b = ws.cell(row=r0 + n, column=c0 + 1, value=val)
@@ -1072,8 +1070,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                 b.font = Font(bold=True, color="C00000")
         x = sell_by.get(h["Symbol"]) if h.get("Mode") == "LIVE" else None
         if x:                          # 6 Oct (RB): sell from the card
-            a = ws.cell(row=r0 + 11, column=c0, value=SELL_CAP)
-            b = ws.cell(row=r0 + 11, column=c0 + 1, value="%s sell qty  (held "
+            a = ws.cell(row=r0 + 12, column=c0, value=SELL_CAP)
+            b = ws.cell(row=r0 + 12, column=c0 + 1, value="%s sell qty  (held "
                         "%d, %s)" % (h["Symbol"], x.get("Held qty") or 0,
                                      x["Product"]))
             for c in (a, b):
@@ -1082,18 +1080,18 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                                                          "SELL")
                     else GREY_TXT)
             b.alignment = Alignment(horizontal="right")
-            a = ws.cell(row=r0 + 12, column=c0, value=x.get("Sell?") or None)
-            b = ws.cell(row=r0 + 12, column=c0 + 1, value=x.get("Qty"))
+            a = ws.cell(row=r0 + 13, column=c0, value=x.get("Sell?") or None)
+            b = ws.cell(row=r0 + 13, column=c0 + 1, value=x.get("Qty"))
             for c in (a, b):
                 c.fill = fill("FFF2CC")
                 c.font = Font(bold=True, size=12, color="C00000")
             b.alignment = Alignment(horizontal="right")
             dv_s.add(a.coordinate)
             dv_q.add(b.coordinate)
-        for rr in range(r0, r0 + (13 if x else 11)):
+        for rr in range(r0, r0 + (14 if x else 12)):
             for cc in (c0, c0 + 1):
                 ws.cell(row=rr, column=cc).border = box
-        return 13
+        return 14
 
     row = 11
     for mode, label in (("LIVE", "LIVE (demat, asli paisa)"),
@@ -1123,7 +1121,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
                                                   115) for h in chunk]
                 nl = max(math.ceil(len(t) / (CW + 2)) for t in txts)
                 ws.row_dimensions[rr].height = max(18, 15 * min(nl, 4) + 4)
-            row += 14
+            row += 15
     if not own:
         ws.cell(row=6, column=1, value="Koi holding nahi (demat khaali, koi "
                 "SIP / trade abhi).").font = Font(size=12, italic=True)
@@ -1273,7 +1271,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         wa = wb.create_sheet("Actions")
         extra = [c for c in comp.columns if c not in ACOLS and c not in
                  ("Regime", "Shares (Rs slot)")] if len(comp) else []
-        acols = ACOLS + extra
+        acols = ACOLS + extra + ["MTF x (broker)", "MTF updated IST", "MTF status (broker)"]
         rows = []
         for _, x in comp.iterrows():
             d = dict(x)
@@ -1281,6 +1279,10 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
             d["Held here"] = ", ".join(sorted(held_modes.get(t, [])))
             d["Action"] = old_actions.get(t, "")
             d["Amount (Rs)"] = old_amount.get(t)
+            mtf = (planner or {}).get("mtf_rates", {}).get(t, {})
+            d["MTF x (broker)"] = mtf.get("leverage") if mtf.get("leverage") is not None else "UNKNOWN"
+            d["MTF updated IST"] = mtf.get("asof")
+            d["MTF status (broker)"] = mtf.get("note", "UNKNOWN")
             rows.append(d)
         widths = {"Ticker": 13, "Strategy Overlap": 14, "Sector / Industry": 24,
                   "Action": 12, "Held here": 10, "Amount (Rs)": 12,
@@ -1302,14 +1304,15 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         amt = L(acols.index("Amount (Rs)") + 1)
         qty = acols.index("Qty (auto)") + 1
         ltp = L(acols.index("LTP") + 1)
+        mtfcol = L(acols.index("MTF x (broker)") + 1)
         for r in range(2, last + 1):
             for c in (col, amt):
                 wa["%s%d" % (c, r)].fill = fill("FFF2CC")
             wa["%s%d" % (amt, r)].number_format = "#,##0"
             wa.cell(row=r, column=qty, value=(
                 '=IF(OR({a}{r}="",{a}{r}="WATCH"),"",IFERROR(INT(IF({m}{r}="",'
-                '{d},{m}{r})*IF(ISNUMBER(SEARCH("MTF",{a}{r})),{x},1)/{p}{r}),'
-                '""))').format(a=col, m=amt, p=ltp, r=r, d=SLOT_RS, x=MTF_X))
+                '{d},{m}{r})*IF(ISNUMBER(SEARCH("MTF",{a}{r})),IF(N({x}{r})>1,N({x}{r}),0),1)/{p}{r}),'
+                '""))').format(a=col, m=amt, p=ltp, r=r, d=SLOT_RS, x=mtfcol))
         dv = DataValidation(type="list", formula1='"%s"' % ",".join(
             a for a in ms.ACTIONS if a != "BUY"),          # BUY = Buy_Planner
                             allow_blank=True, showErrorMessage=True,
@@ -1325,8 +1328,7 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
              "Super-Buy. Gold Ticker = momentum rank 1-5 (pehle dekho, BUY "
              "signal nahi). Momentum buy sirf mahine ke 1st trading day."
              % format(SLOT_RS, ","))
-        note(wa, last + 3, "MTF: Qty (auto) %dx maan ke dikhata hai; rbtrack broker "
-             "ka asli leverage leta hai." % MTF_X)
+        note(wa, last + 3, "MTF: Qty actual broker leverage se; 0 / UNKNOWN par zero qty. Update details MTF_Rates sheet mein.")
 
     # ------------------------------------------------------------ SIP
     import sip as sipm
@@ -1457,8 +1459,12 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
         try:
             import buy_planner
             import momentum_focus as mf
+            shortlist = buy_planner.shortlist(comp, ms.cap_of)
+            for row in shortlist:
+                mtf = planner.get("mtf_rates", {}).get(row["symbol"], {})
+                row.update(mtf_lev=mtf.get("leverage"), mtf_asof=mtf.get("asof"), mtf_note=mtf.get("note", "UNKNOWN"))
             buy_planner.write_sheet(
-                wb, planner["acct"], buy_planner.shortlist(comp, ms.cap_of),
+                wb, planner["acct"], shortlist,
                 planner["inputs"], planner["picks"],
                 "BUY PLANNER | %s" % banner.split(" | master")[0],
                 mf.symbols(mf.load()[0]))
@@ -1480,6 +1486,8 @@ def write_book(path, hold, rebal, comp, held_modes, old_actions, banner,
     try:                               # columns fit their content (layout)
         import cap_class               # Mcap + Large/Mid/Small columns
         cap_class.add_columns(wb)
+        import broker_mtf
+        broker_mtf.add_columns(wb, (planner or {}).get("mtf_rates", {}))
         import xl_fit
         xl_fit.fit_workbook(wb, skip=("Dashboard", "Holdings",
                                       "Buy_Planner"))
@@ -1602,6 +1610,10 @@ def dashboard_data(acc, today, master, note, regime_red, hold, rebal, comp,
 def main():
     import account
     acc = account.activate()
+    import execution_safety as safety
+    if not safety.workflow_lock(acc.data):
+        print("! Another account workflow is running; portfolio update stopped.")
+        return
     a = sys.argv[1:]
     sess = acc.session if acc.token_ok else None
     warns = []
@@ -1611,12 +1623,16 @@ def main():
         print("! No master scan yet -- run rbscan first.")
         sys.exit(1)
     if today not in os.path.basename(master):
-        warns.append("master scan is %s, not today -- run rbscan"
-                     % os.path.basename(master))
+        print("! Master scan is %s, not today; run rbscan. Report regeneration stopped." % os.path.basename(master))
+        sys.exit(1)
     if not os.path.exists(pt.RANKS_FILE):
         print("! No momentum ranking -- run rbscan first.")
         sys.exit(1)
-    rk = pd.read_csv(pt.RANKS_FILE)
+    try:
+        rk = safety.read_ranks(pt.RANKS_FILE, safety.ranking_days())
+    except ValueError as error:
+        print("! %s. Portfolio regeneration stopped." % error)
+        sys.exit(1)
     rk["symbol"] = rk["symbol"].astype(str).str.upper()
     ranks = dict(zip(rk["symbol"], rk["rank"].astype(int)))
     regime_red = bool(rk["regime_red"].iloc[0]) if "regime_red" in rk and \
@@ -1883,6 +1899,14 @@ def main():
     live = [h for h in hold if h["Mode"] == "LIVE"]
     realised = sum(c.get("NET (tax se pehle)") or 0 for c in
                    ((jrep or {}).get("LIVE") or {}).get("closed", []))
+    # Only stocks discovered by the screener's actionable shortlist, per user scope.
+    import broker_mtf
+    mtf_prices = {r["symbol"]: r["price"] for r in buy_planner.shortlist(comp, ms.cap_of)}
+    import broker_api as bapi
+    mtf_rates = broker_mtf.refresh(sess, mtf_prices, bapi,
+                                 ds.now_ist().strftime("%Y-%m-%d %H:%M:%S IST"))
+    for h in hold:
+        h["MTF available"] = broker_mtf.display(mtf_rates[h["Symbol"]]) if h["Symbol"] in mtf_rates else "— (shortlist mein nahi)"
     planner = {"acct": {
         "cash": cash, "hold_value": sum(h.get("Value (Rs)") or 0
                                         for h in live),
@@ -1891,9 +1915,8 @@ def main():
         "realised": realised},
         "inputs": {"money_added": st_.get("money_added"),
                    "budget": st_.get("planner_budget"),
-                   "shares": st_.get("planner_shares"),
-                   "mtf_lev": st_.get("planner_mtf_lev") or MTF_X},
-        "picks": plan_picks}
+                   "shares": st_.get("planner_shares")},
+        "picks": plan_picks, "mtf_rates": mtf_rates}
     path = write_book(path_for(), hold, rebal, comp, held_modes, old_actions,
                       "Portfolio %s | %s | master %s | prices: %s"
                       % (acc.label, today, os.path.basename(master), note),

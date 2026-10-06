@@ -91,7 +91,7 @@ def main():
     check("read back: AAA SELL 6, BBB blank 40", got["AAA"]["Sell?"] ==
           "SELL" and got["AAA"]["Qty"] == 6 and got["BBB"]["Sell?"] == ""
           and got["BBB"]["Held qty"] == 40, got)
-    r, c = [rc for rc in caps if ws.cell(row=rc[0] - 11, column=rc[1]).value
+    r, c = [rc for rc in caps if ws.cell(row=rc[0] - 12, column=rc[1]).value
             == "BBB"][0]
     check("caption carries the symbol", str(ws.cell(row=r, column=c + 1)
                                             .value).startswith("BBB sell qty"))
@@ -108,8 +108,8 @@ def main():
     check("blank qty = all held (40)", s["BBB"]["qty"] == 40, s)
 
     print("2b) today's gain / loss on the card")
-    txt = [ws.cell(row=rc[0] - 8, column=rc[1] + 1).value for rc in caps]
-    lab = [ws.cell(row=rc[0] - 8, column=rc[1]).value for rc in caps]
+    txt = [ws.cell(row=rc[0] - 9, column=rc[1] + 1).value for rc in caps]
+    lab = [ws.cell(row=rc[0] - 9, column=rc[1]).value for rc in caps]
     check("Angel line: Shares 10 | 05 Oct -₹135 (-1.50%) (not today)",
           "05 Oct -₹135 (-1.50%)" in txt and "Shares 10" in lab, (txt, lab))
     check("day_txt +/- and no data", pf.day_txt({"Aaj %": 2.0,
@@ -119,12 +119,12 @@ def main():
     heads = [c.value for c in wt[1]]
     check("Holdings_Table has Aaj % + Aaj (Rs)", "Aaj %" in heads and
           "Aaj (Rs)" in heads, heads)
-    inv = [(ws.cell(row=rc[0] - 7, column=rc[1]).value,
-            ws.cell(row=rc[0] - 7, column=rc[1] + 1).value) for rc in caps]
+    inv = [(ws.cell(row=rc[0] - 8, column=rc[1]).value,
+            ws.cell(row=rc[0] - 8, column=rc[1] + 1).value) for rc in caps]
     check("Angel line: Invested ₹1,000 | Current ₹900 (AAA 10 x 100)",
           ("Invested ₹1,000", "Current ₹900") in inv, inv)
-    avg = [ws.cell(row=rc[0] - 9, column=rc[1]).value for rc in caps]
-    pl = [ws.cell(row=rc[0] - 10, column=rc[1] + 1).value for rc in caps]
+    avg = [ws.cell(row=rc[0] - 10, column=rc[1]).value for rc in caps]
+    pl = [ws.cell(row=rc[0] - 11, column=rc[1] + 1).value for rc in caps]
     check("Avg ₹100.00 + P&L -₹100 on the card", "Avg ₹100.00" in avg and
           "P&L -₹100" in pl, (avg, pl))
     summ = {ws.cell(row=3, column=k).value: ws.cell(row=4, column=k).value

@@ -28,8 +28,7 @@ rbport; save + close Excel first):
 
 OPTIONS
   --dry-run     show what would happen, send nothing, write nothing
-  --no-orders   BUY rows go to split.csv as LIVE without placing orders
-                (you buy manually in the broker app)
+  --no-orders   show plans only; do not create unfilled LIVE positions
   --limit       LIMIT AMO at last price + LIMIT_BUFFER instead of MARKET
   --sync        after the market opens: read fills from the broker and set the real
                 entry_price / quantity; recover missing BUY rows by intent tag;
@@ -75,6 +74,8 @@ import momentum_screener as ms
 import broker_api as ba
 import portfolio as pf
 from position_sizing import slot_budget
+import execution_safety as safety
+from order_inputs import quantity
 
 SPLIT_FILE = ms.SPLIT_FILE
 BACKUP = os.path.join(ds.HERE, "split_backup.csv")
@@ -86,8 +87,6 @@ QTY = ("swing_qty", "investing_qty", "momentum_qty")
 TRACKING_COLS = ["intent_tag", "ordered_qty", "filled_qty_confirmed",
                  "fill_avg_price", "fill_avg_qty", "price_pending"]
 LIMIT_BUFFER = 0.02        # --limit: pay at most 2% above the last price
-MTF_LEVERAGE = 4           # BUY MTF fallback when the broker gives no leverage;
-                           # Dhan: real per-stock leverage (margin calculator)
 ACTIONS = {"BUY": ("LIVE", "CNC"), "BUY MTF": ("LIVE", "MTF")}   # PAPER removed
                                                              # 27 Sep (RB)
 
@@ -151,7 +150,7 @@ def action_rows(path):
     return d[d["act"].isin(list(ACTIONS) + ["WATCH"])].copy()
 
 
-def planner_rows(path):
+def planner_rows(path, sess=None):
     """Buy_Planner BUY / MTF / WATCH rows -> the old Actions row shape, with
     the FINAL QTY recomputed by buy_planner.distribute() from the sheet's own
     inputs (never the cached formula values)."""
@@ -159,8 +158,16 @@ def planner_rows(path):
     inp, prow = bp.read_sheet(path)
     if not prow or not any(r["pick"] for r in prow):
         return pd.DataFrame(), None
+    for row in prow:
+        if row["pick"] == "MTF" and sess is not None:
+            lev, why = ba.mtf_leverage(sess, row["symbol"], row["price"])
+            row["mtf_lev"] = lev or 0
+            if not lev:
+                print("! %s MTF blocked (%s)" % (row["symbol"], why))
     out, summ = bp.distribute(prow, inp.get("budget"), inp.get("shares"),
                               inp.get("mtf_lev"))
+    if inp.get("budget") is not None and summ["total"] > inp["budget"] + 0.005:
+        raise ValueError("Selected quantities exceed the Buy_Planner budget; adjust Qty or budget")
     rows = []
     for r in out:
         why = str(r.get("why", ""))
@@ -179,10 +186,8 @@ def planner_rows(path):
                      "Strategy Overlap": ov,
                      # auto MTF: own money fixed, broker leverage sets qty;
                      # your own Qty (or a normal BUY) = exactly that qty
-                     "Amount (Rs)": round(r["amount"], 2)
-                     if mtf and r["qty_you"] is None else "",
-                     "Qty": None if mtf and r["qty_you"] is None
-                     else int(r["final"]), "Planner price": r["price"]})
+                     "Amount (Rs)": "", "Qty": int(r["final"]),
+                     "Planner price": r["price"], "Planner budget": inp.get("budget")})
     print("Buy_Planner: budget Rs %s | Mid / Large / Small %s | planned Rs %s "
           "| bacha Rs %s" % (
               format(int(summ["budget"]), ","),
@@ -233,17 +238,22 @@ def unwatch(symbols):
 
 
 # ================================================================== prices
-def prices(sess, symbols):
+def prices(sess, symbols, require_broker=False):
     """{symbol: (price, source)} -- broker LTP first, free-source close second."""
     out = {}
     if sess:
         try:
             ltp = ba.live_prices(sess, symbols)
             for s, p in ltp.items():
-                out[s] = (p, sess.label)
+                try:
+                    out[s] = (safety.finite_positive(p, s + " quote"), sess.label)
+                except ValueError:
+                    pass
         except Exception as e:
             print("! %s price fetch failed (%s) -- using last close."
                   % (sess.label, e))
+    if require_broker:
+        return out                  # old free-source data cannot fund a live BUY
     for s in symbols:
         if s not in out:
             df = ds.fetch_eod(s.lower())
@@ -286,13 +296,19 @@ def plan(rows, px, sp, sess=None, slot=None):
     are refused past 20 positions or 4 per industry (holdings + this run),
     the backtest's limits (Codex review 30 Sep)."""
     new, skip = [], []
+    broker_held = set()
+    if sess is not None:
+        try:
+            broker_held = {x["symbol"] for x in ba.holdings(sess) if x["qty"] > 0}
+        except ba.BrokerError as error:
+            return [], ["Broker holdings unverified; no new BUY plan (%s)" % error]
     today = ds.now_ist().date().isoformat()
     secmap = _sectors()
     book = {}
     for _, r in rows.iterrows():
         s = str(r["Ticker"]).upper().strip()
         mode, product = ACTIONS[r["act"]]
-        if s in held(sp, mode) or any(x["symbol"] == s and x["mode"] == mode
+        if s in held(sp, mode) or mode == "LIVE" and s in broker_held or any(x["symbol"] == s and x["mode"] == mode
                                       for x in new):
             skip.append("%s (%s already in split.csv)" % (s, mode))
             continue
@@ -303,6 +319,11 @@ def plan(rows, px, sp, sess=None, slot=None):
             skip.append("%s (no price)" % s)
             continue
         price, src = px[s]
+        try:
+            price = safety.finite_positive(price, s + " price")
+        except ValueError as error:
+            skip.append(str(error))
+            continue
         overlap = str(r.get("Strategy Overlap", ""))
         mom = overlap in ("Momentum only", "Super-Buy")
         if mom:
@@ -327,13 +348,17 @@ def plan(rows, px, sp, sess=None, slot=None):
         lev, lev_note = 1.0, ""
         if product == "MTF":
             lev, lev_note = ba.mtf_leverage(sess, s, price)
-            if lev is None:
-                lev, lev_note = float(MTF_LEVERAGE), \
-                    "MTF %gx ASSUMED (%s)" % (MTF_LEVERAGE, lev_note)
+            if lev is None or lev <= 1:
+                skip.append("%s (MTF leverage unverified: %s)" % (s, lev_note))
+                continue
         exposure = slot_rs * lev
         shares = ms.shares_for(exposure, price)
-        pq = pd.to_numeric(r.get("Qty"), errors="coerce")
-        if pq == pq and pq >= 1:                        # Buy_Planner qty
+        raw_qty = r.get("Qty")
+        pq = quantity(None if pd.isna(raw_qty) else raw_qty, s + " BUY Qty")
+        if pq == 0:
+            skip.append(s + " (explicit zero Qty)")
+            continue
+        if pq is not None and pq >= 1:                  # Buy_Planner qty
             shares = int(pq)
             slot_rs = shares * price / lev
             src = "Buy_Planner qty | " + src
@@ -348,6 +373,7 @@ def plan(rows, px, sp, sess=None, slot=None):
                     "strategy": "Momentum" if mom else "W+TT", "mode": mode,
                     "product": product, "order_id": "", "shares": shares,
                     "lev": lev,
+                    "planner_budget": None if pd.isna(r.get("Planner budget")) else float(r["Planner budget"]),
                     "note": "%s | own Rs %s | %s%s" % (overlap,
                                                         format(int(slot_rs), ","),
                                                         src,
@@ -363,18 +389,7 @@ _LOCK = None
 def take_lock():
     """One rbtrack per account at a time: a second copy started while the
     first is sending orders stops here (no two processes, one order)."""
-    global _LOCK
-    import fcntl
-    p = os.path.join(os.path.dirname(ba.ORDER_LOG), "rbtrack.lock")
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    f = open(p, "w")
-    try:
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except (IOError, OSError):
-        f.close()
-        return False
-    _LOCK = f
-    return True
+    return safety.workflow_lock(os.path.dirname(ba.ORDER_LOG))
 
 
 def send_one(sess, sym, qty, product, side, otype="MARKET", price=0.0,
@@ -382,6 +397,12 @@ def send_one(sess, sym, qty, product, side, otype="MARKET", price=0.0,
     """intent saved -> order sent with the intent's tag -> result saved.
     If saving the result fails after the broker accepted, the intent stays
     unresolved and the next run finds the order by its tag (never re-sent)."""
+    qty = quantity(qty, sym + " order Qty")
+    if not qty or product not in ("CNC", "MTF") or side not in ("BUY", "SELL"):
+        return False, "invalid order quantity/product/side", "ERROR"
+    if ba.ordered_today(sym, side, sess=sess) or ba.intent_blocks(
+            sym, "SELL" if side == "BUY" else "BUY", sess=sess):
+        return False, "existing/unknown order blocks this stock", "BLOCKED"
     tag = ba.new_intent(sym, side, qty, product, position=position)
     if position is not None:
         position["intent_tag"] = tag
@@ -420,6 +441,22 @@ def place_orders(sess, live, use_limit, dry):
     """Returns the rows whose AMO the broker accepted (order_id filled in)."""
     if not live:
         return []
+    try:
+        safety.validate_batch(live)
+        planner = [r for r in live if pd.notna(r.get("planner_budget"))]
+        if planner and sum(r["shares"]*r["entry_price"]/r.get("lev",1) for r in planner) > min(r["planner_budget"] for r in planner) + .005:
+            raise ValueError("Fresh prices/leverage put these quantities above the planner budget")
+        if not dry:
+            safety.validate_caps({x["symbol"] for x in live}, ds.MCAP_CACHE, ds.now_ist().date())
+            pending = ba.pending_orders(sess)
+            if any(x["symbol"] in pending for x in live):
+                raise ValueError("A selected stock has an existing broker order")
+            have = {h["symbol"] for h in ba.holdings(sess) if h["qty"] > 0}
+            if any(x["symbol"] in have and x.get("strategy") != "SIP" for x in live):
+                raise ValueError("Selected stock is already in the broker holdings; no duplicate top-up")
+    except (ValueError, ba.BrokerError) as error:
+        print("! BUY blocked: %s. No orders sent." % error)
+        return []
     if ds.market_open():
         print("\n! Market is open (09:15-15:30). AMOs are placed after hours "
               "-- run rbtrack tonight, or use --no-orders.")
@@ -432,15 +469,22 @@ def place_orders(sess, live, use_limit, dry):
     live = [x for x in live if x["symbol"] in known]
     if not live:
         return []
-    total = sum(x["shares"] * x["entry_price"] for x in live)
-    own = sum(x["shares"] * x["entry_price"] /
+    if use_limit:
+        try:
+            for x in live:
+                x["limit_price"] = safety.limit_price(x["entry_price"], known[x["symbol"]].get("tick"), LIMIT_BUFFER)
+        except ValueError as error:
+            print("! LIMIT BUY blocked: %s; refresh broker instruments." % error)
+            return []
+    total = sum(x["shares"] * x.get("limit_price", x["entry_price"]) for x in live)
+    own = sum(x["shares"] * x.get("limit_price", x["entry_price"]) /
               x.get("lev", 1) for x in live)
     mtf = [x for x in live if x["product"] == "MTF"]
     otype = "LIMIT" if use_limit else "MARKET"
     print("\n%s AMO ORDERS -- account %s (BUY, %s at next open):"
           % (sess.label.upper(), sess.client_id, otype))
     for x in live:
-        lim = round(x["entry_price"] * (1 + LIMIT_BUFFER), 1)
+        lim = x.get("limit_price", 0)
         print("  %-12s %-3s qty %4d  exposure ~Rs %9s%s%s" % (
             x["symbol"], x["product"], x["shares"],
             format(int(x["shares"] * x["entry_price"]), ","),
@@ -459,10 +503,6 @@ def place_orders(sess, live, use_limit, dry):
         print("  !!! At %.2fx a %.0f%% fall wipes out the money you put in. "
               "Backtest: 4x momentum max DD -97.5%% (1x: -35%%)."
               % (top, 100 / top))
-        if any("ASSUMED" in x["note"] for x in mtf):
-            print("  !!! Leverage ASSUMED %gx for some rows -- if the stock's "
-                  "MTF limit on %s is lower, the broker will reject or ask "
-                  "more margin." % (MTF_LEVERAGE, sess.label))
         if sess.broker != "DHAN":
             print("  !!! 12.49%% is Dhan's MTF rate; %s charges its own."
                   % sess.label)
@@ -479,6 +519,11 @@ def place_orders(sess, live, use_limit, dry):
         print("! Could not read %s funds (%s). No orders sent."
               % (sess.label, err))
         return []
+    try:
+        funds = safety.finite_positive(funds, "available funds")
+    except ValueError as error:
+        print("! %s. No orders sent." % error)
+        return []
     print("  %s available balance: Rs %s" % (sess.label,
                                             format(int(funds), ",")))
     if funds < own * 1.02:
@@ -493,12 +538,39 @@ def place_orders(sess, live, use_limit, dry):
         print("Cancelled -- nothing sent.")
         return []
     accepted = []
+    remaining = funds
     for x in live:
-        lim = round(round(x["entry_price"] * (1 + LIMIT_BUFFER) / 0.05) * 0.05, 2)
+        # The user may spend cash or submit a manual order during confirmation.
+        fresh, err = ba.available_funds(sess)
+        need = x["shares"] * x.get("limit_price", x["entry_price"]) / x.get("lev", 1) * 1.02
+        try:
+            fresh = safety.finite_positive(fresh, "fresh funds")
+        except ValueError:
+            fresh = 0
+        if min(fresh, remaining) < need:
+            print("! Funds changed/unavailable; stopping remaining BUY orders.")
+            break
+        try:
+            if x["symbol"] in ba.pending_orders(sess):
+                print("! Existing broker order; stopping remaining BUY orders.")
+                break
+            if x["product"] == "MTF":
+                rate, why = ba.mtf_leverage(sess, x["symbol"], x["entry_price"])
+                if rate is None or rate <= 1 or abs(rate - x.get("lev", 0)) > .005:
+                    print("! MTF leverage changed/unverified (%s); refresh the plan. Remaining BUYs stopped." % why)
+                    break
+            if x.get("strategy") != "SIP" and any(h["symbol"] == x["symbol"] and h["qty"] > 0 for h in ba.holdings(sess)):
+                print("! Stock appeared in broker holdings; remaining BUYs stopped.")
+                break
+        except ba.BrokerError as error:
+            print("! Cannot verify broker order book: %s; stopping." % error)
+            break
+        lim = x.get("limit_price", 0)
         ok, res, status = send_one(sess, x["symbol"], x["shares"],
                                    x["product"], "BUY", otype,
                                    lim if use_limit else 0.0, position=x)
         if ok:
+            remaining -= need
             print("  OK   %-12s %s order %s (%s)" % (x["symbol"], x["product"],
                                                    res, status))
             x["order_id"] = res
@@ -506,7 +578,7 @@ def place_orders(sess, live, use_limit, dry):
             accepted.append(x)
         else:
             print("  FAIL %-12s %s" % (x["symbol"], res))
-            if "token" in res or "HTTP 401" in res or "HTTP 403" in res or \
+            if status in ("UNKNOWN", "BLOCKED") or "token" in res or "HTTP 401" in res or "HTTP 403" in res or \
                     "identity" in res:
                 print("! Stopping: authentication problem.")
                 break
@@ -516,7 +588,8 @@ def place_orders(sess, live, use_limit, dry):
 def _number(value, default=0.0):
     try:
         n = float(value)
-        return default if pd.isna(n) else n
+        import math
+        return default if not math.isfinite(n) else n
     except (TypeError, ValueError):
         return default
 
@@ -704,7 +777,10 @@ def place_sells(sess, sells, dry):
         print("\n! Market is open -- SELL AMOs only after 15:30.")
         return []
     try:
-        dq = {h["symbol"]: float(h["qty"]) for h in ba.holdings(sess)}
+        holdings = ba.holdings(sess)
+        dq = {h["symbol"]: float(h.get("sellable_qty", h["qty"])) for h in holdings}
+        products = {h["symbol"]: h.get("sellable_by_product", {"CNC": h.get("sellable_qty", h["qty"])}) for h in holdings}
+        pending = ba.pending_orders(sess) if not dry else set()
     except ba.BrokerError as e:
         print("! Could not read the demat (%s) -- no SELL sent." % e)
         return []
@@ -712,10 +788,11 @@ def place_sells(sess, sells, dry):
     todo, skip = [], []
     for x in sells:
         s = x["symbol"]
-        have = dq.get(s, 0) - sum(t["qty"] for t in todo if t["symbol"] == s)
+        have = products.get(s, {}).get(x["product"], 0) - sum(
+            t["qty"] for t in todo if t["symbol"] == s and t["product"] == x["product"])
         if s not in known:
             skip.append("%s (not in the %s symbol list)" % (s, sess.label))
-        elif ba.sold_recently(s, sess=sess) or \
+        elif s in pending or ba.sold_recently(s, sess=sess) or \
                 ba.ordered_today(s, "SELL", sess=sess):
             skip.append("%s (SELL already sent)" % s)
         elif have < 1:
@@ -729,6 +806,16 @@ def place_sells(sess, sells, dry):
     print("\n%s SELL AMO ORDERS -- account %s (MARKET at the next open):"
           % (sess.label.upper(), sess.client_id))
     for x in todo:
+        try:
+            latest = {h["symbol"]: h for h in ba.holdings(sess)}
+            h = latest.get(x["symbol"], {})
+            available = h.get("sellable_by_product", {"CNC": h.get("sellable_qty", h.get("qty", 0))}).get(x["product"], 0)
+            if available < x["qty"] or x["symbol"] in ba.pending_orders(sess):
+                print("! %s holdings/orders changed after confirmation; SELL skipped." % x["symbol"])
+                continue
+        except ba.BrokerError as error:
+            print("! Cannot refresh holdings/orders (%s); remaining SELLs stopped." % error)
+            break
         print("  SELL %-12s %-3s qty %d" % (x["symbol"], x["product"], x["qty"]))
     if dry:
         print("(--dry-run: no SELL sent)")
@@ -857,18 +944,31 @@ def main():
         print("! No Portfolio file found. Run rbscan, then rbport.")
         sys.exit(1)
     today = ds.now_ist().date().isoformat()
-    rd = pf.report_date(path)
-    if rd != today:
-        print("\n!! %s is from %s, NOT today (%s): Buy_Planner / Sell picks are "
-              "old. Run rb first." % (os.path.basename(path), rd or "?",
-                                      today))
     try:                            # copy in Google Drive (Sheets edits)
         import drive_copy
-        drive_copy.pull(path)       # Action picks made in Google Sheets
+        if not dry:
+            drive_copy.pull(path)   # dry-run never overwrites the local workbook
     except ImportError:
         pass
+    # Check the version actually used, after any Drive download.
+    rd = pf.report_date(path)
+    if rd != today:
+        print("\n!! %s is from %s, NOT today (%s): no BUY/SELL processed. "
+              "Run rb first." % (os.path.basename(path), rd or "?", today))
+        account.banner(acc)
+        return
+    try:
+        safety.validate_report(path, acc.broker, acc.cid, today)
+    except ValueError as error:
+        print("! %s. No BUY/SELL processed." % error)
+        return
     rows = action_rows(path)              # old files only (6 Oct: gone)
-    prow, _ = planner_rows(path)          # BUY / MTF / WATCH = Buy_Planner
+    try:
+        prow, _ = planner_rows(path, sess) # BUY / MTF / WATCH = Buy_Planner
+        sells = read_sells(path)          # validate both sides before any order
+    except ValueError as error:
+        print("! %s. Correct the Excel inputs; no order sent." % error)
+        return
     if len(prow):
         tick = rows["Ticker"].astype(str).str.upper()
         dup = sorted(set(prow["Ticker"]) & set(tick))
@@ -887,13 +987,14 @@ def main():
                            else "(--dry-run: not saved)")))
         print("  remove later with:  rbtrack --unwatch SYMBOL")
     import sip
-    probs = sip.read_sheet(path)            # your SIP sheet -> sip.csv
+    probs = sip.read_sheet(path) if not (dry or no_orders) else []
+    if dry or no_orders:
+        print("Preview: SIP uses saved plans; sheet edits are not saved.")
     for pr in probs:
         print("! SIP: %s" % pr)
     sdue = sip.due(today, early=ds.now_ist().hour < 9)
     import settings
-    trading = settings.read_dashboard(path)
-    sells = read_sells(path)
+    trading = settings.read_dashboard(path, persist=not (dry or no_orders))
     if trading != "ON":
         if len(rows) or sdue or sells:
             print("\n!! TRADING is OFF (Dashboard, cell B2) -> NO order sent "
@@ -902,6 +1003,18 @@ def main():
             print("   To trade: Dashboard B2 = ON, save, run rbtrack again.")
         account.banner(acc)
         return
+    try:
+        safety.validate_batch([{"symbol": str(x).upper().strip()} for x in rows["Ticker"]]
+                              + [{"symbol": x["symbol"]} for x in sdue], sells)
+    except ValueError as error:
+        print("! %s. No BUY or SELL sent." % error)
+        return
+    if len(rows):
+        try:
+            safety.read_ranks(ms.RANKS_FILE, safety.ranking_days())
+        except ValueError as error:
+            print("! %s. No BUY or SELL sent; refresh the screener/report first." % error)
+            return
     if sells:
         if no_orders:
             print("! --no-orders: SELL rows skipped (sell in the broker app).")
@@ -917,7 +1030,7 @@ def main():
         return
     sp = read_split()
     px = prices(sess, sorted({str(t).upper().strip() for t in rows["Ticker"]}
-                             | {x["symbol"] for x in sdue}))
+                             | {x["symbol"] for x in sdue}), require_broker=not no_orders)
     slot = None
     if sess and len(rows):
         val, how = ba.account_value(sess)
@@ -930,9 +1043,7 @@ def main():
 
     def lev_of(sym, price):
         lev, note = ba.mtf_leverage(sess, sym, price)
-        return (lev, note) if lev else (float(MTF_LEVERAGE),
-                                        "MTF %gx ASSUMED (%s)"
-                                        % (MTF_LEVERAGE, note))
+        return lev, note
     snew, sskip = sip.plan_orders(sdue, px, lev_of, today)
     done = {x["symbol"] for x in snew
             if ba.ordered_today(x["symbol"], sess=sess)}
@@ -970,8 +1081,8 @@ def main():
     print(show[["symbol", "mode", "product", "strategy", "momentum_qty",
                 "swing_qty", "investing_qty", "entry_price", "order_id"]]
           .to_string(index=False))
-    if dry:
-        print("\n(--dry-run: nothing written)")
+    if dry or no_orders:
+        print("\n(preview only: no orders or new LIVE positions recorded)")
         return
     write_split(pd.concat([sp, show.reindex(columns=COLUMNS + TRACKING_COLS)],
                           ignore_index=True))

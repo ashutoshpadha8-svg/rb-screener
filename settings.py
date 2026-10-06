@@ -42,10 +42,11 @@ def trading_on():
     return load().get("trading") == "ON"
 
 
-def read_dashboard(xlsx):
+def read_dashboard(xlsx, persist=True):
     """Take the switch the user set on the Dashboard (if the file has one).
     Returns the value now in force ('ON' / 'OFF')."""
     d = load()
+    d["trading"] = "OFF"       # invalid/missing switch never inherits saved ON
     try:
         from openpyxl import load_workbook
         ws = load_workbook(xlsx, read_only=True)["Dashboard"]
@@ -55,8 +56,11 @@ def read_dashboard(xlsx):
                 v = str(row[1] or "").upper().strip()
                 if v in ("ON", "OFF"):
                     d["trading"] = v
-                    save(d)
+                    if persist:
+                        save(d)
                 break
     except Exception:
         pass
+    if persist:
+        save(d)
     return d["trading"]

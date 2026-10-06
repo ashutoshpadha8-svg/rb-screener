@@ -1,0 +1,63 @@
+[
+  {
+    "file": "test_all_picks.py",
+    "exit_code": 0,
+    "checks": 14,
+    "skipped_notes": []
+  },
+  {
+    "file": "test_cap_class.py",
+    "exit_code": 0,
+    "checks": 12,
+    "skipped_notes": [
+      "PASS  Dashboard / Holdings skipped"
+    ]
+  },
+  {
+    "file": "test_execution.py",
+    "exit_code": 0,
+    "checks": 37,
+    "skipped_notes": []
+  },
+  {
+    "file": "test_focus.py",
+    "exit_code": 0,
+    "checks": 25,
+    "skipped_notes": [
+      "PASS  rank 1,2,4,5 selected only (3 cap-skipped, 6 + NaN out, no dup)",
+      "PASS  CCC (cap-skipped today) and W+TT AAA not gold"
+    ]
+  },
+  {
+    "file": "test_holdings_sell.py",
+    "exit_code": 0,
+    "checks": 23,
+    "skipped_notes": []
+  },
+  {
+    "file": "test_planner.py",
+    "exit_code": 0,
+    "checks": 26,
+    "skipped_notes": [
+      "(pycel not installed -- Excel formula check skipped)"
+    ]
+  },
+  {
+    "file": "test_rank_engine_causality.py",
+    "exit_code": 0,
+    "checks": 27,
+    "skipped_notes": []
+  },
+  {
+    "file": "test_recovery_tax.py",
+    "exit_code": 0,
+    "checks": 24,
+    "skipped_notes": []
+  },
+  {
+    "file": "test_sizing_a.py",
+    "exit_code": 0,
+    "checks": 9,
+    "skipped_notes": []
+  }
+]

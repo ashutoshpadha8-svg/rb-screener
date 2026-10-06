@@ -634,8 +634,8 @@ def main():
     out["amount"] = out["symbol"].map(t["amount"])
     for c in ("atr_pct", "ret6", "ret12", "vol", "dist52"):
         out[c] = out["symbol"].map(a2[c]) if c in a2 else np.nan
-    out.assign(date=str(data_day), regime_red=bool(regime_red)).to_csv(
-        RANKS_FILE, index=False)
+    import execution_safety as safety
+    safety.publish_ranks(RANKS_FILE, out.assign(date=str(data_day), regime_red=bool(regime_red)))
 
     # terminal
     print("\n" + "=" * 70)

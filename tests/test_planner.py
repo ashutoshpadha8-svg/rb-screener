@@ -39,7 +39,7 @@ SAMPLE = [("STLTECH", "M", 955.4, True, None),
 
 def rows(sample=SAMPLE):
     return [{"symbol": s, "cls": c, "price": p, "pick": k, "qty_you": q,
-             "why": "Momentum #1"} for s, c, p, k, q in sample]
+             "why": "Momentum #1", "mtf_lev": 4.0} for s, c, p, k, q in sample]
 
 
 def main():
@@ -93,7 +93,7 @@ def main():
     wb = Workbook()
     wb.active.title = "Dashboard"
     sl = [{"symbol": s, "why": "Momentum #%d" % (i + 1), "overlap": "",
-           "mom_rank": i + 1, "rs_rank": None, "cls": c, "price": p}
+           "mom_rank": i + 1, "rs_rank": None, "cls": c, "price": p, "mtf_lev": 4.0}
           for i, (s, c, p, k, qq) in enumerate(SAMPLE)]
     picks = {s: ("BUY" if k else "", qq) for s, c, p, k, qq in SAMPLE}
     bp.write_sheet(wb, {"cash": 50000, "hold_value": 35591,
@@ -179,8 +179,8 @@ def main():
           "WATCH, rest BUY", a7.get("CUPID") == "BUY MTF" and
           a7.get("HFCL") == "WATCH" and a7.get("STLTECH") == "BUY", a7)
     m7 = pr7[pr7["Ticker"] == "CUPID"].iloc[0]
-    check("auto MTF row sends own money, no fixed qty",
-          float(m7["Amount (Rs)"]) > 0 and pd.isna(m7["Qty"]), m7.to_dict())
+    check("MTF row sends quantity computed from its own broker leverage",
+          m7["Amount (Rs)"] == "" and int(m7["Qty"]) > 0, m7.to_dict())
 
     print("5) cap mix in the momentum selection (fill_slots)")
     cands = ([("M%d" % i, "sec%d" % i, "M") for i in range(3)] +
