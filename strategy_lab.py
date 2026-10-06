@@ -107,7 +107,7 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
              atr=None, atr_sizing=False, trail_atr=None, breakeven=None,
              regime_blocks_buys_only=False, buy_delay=0,
              allocation_mode=NAV_DIV_SLOTS, cap_class=None, cap_targets=None,
-             cap_order=("M", "L", "S")):
+             cap_order=("M", "L", "S"), target=None, stats=None):
     """buy_delay: new buys N sessions after the rebalance sells (live
     rbtrack buys once sells are confirmed = 1).
     sector: array col -> sector label; sector_cap: max holdings per sector.
@@ -118,6 +118,10 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
     cap_class: 2-D array [day, col] of 'L' / 'M' / 'S' (cap_mix_study.py);
     cap_targets e.g. {'M': 12, 'L': 5, 'S': 3}: new buys fill each class up
     to its target in rank order, then leftover slots go by cap_order.
+    target (profit_target_study.py, 6 Oct): sell when the day's HIGH reaches
+    entry x (1 + target) -- at that price, or at the open if it gaps above
+    (= a resting limit / GTT sell); the cash waits for the next rebalance.
+    stats: dict -> 'target_exits' count.
     Sizing (Codex fixes 1-3, 30 Sep): slot = portfolio value / N (NAV/N,
     the research default = RB's live sizing A) or allocation_mode=FIXED_SLOT
     (capital / N); whole shares incl. buy cost; accrued modeled tax is kept
@@ -125,6 +129,7 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
     O = P["Open"].values
     C = P["Close"].ffill().values
     Lo = P["Low"].values
+    Hi = P["High"].values if target is not None else None
     A = atr.values if atr is not None else None
     S = score.values
     cal = P["Close"].index
@@ -231,6 +236,15 @@ def run_rank(P, score, N, start_k, end_k=None, freq="M", buffer=2,
                     p["stop"] = max(p["stop"], p["hi"] * (1 - trail_atr * a))
                 if breakeven is not None and C[t, j] >= p["px"] * (1 + breakeven):
                     p["stop"] = max(p["stop"], p["px"])
+        if target is not None and t > start_k:
+            for j in list(pos):
+                p = pos[j]
+                tp = p["px"] * (1 + target)
+                if p["k"] < t and Hi[t, j] > 0 and Hi[t, j] >= tp:
+                    sell(j, O[t, j] if O[t, j] >= tp else tp, t)
+                    if stats is not None:
+                        stats["target_exits"] = stats.get(
+                            "target_exits", 0) + 1
         if t in reb and t > 0:
             s = S[t - 1]
             valid = ~np.isnan(s)
