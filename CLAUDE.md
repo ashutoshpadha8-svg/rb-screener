@@ -602,6 +602,11 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   live rules top20 + cap mix + sector cap 4 + rank<40). Post-tax 2013-19 / 2020-26 / FULL / DD / trades/yr / Rs 2L ->:
   MONTHLY 14.7 / 30.4 / 23.6 / -35 / 56 / 36.6 L; WEEKLY 10.8 / 29.6 / 20.1 / -34 / 122 / 24.8 L; DAILY 2.8 / 22.6 /
   13.2 / -40 / 352 / 10.9 L -> monthly best in both halves; ranking is recomputed daily but acted on monthly.
+  TOP-10 STUDY (6 Oct, RB: "weekly top 10"; top10_study.py, pre-registered, cap mix 10 = M6/L3/S1, sector cap 4).
+  Post-tax 2013-19 / 2020-26 / FULL / DD / trades/yr / Rs 2L -> / worst yr: M20 live 14.7 / 30.4 / 23.6 / -35 / 56 /
+  36.6 L / -17; M10 monthly rank>20 12.6 / 28.1 / 19.4 / -43 / 37 / 22.8 L / -23; W10a weekly rank>20 6.8 / 26.1 /
+  16.2 / -44 / 83 / 15.7 L / -23; W10b weekly rank>40 8.9 / 31.2 / 20.0 / -36 / 37 / 24.5 L / -22 -> none beats live
+  top 20 monthly in both halves (W10b +0.8 in 2020-26 only, -5.8 in 2013-19) -> rejected.
   NEXT (Codex plan, one at a time): 2 shared live/backtest spec module; 3 better history (NSE old CM bhavcopies incl.
   delisted, corporate actions); 4 risk controls tradeoffs; 5 separate 1-2 week strategy = research + paper ledger only.
   GTT/SL (Codex+RB 30 Sep): A = W+TT swing leg only first (momentum stop = strategy change, needs its own backtest);
