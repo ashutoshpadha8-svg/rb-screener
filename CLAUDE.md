@@ -631,6 +631,8 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
   OUR CHANGE ON TOP: execution_safety.ranking_days() also accepts TODAY's ranking date once the session started
   (09:15 IST) -- rb in market hours ranks on the live price, so the strict check blocked intraday rbport.
   AFTER INSTALL: run `python3 rb_scan.py --force` once (old ranking has no .meta.json -> rbport would stop).
+  v19 (RB: "rb chalaya, file update nahi hui"): rb_scan.ranking_ok() -> an unsealed/stale ranking makes rb re-scan
+  automatically (no --force needed); portfolio lock failure now exits 1 (rb no longer prints DONE over it).
   RE-RUN ON THE FIXED ENGINE (6 Oct, strategy_tester, post-tax 2013-19 / 2020-26 / FULL / DD / Rs 2L ->): LIVE 15.8 /
   28.2 / 23.6 / -34 / 36.6 L (halves moved ~1-2 pts, FULL same); target +25% 10.8 / 20.1 / 15.1 / -30 / 13.9 L (still
   rejected); daily top5 (NAV/5) SL 10% 15.5 / 28.6 / 21.8 / -56 / 30.1 L (OLD engine said 8.0 / 22.0 / 14.4 -> the

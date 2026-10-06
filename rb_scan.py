@@ -76,10 +76,23 @@ def track():
         print("! signal tracker failed (exit %d) -- scan itself is fine." % r)
 
 
+def ranking_ok():
+    """The sealed momentum ranking (v18 manifest) for today/the last session.
+    A pre-v18 ranking has no seal -> rbport would refuse it -> re-scan."""
+    try:
+        import execution_safety as safety
+        import momentum_screener as ms
+        safety.read_ranks(ms.RANKS_FILE, safety.ranking_days())
+        return True
+    except Exception as e:
+        print("Momentum ranking not verified (%s) -- scanning again." % e)
+        return False
+
+
 def main():
     force = "--force" in sys.argv[1:]
     path = master_path()
-    if complete(path) and not force:
+    if complete(path) and not force and ranking_ok():
         if made_in_market_hours(path) and not ds.market_open():
             print("Today's scan was made during market hours -- re-scanning "
                   "once for the closing prices.")

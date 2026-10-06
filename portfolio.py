@@ -1612,8 +1612,9 @@ def main():
     acc = account.activate()
     import execution_safety as safety
     if not safety.workflow_lock(acc.data):
-        print("! Another account workflow is running; portfolio update stopped.")
-        return
+        print("! Another account workflow is running (rbtrack / rbport in another "
+              "window?); portfolio update stopped.")
+        sys.exit(1)
     a = sys.argv[1:]
     sess = acc.session if acc.token_ok else None
     warns = []
