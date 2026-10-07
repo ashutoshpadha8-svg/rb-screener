@@ -69,6 +69,14 @@
                         #   column 'Doosre screener mein' e.g. 'MOM #3 + SWING FIT + SUPER-BUY' (SUPER-BUY = MOM + non-LATE W+TT).
                         #   Info only, never stops rb, not in rbtrack, NOT backtested in this form (ema_backtest.py: plain cross
                         #   < Nifty 2013-19). SL/exit: RB decides after looking at charts. tests/test_ema_screener.py 26.
+  mtf_check.py          # (7 Oct, RB: "MTF holdings, interest milake kitna loss") READ-ONLY, active account: MTF
+                        #   positions (Dhan /positions + holdings MTF qty), LTP, unrealised P&L, 'held since' = FIFO over
+                        #   broker trades (estimate; '?' if bought before --from), interest ESTIMATE cost x 75% funded
+                        #   (--funded) x 12.49% x days, + REAL debits from the Dhan ledger (GET /v2/ledger from-date/
+                        #   to-date; narration buckets MTF interest / other interest / pledge / DP / other; bills + money
+                        #   in/out skipped) or a downloaded ledger (--ledger FILE). NET = P&L - interest paid - charges -
+                        #   sell cost. accounts/<..>/reports/MTF_Check_<date>.xlsx. Ledger API + Dhan MTF row format
+                        #   NEVER tested live (mocked only) -> check the printed narration buckets. tests/test_mtf_check.py 18.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.
