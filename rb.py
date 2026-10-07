@@ -88,8 +88,8 @@ def main():
         sys.exit(r)
     if run("ema_screener.py", *[x for x in a if x == "--force"]) != 0:
         print("! EMA screener failed -- portfolio is fine, carry on")
-    print("\nEMA list: reports/EMA_Screener_*.xlsx | TradingView import: "
-          "reports/Watchlist_EMA.txt")
+    print("\nEMA list: EMA/EMA_Screener_*.xlsx | TradingView import: "
+          "EMA/Watchlist_EMA.txt (gold = also in another screener)")
     print("\nDONE. File kholo (Dashboard pehli tab). Kuch khareedna hai to "
           "Buy_Planner (doosri tab) bharo: budget + Pick BUY / MTF / WATCH, "
           "save + close, phir 15:30 ke baad: rbtrack")

@@ -63,6 +63,8 @@ def _where(local):
     m = re.match(r"Portfolio_(.+)\.xlsx$", name)
     if m:                                   # the one file per account
         return m.group(1)
+    if re.match(r"EMA_Screener_\d{4}-\d{2}-\d{2}\.xlsx$", name):
+        return "EMA"                        # ema_screener.py (7 Oct)
     m = re.match(r"Watchlist_(.+)\.txt$", name)
     if m:
         return m.group(1)

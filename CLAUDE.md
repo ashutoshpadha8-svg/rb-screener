@@ -61,10 +61,14 @@
                         #   'commands simple chahiye' -> no rbema alias). SEPARATE EMA 9/21 cross screener, daily closes only: EMA9 crossed above
                         #   EMA21, close > EMA100 & EMA200, then UP >= 3 sessions (--hold N): every day since the cross
                         #   EMA9 > EMA21, close > EMA100/200, close never below the cross-day close; cross <= 10
-                        #   sessions old (--max-age). reports/EMA_Screener_<date>.xlsx (EMA_Confirmed + EMA_Waiting =
-                        #   fresh 0-2 day crosses) + reports/Watchlist_EMA.txt = ONLY confirmed (TradingView import).
+                        #   sessions old (--max-age). OWN FOLDER ~/RB_Screener/EMA/ (v24, RB; old reports/ EMA files moved once,
+                        #   gitignored, Drive sub-folder EMA): EMA_Screener_<date>.xlsx (EMA_Confirmed + EMA_Waiting =
+                        #   fresh 0-2 day crosses) + Watchlist_EMA.txt = ONLY confirmed (TradingView import; section
+                        #   '###EMA + other screener' first). Overlap (v24, RB): stock also in today's master scan
+                        #   (Momentum_Top20 / Swing / Investing BUY-FIT-LATE, signal_tracker._sheet) -> GOLD row, sorted on top,
+                        #   column 'Doosre screener mein' e.g. 'MOM #3 + SWING FIT + SUPER-BUY' (SUPER-BUY = MOM + non-LATE W+TT).
                         #   Info only, never stops rb, not in rbtrack, NOT backtested in this form (ema_backtest.py: plain cross
-                        #   < Nifty 2013-19). SL/exit: RB decides after looking at charts. tests/test_ema_screener.py 17.
+                        #   < Nifty 2013-19). SL/exit: RB decides after looking at charts. tests/test_ema_screener.py 26.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.

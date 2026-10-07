@@ -116,6 +116,65 @@ def main():
     check("Excel row: AAA", wb["EMA_Confirmed"].cell(row=5, column=1).value
           == "AAA")
 
+    print("7) also in another screener -> column + gold row + own section")
+    from openpyxl import Workbook
+    m = os.path.join(d, "RB_Screener_2026-10-07.xlsx")
+    w = Workbook()
+    x = w.active
+    x.title = "Swing"
+    x.append(["Symbol", "Action"])
+    x.append(["AAA", "FIT"])
+    x.append(["ZZZ", "LATE"])
+    y = w.create_sheet("Investing")
+    y.append(["Symbol", "Action"])
+    y.append(["AAA", "BUY"])
+    z = w.create_sheet("Momentum_Top20")
+    z.append(["Symbol", "Mom Rank"])
+    z.append(["AAA", 3])
+    z.append(["QQQ", 12])
+    w.save(m)
+    oth = es.other_lists(m)
+    check("AAA = MOM #3 + SWING FIT + INV BUY + SUPER-BUY",
+          oth.get("AAA") == "MOM #3 + SWING FIT + INV BUY + SUPER-BUY", oth)
+    check("LATE only -> no SUPER-BUY; QQQ momentum only",
+          oth.get("ZZZ") == "SWING LATE" and oth.get("QQQ") == "MOM #12", oth)
+    check("missing master -> {}", es.other_lists(os.path.join(d, "no.xlsx"))
+          == {})
+    res3 = pd.concat([res, res.assign(symbol="BBB")], ignore_index=True)
+    t3 = es.table(res3, {}, {}, {"BBB": "MOM #5"})
+    check("table: other-screener stock first + column filled",
+          list(t3["Symbol"]) == ["BBB", "AAA"] and
+          t3[es.OTHER].iloc[0] == "MOM #5" and t3[es.OTHER].iloc[1] == "", t3)
+    p3 = os.path.join(d, "E3.xlsx")
+    es.write_book(p3, t3, pd.DataFrame(), "b")
+    ws = load_workbook(p3)["EMA_Confirmed"]
+    fills = [ws.cell(row=r, column=1).fill.fgColor.rgb for r in (5, 6)]
+    check("BBB row gold, AAA row plain", fills[0].endswith(es.GOLD) and
+          not str(fills[1]).endswith(es.GOLD), fills)
+    es.write_watchlist(["AAA", "BBB"], wl, other={"BBB": "MOM #5"})
+    check("watchlist sections: EMA + other first, then EMA only",
+          open(wl).read() == "###EMA + other screener,NSE:BBB,"
+          "###EMA 9-21 Cross,NSE:AAA\n", open(wl).read())
+
+    print("8) own EMA folder: old reports/ files moved once")
+    src, dst = os.path.join(d, "rep"), os.path.join(d, "EMA")
+    os.makedirs(src)
+    for f in ("EMA_Screener_2026-10-06.xlsx", "Watchlist_EMA.txt",
+              "RB_Screener_2026-10-06.xlsx"):
+        open(os.path.join(src, f), "w").write("x")
+    es.move_old(src, dst)
+    check("EMA files moved, master stays", sorted(os.listdir(dst)) ==
+          ["EMA_Screener_2026-10-06.xlsx", "Watchlist_EMA.txt"] and
+          os.listdir(src) == ["RB_Screener_2026-10-06.xlsx"],
+          (os.listdir(src), os.listdir(dst)))
+    check("default folder = ~/RB_Screener/EMA", es.EMA_DIR ==
+          os.path.join(HERE, "EMA") and os.path.dirname(es.WATCH_FILE) ==
+          es.EMA_DIR)
+    import drive_copy
+    check("Drive sub-folder EMA for both files",
+          drive_copy._where("EMA_Screener_2026-10-07.xlsx") == "EMA" and
+          drive_copy._where("Watchlist_EMA.txt") == "EMA")
+
     bad = [n for n, ok in RESULTS if not ok]
     print("\n%d / %d passed%s" % (len(RESULTS) - len(bad), len(RESULTS),
                                   "" if not bad else " -- FAILED: " +
