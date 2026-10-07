@@ -88,7 +88,20 @@
                         #   label exists; every demat stock is listed (From = MTF trades / demat); Dhan LTP gave HTTP 401
                         #   (Data API not active on that account) -> last close (free history + NSE bhavcopy); money in/out
                         #   rows printed by narration for checking. Ledger money: in 10,01,455 / out 4,10,730 (unverified).
-                        #   tests/test_mtf_check.py 30.
+                        #   v29 REWRITE after Codex's v27 review (REVIEW_HINGLISH + CLAUDE_HANDOFF, 8 findings / 17 cases):
+                        #   every value = Num(value, VERIFIED|ESTIMATED|UNKNOWN); UNKNOWN never summed as 0 (total() ->
+                        #   UNKNOWN + 'known part'); current loan only from --loan (Dhan app MTF funded amount), last
+                        #   interest/days x365/rate = 'AVERAGE balance' diagnostic only; exit cash = value - loan - unpaid
+                        #   interest (--unpaid-interest or est. from last Rs/day) - sell fees, paid interest NOT again;
+                        #   FIFO by exact execution time (uncovered sell -> realised UNKNOWN), trades keep id/exch/isin,
+                        #   dedupe, page-limit = incomplete, no time = invalid; reconcile vs demat (all products: <
+                        #   lots or missing = UNKNOWN, > lots = ESTIMATED) + Dhan MTF positions + 'ledger still charging
+                        #   but no lot' = UNKNOWN; interest by LOT days; account-wide DP/pledge/dividend/money = separate
+                        #   'unallocated', no all-products net; day-first dates; scopes Open / Exit_Estimate / Period;
+                        #   --own-cash -> return on initial cash; exit 2 when trades/ledger/demat failed. Sheets
+                        #   MTF_Open_Summary, MTF_Open, MTF_Exit_Estimate, MTF_Period, Reconciliation, MTF_Trades, Ledger.
+                        #   tests/test_mtf_check.py 38 (Codex acceptance cases incl. 282.31 lot fixture, 19,480 demo).
+                        #   Still estimates: Dhan rate slabs/settlement days, journal.fees (product arg unused) for sells.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.
