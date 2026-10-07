@@ -297,7 +297,8 @@ def held_since(trades, symbol, qty):
     return first
 
 
-def analyse(pos, ltp, trades, today, funded=FUNDED, broker="DHAN"):
+def analyse(pos, ltp, trades, today, funded=FUNDED, broker="DHAN",
+            rate=MTF_RATE):
     import journal
     rows = []
     for p in pos:
@@ -306,7 +307,7 @@ def analyse(pos, ltp, trades, today, funded=FUNDED, broker="DHAN"):
         val = p["qty"] * px if px else None
         since = held_since(trades, p["symbol"], p["qty"])
         days = (today - dt.date.fromisoformat(since)).days if since else None
-        intr = cost * funded * MTF_RATE * days / 365 if days else None
+        intr = cost * funded * rate * days / 365 if days else None
         sell = journal.fees(broker, "SELL", val)[0] if val else None
         pnl = val - cost if val is not None else None
         rows.append({
@@ -320,7 +321,7 @@ def analyse(pos, ltp, trades, today, funded=FUNDED, broker="DHAN"):
             "Your margin ~ (Rs)": round(cost * (1 - funded), 2),
             "Dhan funded ~ (Rs)": round(cost * funded, 2),
             "Interest est. (Rs)": round(intr, 2) if intr is not None else None,
-            "Interest/day now (Rs)": round(cost * funded * MTF_RATE / 365, 2),
+            "Interest/day now (Rs)": round(cost * funded * rate / 365, 2),
             "Sell cost today (Rs)": sell,
             "Net after int+sell (Rs)": round(pnl - (intr or 0) - (sell or 0),
                                              2) if pnl is not None else None})
@@ -409,7 +410,7 @@ def main():
     ltp = ba.live_prices(sess, [p["symbol"] for p in pos]) if pos else {}
     cost = sum(p["qty"] * p["avg"] for p in pos)
     share = min(1.0, funded / cost) if funded and cost else 0.75
-    tab = analyse(pos, ltp, mtf, today, share, "DHAN")
+    tab = analyse(pos, ltp, mtf, today, share, "DHAN", a.rate)
     val = tab["Current (Rs)"].sum() if len(tab) else 0.0
     miss = [p["symbol"] for p in pos if not ltp.get(p["symbol"])]
     unreal = tab["P&L (Rs)"].sum() if len(tab) else 0.0
@@ -432,7 +433,11 @@ def main():
     if len(tab):
         print(tab[["Symbol", "Qty", "Avg cost", "LTP", "Invested (Rs)",
                    "Current (Rs)", "P&L (Rs)", "P&L %", "Held since (est.)",
-                   "Days"]].to_string(index=False))
+                   "Days", "Interest est. (Rs)", "Interest/day now (Rs)",
+                   "Net after int+sell (Rs)"]].to_string(index=False))
+        print("(Interest per stock = cost x Dhan's share %.0f%% x %.2f%%/yr x "
+              "days held -- Dhan's ledger has ONE total, not per stock)"
+              % (100 * share, 100 * a.rate))
     print()
     say("1. MTF mein kul kharida (shuru se)", f["bought"],
         "%d buy+sell trades since %s" % (len(mtf), frm))
