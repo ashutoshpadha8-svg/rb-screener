@@ -267,6 +267,27 @@ def fifo(trades):
             "open": opn, "short": short}
 
 
+def last_closes(symbols):
+    """{SYM: (close, date)} from the free history + NSE bhavcopy fill
+    (when the broker gives no live price)."""
+    import broker_api as ba
+    import daily_screener as ds
+    fr = {}
+    for x in symbols:
+        try:
+            f = ds.fetch_eod(x.lower())
+        except Exception:
+            f = None
+        if f is not None and len(f):
+            fr[x.lower()] = f
+    try:
+        ba.bhav_fill(fr, ds.last_expected_session())
+    except Exception:
+        pass
+    return {x.upper(): (float(f["Close"].iloc[-1]), f.index[-1].date())
+            for x, f in fr.items()}
+
+
 def held_since(trades, symbol, qty):
     """Oldest buy date still held, FIFO: sells eat the oldest buys first.
     None when the trade history does not cover the qty (bought earlier)."""
@@ -366,6 +387,11 @@ def main():
     for x in allt:
         prods[x["product"] or "?"] = prods.get(x["product"] or "?", 0) + 1
     mtf = [x for x in allt if x["product"] in ("MTF", "MARGIN")]
+    unk = [x for x in allt if not x["product"]]
+    if not mtf and unk:      # RB's Dhan 7 Oct: 200 trades with NO product,
+        mtf = unk            # CNC + INTRADAY labelled -> the blank ones = MTF
+        print("  Dhan gives no product on %d trades (CNC / INTRADAY are "
+              "labelled) -> those are taken as the MTF trades" % len(unk))
     print("Trades %s -> %s: %d  (by product: %s)" % (frm, today, len(allt),
           ", ".join("%s %d" % kv for kv in sorted(prods.items())) or "none"))
     f = fifo(mtf)
@@ -389,6 +415,11 @@ def main():
             pos = mtf_positions(sess)
         except Exception:
             pass
+    have = {p["symbol"] for p in pos}
+    for sym, h in sorted(demat.items()):   # every stock still in demat counts
+        if sym not in have and h.get("qty"):
+            pos.append({"symbol": sym, "qty": h["qty"],
+                        "avg": h.get("avg_price") or 0, "src": "demat"})
 
     # 3. ledger: interest + charges actually debited
     led, src = pd.DataFrame(), ""
@@ -407,10 +438,27 @@ def main():
         if len(led) else (None, None, "")
 
     # 4. per stock
-    ltp = ba.live_prices(sess, [p["symbol"] for p in pos]) if pos else {}
+    syms = [p["symbol"] for p in pos]
+    ltp, px_note = {}, "live"
+    try:
+        ltp = ba.live_prices(sess, syms) if pos else {}
+    except Exception as e:
+        print("! live price nahi mila (%s) -- last close use kar raha hoon "
+              "(Dhan Data API active nahi?)" % type(e).__name__)
+    miss0 = [x for x in syms if not ltp.get(x)]
+    if miss0:
+        lc = last_closes(miss0)
+        for x, (c, d) in lc.items():
+            ltp[x] = c
+        if lc:
+            px_note = "last close %s" % max(d for c, d in lc.values())
     cost = sum(p["qty"] * p["avg"] for p in pos)
     share = min(1.0, funded / cost) if funded and cost else 0.75
     tab = analyse(pos, ltp, mtf, today, share, "DHAN", a.rate)
+    if len(tab):
+        tab.insert(1, "From", [p.get("src", "MTF trades") for p in pos])
+        tab.insert(4, "Dhan avg", [demat.get(p["symbol"], {}).get(
+            "avg_price") for p in pos])
     val = tab["Current (Rs)"].sum() if len(tab) else 0.0
     miss = [p["symbol"] for p in pos if not ltp.get(p["symbol"])]
     unreal = tab["P&L (Rs)"].sum() if len(tab) else 0.0
@@ -431,7 +479,8 @@ def main():
                                   else v, note))
     print("\n==== MTF HISAAB  %s  %s ====" % (acc.label, today))
     if len(tab):
-        print(tab[["Symbol", "Qty", "Avg cost", "LTP", "Invested (Rs)",
+        print(tab[["Symbol", "From", "Qty", "Avg cost", "Dhan avg", "LTP",
+                   "Invested (Rs)",
                    "Current (Rs)", "P&L (Rs)", "P&L %", "Held since (est.)",
                    "Days", "Interest est. (Rs)", "Interest/day now (Rs)",
                    "Net after int+sell (Rs)"]].to_string(index=False))
@@ -451,8 +500,8 @@ def main():
     say("   Tumhara apna paisa laga ~", margin,
         "! Dhan's money > cost: that interest week also had stocks sold "
         "later, or history before --from is missing" if margin < 0 else "")
-    say("3. Current value (aaj)", val, ("LTP missing: " + ", ".join(miss))
-        if miss else "")
+    say("3. Current value (aaj)", val, "price: %s%s" % (px_note, (
+        "; missing: " + ", ".join(miss)) if miss else ""))
     say("   Abhi ke stocks ka P&L (price)", unreal)
     say("4. MTF interest PAY kiya (aaj tak)", -paid,
         "%s, %d entries" % (src or "no ledger",
@@ -491,6 +540,13 @@ def main():
     if len(led):
         x = led[~led["bucket"].astype(str).str.startswith("_")]
         mon = led[led["bucket"] == "_money"]
+        if len(mon):
+            m2 = mon.assign(k=[re.sub(r"[\d/:-]+", "#", str(n))[:60]
+                               for n in mon["narration"]])
+            print("\nPaise daale / nikaale -- ye rows gine (check):")
+            for k, g in m2.groupby("k"):
+                print("  %-60s in %s  out %s  (%d)" % (
+                    k, rs(g["credit"].sum()), rs(g["debit"].sum()), len(g)))
         print("\nLedger buckets (check):")
         for b, g in pd.concat([x, mon]).groupby("bucket"):
             print("  %-18s %4d rows  %s" % (b, len(g), rs(g["debit"].sum() -

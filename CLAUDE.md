@@ -83,6 +83,11 @@
                         #   trade history (GET /v2/trades in 90-day chunks, productType MTF, FIFO, per-trade charges) capped at
                         #   demat qty; Dhan's money = last interest entry / days x 365 / rate; balance/dividend/money rows no
                         #   longer counted as charges; 'haath mein' + ACTUAL + money in/out cross-check. Default --from 2024-04-01.
+                        #   v28 (RB's 2nd run, Tanya DHAN_1100122649: TCS 52 + PERSISTENT 46, cost ~4.15 L): Dhan trade
+                        #   history = 289 trades, productType CNC 59 / INTRADAY 30 / BLANK 200 -> blank = MTF when no 'MTF'
+                        #   label exists; every demat stock is listed (From = MTF trades / demat); Dhan LTP gave HTTP 401
+                        #   (Data API not active on that account) -> last close (free history + NSE bhavcopy); money in/out
+                        #   rows printed by narration for checking. Ledger money: in 10,01,455 / out 4,10,730 (unverified).
                         #   tests/test_mtf_check.py 30.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
