@@ -57,6 +57,13 @@
                         #   kept). Secrets/split.csv/data never copied. Tested with a fake Drive folder only.
                         #   rbport also writes reports/Watchlist_<TAG>.txt for TradingView 'Import list' (29 Sep: sections
                         #   ###Holdings / Super-Buy / Momentum Top 20 / W+TT BUY-FIT / My Watch, no duplicates).
+  ema_screener.py       # rbema (7 Oct, RB): SEPARATE EMA 9/21 cross screener, daily closes only: EMA9 crossed above
+                        #   EMA21, close > EMA100 & EMA200, then UP >= 3 sessions (--hold N): every day since the cross
+                        #   EMA9 > EMA21, close > EMA100/200, close never below the cross-day close; cross <= 10
+                        #   sessions old (--max-age). reports/EMA_Screener_<date>.xlsx (EMA_Confirmed + EMA_Waiting =
+                        #   fresh 0-2 day crosses) + reports/Watchlist_EMA.txt = ONLY confirmed (TradingView import).
+                        #   Info only, not in rb/rbtrack, NOT backtested in this form (ema_backtest.py: plain cross
+                        #   < Nifty 2013-19). SL/exit: RB decides after looking at charts. tests/test_ema_screener.py 17.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.
