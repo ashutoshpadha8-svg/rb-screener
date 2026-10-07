@@ -76,7 +76,14 @@
                         #   to-date; narration buckets MTF interest / other interest / pledge / DP / other; bills + money
                         #   in/out skipped) or a downloaded ledger (--ledger FILE). NET = P&L - interest paid - charges -
                         #   sell cost. accounts/<..>/reports/MTF_Check_<date>.xlsx. Ledger API + Dhan MTF row format
-                        #   NEVER tested live (mocked only) -> check the printed narration buckets. tests/test_mtf_check.py 18.
+                        #   first real run (RB 7 Oct, Dhan): ledger API WORKS (283 rows: 'MTF Interest MTF Interest for Period dd/mm/yyyy To
+                        #   dd/mm/yyyy Clt', 'DP Transaction Charges ... Pledge / Unpledge', 'Margin Interest', 'Delayed Payment
+                        #   Charges', 'CLOSING BALANCE', 'Dividend Received'); MTF interest paid May 2024 -> 1 Oct 2026 = Rs 1,43,412,
+                        #   now ~Rs 93/day (~Rs 2.7 L funded at 12.49%); positions came out EMPTY. v26: open MTF stocks from the
+                        #   trade history (GET /v2/trades in 90-day chunks, productType MTF, FIFO, per-trade charges) capped at
+                        #   demat qty; Dhan's money = last interest entry / days x 365 / rate; balance/dividend/money rows no
+                        #   longer counted as charges; 'haath mein' + ACTUAL + money in/out cross-check. Default --from 2024-04-01.
+                        #   tests/test_mtf_check.py 30.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.

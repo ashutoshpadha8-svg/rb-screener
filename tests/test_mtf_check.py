@@ -32,9 +32,18 @@ def main():
     check("pledge", mc.classify("Pledge creation charges") ==
           "Pledge charges")
     check("DP", mc.classify("DP Charges for sale of XYZ") == "DP charges")
-    check("bill / funds out", mc.classify("Bill for NSE trade 123") ==
-          "_trade_or_money" and mc.classify("Funds added via UPI") ==
-          "_trade_or_money")
+    check("bill / funds", mc.classify("Bill for NSE trade 123") ==
+          "_trade" and mc.classify("Funds added via UPI") == "_money")
+    check("balance rows + dividend not charges",
+          mc.classify("CLOSING BALANCE") == "_balance" and
+          mc.classify("Dividend Received in Trading Ledger") ==
+          "Dividend (income)")
+    check("Dhan's real narrations", mc.classify(
+        "MTF Interest MTF Interest for Period  24/09/2026 To 30/09/2026 Clt")
+        == "MTF interest" and mc.classify("Margin Interest Margin Interest "
+                                          "for Period") == "Other interest"
+        and mc.classify("DP Transaction Charges Charges for Sell / Pledge / "
+                        "Unpledge in your Demat Account") == "Pledge charges")
 
     print("2) Dhan API rows -> charges (reversals subtracted)")
     api = [{"narration": "MTF Interest", "voucherdate": "Sep 01, 2026",
@@ -100,6 +109,57 @@ def main():
           and pd.isna(b["Interest est. (Rs)"]) and
           b["Held since (est.)"] == "?", b)
     check("rs()", mc.rs(-1234.4) == "-Rs 1,234" and mc.rs(None) == "-")
+
+    print("6) v26: Dhan's money from the last interest entry, balance, money")
+    led2 = mc.ledger_rows([
+        {"narration": "MTF Interest MTF Interest for Period  16/09/2026 To "
+         "23/09/2026 Clt", "voucherdate": "Sep 24, 2026", "debit": "791.36",
+         "credit": "0"},
+        {"narration": "MTF Interest MTF Interest for Period  24/09/2026 To "
+         "30/09/2026 Clt", "voucherdate": "Oct 01, 2026", "debit": "653.34",
+         "credit": "0"},
+        {"narration": "Funds added UPI", "voucherdate": "Sep 02, 2026",
+         "debit": "0", "credit": "50000"},
+        {"narration": "Funds withdrawn NEFT", "voucherdate": "Sep 05, 2026",
+         "debit": "20000", "credit": "0"},
+        {"narration": "CLOSING BALANCE", "voucherdate": "Oct 07, 2026",
+         "debit": "0", "credit": "10590.43"}])
+    fd, per, txt = mc.funded_from_interest(led2)
+    want = round(653.34 / 7 * 365 / 0.1249, 2)
+    check("funded = 653.34 / 7 days x 365 / 12.49%% = %s" % want,
+          fd == want and per == round(653.34 / 7, 2) and
+          txt == "2026-09-24 -> 2026-09-30", (fd, per, txt))
+    check("closing balance +10,590.43", mc.closing_balance(led2) == 10590.43)
+    check("money added 50,000 / withdrawn 20,000",
+          mc.money_in_out(led2) == (50000.0, 20000.0))
+    check("charges ignore balance + money rows", set(mc.charges(led2)) ==
+          {"MTF interest"}, mc.charges(led2))
+    check("no interest rows -> None", mc.funded_from_interest(
+        mc.ledger_rows(api[3:]))[0] is None)
+
+    print("7) v26: FIFO over MTF trades")
+    t2 = [{"symbol": "AAA", "side": "BUY", "qty": 10, "price": 100,
+           "date": "2024-05-01", "charges": 5},
+          {"symbol": "AAA", "side": "BUY", "qty": 10, "price": 120,
+           "date": "2024-06-01", "charges": 5},
+          {"symbol": "AAA", "side": "SELL", "qty": 15, "price": 90,
+           "date": "2024-07-01", "charges": 7},
+          {"symbol": "BBB", "side": "SELL", "qty": 3, "price": 50,
+           "date": "2024-07-01", "charges": 1},
+          {"symbol": "CCC", "side": "SELL", "qty": 4, "price": 60,
+           "date": "2024-08-01", "charges": 1},
+          {"symbol": "CCC", "side": "BUY", "qty": 4, "price": 50,
+           "date": "2024-08-01", "charges": 1}]
+    r = mc.fifo(t2)
+    check("bought 2,200 + 200 / sold 1,350 + 150 + 240",
+          r["bought"] == 2400 and r["sold"] == 1740, r)
+    check("realised AAA 10x(90-100) + 5x(90-120) = -250, CCC same day +40",
+          r["realised"] == -250 + 40, r)
+    check("open AAA 5 @ 120 since 2024-06-01", r["open"].get("AAA") ==
+          {"qty": 5, "avg": 120.0, "first": "2024-06-01"}, r["open"])
+    check("BBB sold without a buy -> short list", r["short"] == {"BBB": 3},
+          r["short"])
+    check("charges summed 20", r["charges"] == 20, r)
 
     bad = [n for n, ok in RESULTS if not ok]
     print("\n%d / %d passed%s" % (len(RESULTS) - len(bad), len(RESULTS),
