@@ -9,6 +9,8 @@ rb  --  THE daily command (everything that does NOT place an order)
   3. master scan     only if today's scan is not done yet (rb_scan.py)
   4. portfolio       Holdings, Journal, Actions, Rebalance ... + Drive copy
                      (portfolio.py)
+  5. EMA screener    EMA 9/21 cross list + Watchlist_EMA.txt, once per
+                     session (ema_screener.py; info only, never stops rb)
 
 Orders are ONLY placed by `rbtrack` (after you picked Actions) -- on purpose,
 money never moves from rb.
@@ -84,6 +86,10 @@ def main():
                                                     "--no-fund")])
     if r != 0:
         sys.exit(r)
+    if run("ema_screener.py", *[x for x in a if x == "--force"]) != 0:
+        print("! EMA screener failed -- portfolio is fine, carry on")
+    print("\nEMA list: reports/EMA_Screener_*.xlsx | TradingView import: "
+          "reports/Watchlist_EMA.txt")
     print("\nDONE. File kholo (Dashboard pehli tab). Kuch khareedna hai to "
           "Buy_Planner (doosri tab) bharo: budget + Pick BUY / MTF / WATCH, "
           "save + close, phir 15:30 ke baad: rbtrack")

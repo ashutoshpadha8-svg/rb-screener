@@ -27,7 +27,10 @@ Output:
   reports/EMA_Screener_YYYY-MM-DD.xlsx  (EMA_Confirmed, EMA_Waiting)
   reports/Watchlist_EMA.txt             TradingView 'Import list': ONLY the
                                         confirmed stocks (overwritten daily)
-Run:  python3 ema_screener.py            (best after 15:30)
+Runs by itself inside `rb` (after the portfolio, once per completed
+session; a failure never stops rb). By hand:
+      python3 ema_screener.py            (skips if today's file exists)
+      python3 ema_screener.py --force    (run again)
       python3 ema_screener.py --hold 4   (4 sessions up after the cross)
 """
 
@@ -189,8 +192,17 @@ def main():
     ap.add_argument("--hold", type=int, default=HOLD_DAYS,
                     help="sessions the stock must stay up after the cross")
     ap.add_argument("--max-age", type=int, default=MAX_AGE)
+    ap.add_argument("--force", action="store_true",
+                    help="run even if this session's file exists")
     a = ap.parse_args()
     HOLD_DAYS = max(1, a.hold)
+    done = os.path.join(ds.REPORTS, "EMA_Screener_%s.xlsx"
+                        % ds.last_expected_session())
+    if os.path.exists(done) and not a.force and a.hold == ap.get_default("hold") and \
+            a.max_age == MAX_AGE:
+        print("EMA screener already done for this session: %s\n"
+              "Watchlist: %s  (again: --force)" % (done, WATCH_FILE))
+        return 0
     import momentum_screener as ms
     sess = ms.get_session()
     frames, bm, caps, live, warns, want = ms.load_data(sess)
@@ -212,6 +224,11 @@ def main():
     write_book(path, conf, wait, banner)
     syms = list(conf["Symbol"]) if len(conf) else []
     write_watchlist(syms)
+    try:
+        import drive_copy
+        drive_copy.push(WATCH_FILE, quiet=True)
+    except Exception:
+        pass
     for w in warns[:5]:
         print("  ! %s" % w)
     print("\nEMA 9/21 CROSS -- last completed close %s" % last)

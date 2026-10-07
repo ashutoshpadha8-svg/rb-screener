@@ -17,11 +17,10 @@ sed -i '' '/^alias rb/d' ~/.zshrc && cat >> ~/.zshrc <<'X'
 alias rb='python3 ~/RB_Screener/rb.py'
 alias rbtrack='python3 ~/RB_Screener/auto_tracker_update.py'
 alias rbsig='python3 ~/RB_Screener/signal_tracker.py'
-alias rbema='python3 ~/RB_Screener/ema_screener.py'
 X
 source ~/.zshrc
 ```
-Check: `alias | grep rb` -> 4 lines (rb, rbema, rbsig, rbtrack).
+Check: `alias | grep rb` -> 3 lines (rb, rbsig, rbtrack).
 
 Options (kabhi kabhi):
 ```
