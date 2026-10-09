@@ -37,6 +37,9 @@ def calculate(R,today,days=30,settlement=3,tax=.208,tick=.05):
  basis_matches=bool(costs) and all(finite(x) and x>0 for x in costs) and finite(known_total) and abs(sum(costs)-known_total)<=.02
  out=[]
  rate=R.get('breakeven_rate',.1249)
+ un=R.get('unpaid');unpaid_total=un.value if getattr(un,'known',False) and finite(un.value) and un.value>=0 else None
+ # Loan / unpaid interest per stock = cost ratio (MODEL; Dhan app shows the real per-stock funded amount).
+ share_ok=basis_matches and finite(loan) and 0<=loan<=known_total
  valid_inputs=all(finite(v) for v in (days,settlement,tax,tick,rate)) and 0<=days<=3650 and 0<=settlement<=90 and 0<=tax<.8 and tick>0 and 0<=rate<1
  for row in sorted(R['rows'],key=lambda r:(0 if r['Symbol']=='TCS' else 1,r['Symbol'])):
   sym=row['Symbol'];lots=R.get('current_lots',R['fifo']['lots']).get(sym,[])
@@ -68,7 +71,10 @@ def calculate(R,today,days=30,settlement=3,tax=.208,tick=.05):
   now_net=with_interest-buy-now_sale_fee if with_interest is not None and buy is not None and now_sale_fee is not None else None
   now_net_tax=now_net-now_tax if now_net is not None and now_tax is not None else None
   charges_now=buy+now_sale_fee+now_tax if None not in (buy,now_sale_fee,now_tax) else None
-  out.append(dict(charges_now=charges_now,now_value=now_value,price_pnl=price_pnl,with_interest=with_interest,now_sale_fee=now_sale_fee,now_tax=now_tax,now_net=now_net,now_net_tax=now_net_tax,price_source=row.get('Price source','quote provenance not supplied'),symbol=sym,qty=q,cmp=row.get('Price'),cost=c,lots=lots,funded=funded,past=past,future=future,buy=buy,broker=broker,full=full,sell_fee=fee,tax=reserve,net=net,status='ESTIMATED' if ready else 'UNKNOWN'))
+  loan_share=loan*c/known_total if share_ok else None
+  unpaid_share=unpaid_total*c/known_total if share_ok and unpaid_total is not None else None
+  cash_now=now_value-now_sale_fee-loan_share-unpaid_share if None not in (now_value,now_sale_fee,loan_share,unpaid_share) else None
+  out.append(dict(loan_share=loan_share,unpaid_share=unpaid_share,cash_now=cash_now,charges_now=charges_now,now_value=now_value,price_pnl=price_pnl,with_interest=with_interest,now_sale_fee=now_sale_fee,now_tax=now_tax,now_net=now_net,now_net_tax=now_net_tax,price_source=row.get('Price source','quote provenance not supplied'),symbol=sym,qty=q,cmp=row.get('Price'),cost=c,lots=lots,funded=funded,past=past,future=future,buy=buy,broker=broker,full=full,sell_fee=fee,tax=reserve,net=net,status='ESTIMATED' if ready else 'UNKNOWN'))
  return out
 
 def cache_formula_values(path,values):
@@ -218,6 +224,33 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
   formula(col+'20','=IF(COUNT(%s18:%s%d)=%d,SUM(%s18:%s%d),"UNKNOWN")'%(col,col,17+len(rows),len(rows),col,col,17+len(rows)) if rows else '="UNKNOWN"',sum(vals) if ok else 'UNKNOWN')
  s.merge_cells('A21:G21');put('A21','AAJ BECHO TO NET P/L = stock upar/neeche (aaj ki value - buy cost) - interest ab tak - kharche (buy charges + sell charges + tax reserve; loss par tax 0). Aage ke 30 din ka interest isme nahi, woh SELL ORDER PRICE mein hai.')
  s.merge_cells('A22:G22');put('A22','Price column uses the quoted/saved source beside each stock (cell comment). A saved snapshot remains a snapshot; a newly fetched broker quote is identified by its source. Missing prices stay UNKNOWN.')
+ # RB 9 Oct: 'aaj bechne per mera balance kya hoga' -- per stock (sell ONLY that one) + all.
+ last=chr(65+len(rows))
+ unpaid=R.get('unpaid');unpaid_v=unpaid.value if getattr(unpaid,'known',False) and finite(unpaid.value) and unpaid.value>=0 else None
+ def tot(key):
+  vals=[r[key] for r in rows];return sum(vals) if vals and all(finite(v) for v in vals) else None
+ U=lambda v:v if v is not None else 'UNKNOWN'
+ loan_v=R['loan'].value if R['loan'].known else None
+ val_v,fee_v=tot('now_value'),tot('now_sale_fee')
+ cash_v=val_v-fee_v-loan_v-unpaid_v if None not in (val_v,fee_v,loan_v,unpaid_v) else None
+ s.merge_cells('A42:G42');put('A42','AAJ BECHO TO HAATH MEIN KITNA AAYEGA (ESTIMATE) -- har stock alag, ya sab ek saath')
+ put('A43','Agar sirf ye stock becho ->')
+ for j,r in enumerate(rows):put(chr(66+j)+'43',r['symbol'])
+ put('D43','SAB BECHO (total)')
+ put('A44','Aaj ki value Rs');put('A45','minus Sell charges (brokerage, STT, DP, unpledge) Rs');put('A46','minus Dhan MTF loan wapas Rs (stock-wise = cost ratio, model)');put('A47','minus Interest jo abhi debit hona baaki hai Rs');put('A48','= HAATH MEIN AAYEGA (account balance mein) Rs')
+ for j,r in enumerate(rows):
+  c=chr(66+j)
+  formula(c+'44','=C%d'%(18+j),U(r['now_value']))
+  formula(c+'45','=%s37'%c,U(r['now_sale_fee']))
+  formula(c+'46','=IF(COUNT($D$5,%s26,$D$26)=3,IF($D$26>0,$D$5*%s26/$D$26,"UNKNOWN"),"UNKNOWN")'%(c,c),U(r['loan_share']))
+  formula(c+'47','=IF(COUNT($D$47,%s26,$D$26)=3,IF($D$26>0,$D$47*%s26/$D$26,"UNKNOWN"),"UNKNOWN")'%(c,c),U(r['unpaid_share']))
+  formula(c+'48','=IF(COUNT(%s44:%s47)=4,%s44-%s45-%s46-%s47,"UNKNOWN")'%(c,c,c,c,c,c),U(r['cash_now']))
+ formula('D44','=C20',U(val_v))
+ formula('D45','=IF(COUNT(B37:%s37)=%d,SUM(B37:%s37),"UNKNOWN")'%(last,len(rows),last),U(fee_v))
+ formula('D46','=D5',U(loan_v))
+ put('D47',U(unpaid_v),getattr(unpaid,'note',None) or 'not supplied')
+ formula('D48','=IF(COUNT(D44:D47)=4,D44-D45-D46-D47,"UNKNOWN")',U(cash_v))
+ s.merge_cells('A49:G49');put('A49','Interest ab tak (upar E20) Dhan pehle hi ledger se kaat chuka hai -> dobara nahi ghataya. Tax reserve nahi kaata (tax baad mein ITR mein). Account mein pehle se pada cash NAHI joda. Ek stock ka loan = total loan x us stock ki cost / total cost (model); asli per-stock funded amount Dhan app mein dikhta hai.')
  s.conditional_formatting.add('D18:D20 G18:G20',CellIsRule(operator='lessThan',formula=['0'],font=Font(color='C00000',bold=True)))
  s.conditional_formatting.add('D18:D20 G18:G20',CellIsRule(operator='greaterThan',formula=['0'],font=Font(color='166534',bold=True)))
  for row in s:
@@ -240,8 +273,14 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
   for col in ('E','F'):s[col+str(k)].number_format='#,##0.00;[Red](#,##0.00);0.00'
  for cell in s[20]:cell.fill=PatternFill('solid',fgColor='FFF2CC');cell.font=Font(name='Arial',bold=True,size=11,color='243B53')
  for k in (18,19,20):s.row_dimensions[k].height=28
+ for cell in s[42]:cell.fill=PatternFill('solid',fgColor='243B53');cell.font=Font(name='Arial',bold=True,color='FFFFFF',size=11)
+ for k in range(44,49):
+  for col in 'BCD':s[col+str(k)].number_format='#,##0.00;[Red]-#,##0.00;0.00'
+ for cell in s[43]:cell.font=Font(name='Arial',bold=True,color='243B53')
+ for col in 'ABCD':s[col+'48'].fill=PatternFill('solid',fgColor='D9EAD3');s[col+'48'].font=Font(name='Arial',size=14 if col!='A' else 11,bold=True,color='166534')
+ s.row_dimensions[48].height=30;s.row_dimensions[49].height=44
  s.row_dimensions.group(52,58,hidden=True);s.row_dimensions.group(63,end+20,hidden=True)
- s.freeze_panes='A10';s.sheet_view.showGridLines=False;s.print_options.horizontalCentered=True;s.sheet_properties.pageSetUpPr.fitToPage=True;s.page_setup.orientation='landscape';s.page_setup.paperSize=s.PAPERSIZE_A3;s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=1;s.print_area='A1:H40'
+ s.freeze_panes='A10';s.sheet_view.showGridLines=False;s.print_options.horizontalCentered=True;s.sheet_properties.pageSetUpPr.fitToPage=True;s.page_setup.orientation='landscape';s.page_setup.paperSize=s.PAPERSIZE_A3;s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=1;s.print_area='A1:H49'
  path.parent.mkdir(parents=True,exist_ok=True)
  fd,tmp=tempfile.mkstemp(prefix='.mtf-report-',suffix='.xlsx',dir=str(path.parent));os.close(fd)
  try:
@@ -287,7 +326,9 @@ def write_many_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
  for k,text in [(1,'CURRENT MTF — INTEREST, PROFIT / LOSS, BREAKEVEN'),(2,'Account: '+str(R.get('report_account','UNKNOWN'))),(7,'MODEL assumes today\'s funded share applied since each buy. Actual stock-wise billed interest/funding history remains UNKNOWN.'),(8,'Current holdings only. Closed trades excluded. Full-quantity sell scenario; published charges and tax reserve are estimates.')]:
   s.merge_cells(start_row=k,start_column=1,end_row=k,end_column=17);put('A'+str(k),text);s.row_dimensions[k].height=32
  for ref,val in {'A4':'As of','B4':today,'C4':'Holding days','D4':days,'E4':'Annual rate','F4':rate,'A5':'Settlement reserve','B5':settlement,'C5':'Current loan','D5':R['loan'].value if R['loan'].known else None,'E5':'Tax reserve','F5':tax,'A6':'Tick','B6':.05,'C6':'Rounding buffer','D6':2}.items():put(ref,val)
- cols=['Stock','Shares','Buy cost Rs','Current price','Price P/L','Past interest MODEL','Net P/L MODEL','BE broker costs','BE + tax reserve','Allocated loan MODEL','Future interest MODEL','Buy charges MODEL','Sell charges MODEL','Tax reserve','Model status','Price source/time','Acquisition dates']
+ unpaid=R.get('unpaid');unpaid_v=unpaid.value if getattr(unpaid,'known',False) and finite(unpaid.value) and unpaid.value>=0 else None
+ put('G5','Unpaid interest Rs');put('H5',unpaid_v if unpaid_v is not None else 'UNKNOWN',getattr(unpaid,'note',None) or 'not supplied')
+ cols=['Stock','Shares','Buy cost Rs','Current price','Price P/L','Past interest MODEL','Net P/L MODEL','BE broker costs','BE + tax reserve','Allocated loan MODEL','Future interest MODEL','Buy charges MODEL','Sell charges MODEL','Tax reserve','Model status','Price source/time','Acquisition dates','Sirf ye becho: loan wapas Rs (cost ratio)','Unpaid interest share Rs','SIRF YE BECHO TO HAATH MEIN Rs']
  for j,text in enumerate(cols,1):s.cell(9,j,text)
  constants=[('Sale variable fraction',STT+(EXCH+SEBI+IPFT)*(1+GST)),('Brokerage cap',BROK_CAP),('Brokerage rate',BROK_RATE),('GST',GST),('DP + unpledge',DP+PLEDGE),('Buy variable fraction',STT+STAMP+(EXCH+SEBI+IPFT)*(1+GST)),('Pledge per lot',PLEDGE)]
  for j,(text,val) in enumerate(constants):put('A'+str(fee_start+j),text);put('B'+str(fee_start+j),val,SOURCE_FEES+'; https://dhan.co/pricing/. One sale order, buy cap/pledge per remaining acquisition lot assumed.')
@@ -313,28 +354,32 @@ def write_many_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
   formula('M'+str(k),'=IF(COUNT(B%d,D%d)=2,IF(D%d>0,B%d*D%d*%s+MIN(%s,B%d*D%d*%s)*(1+%s)+%s*(1+%s),"UNKNOWN"),"UNKNOWN")'%(k,k,k,k,k,v,cap,k,k,brok,gst,fixed,gst),r['now_sale_fee'])
   formula('N'+str(k),'=IF(COUNT(E%d)=1,MAX(E%d,0)*$F$5,"UNKNOWN")'%(k,k),r['now_tax'])
   formula('G'+str(k),'=IF(COUNT(E%d:F%d,L%d:N%d)=5,E%d-SUM(F%d,L%d:N%d),"UNKNOWN")'%(k,k,k,k,k,k,k,k),r['now_net_tax'])
+  formula('R'+str(k),'=IF(COUNT($D$5,C%d,%s)=3,IF(%s>0,$D$5*C%d/%s,"UNKNOWN"),"UNKNOWN")'%(k,cost_total,cost_total,k,cost_total),r['loan_share'])
+  formula('S'+str(k),'=IF(COUNT($H$5,C%d,%s)=3,IF(%s>0,$H$5*C%d/%s,"UNKNOWN"),"UNKNOWN")'%(k,cost_total,cost_total,k,cost_total),r['unpaid_share'])
+  formula('T'+str(k),'=IF(COUNT(B%d,D%d,M%d,R%d,S%d)=5,B%d*D%d-M%d-R%d-S%d,"UNKNOWN")'%((k,)*10),r['cash_now'])
   for col,tx,value in [('H','0',r['broker']),('I','$F$5',r['full'])]:
    need='(C%d+F%d+K%d+L%d+$D$6)'%(k,k,k,k);numerator='(%s+%s*(1+%s)-%s*C%d)'%(need,fixed,gst,tx,k);den='(1-%s-%s)'%(v,tx)
    unc='%s/(%s-%s*(1+%s))'%(numerator,den,brok,gst);capped='(%s+%s*(1+%s))/%s'%(numerator,cap,gst,den)
    expr='=CEILING(IF(%s<=%s/%s,%s,%s)/B%d,$B$6)'%(unc,cap,brok,unc,capped,k) if ready else '="UNKNOWN"';formula(col+str(k),expr,value)
  put('A'+str(total),'TOTAL')
- for col,key in [('C','cost'),('E','price_pnl'),('F','past'),('G','now_net_tax'),('J','funded'),('K','future'),('L','buy'),('M','now_sale_fee'),('N','now_tax')]:
+ for col,key in [('C','cost'),('E','price_pnl'),('F','past'),('G','now_net_tax'),('J','funded'),('K','future'),('L','buy'),('M','now_sale_fee'),('N','now_tax'),('R','loan_share'),('S','unpaid_share'),('T','cash_now')]:
   vals=[r[key] for r in rows];val=sum(vals) if vals and all(finite(x) for x in vals) else None
   formula(col+str(total),'=IF(COUNT(%s10:%s%d)=%d,SUM(%s10:%s%d),"UNKNOWN")'%(col,col,last,n,col,col,last),val)
- for k,text in [(total+2,'Net P/L MODEL = price P/L - past interest model - buy/sell charges - optional tax reserve. Future buffer interest affects target only.'),(total+3,'Tax reserve on positive gross gain is conservative; it is not actual tax payable. Unknowns never become zero. '+SOURCE_TAX)]:
-  s.merge_cells(start_row=k,start_column=1,end_row=k,end_column=17);put('A'+str(k),text);s.row_dimensions[k].height=32
- s.auto_filter.ref='A9:Q'+str(last);s.freeze_panes='E10';s.sheet_view.showGridLines=False
+ for k,text in [(total+2,'Net P/L MODEL = price P/L - past interest model - buy/sell charges - optional tax reserve. Future buffer interest affects target only.'),(total+3,'Tax reserve on positive gross gain is conservative; it is not actual tax payable. Unknowns never become zero. '+SOURCE_TAX),(total+4,'SIRF YE BECHO TO HAATH MEIN (col T) = value - sell charges - us stock ka loan hissa - unpaid interest hissa (loan/interest stock-wise = cost ratio, MODEL; Dhan app mein asli per-stock funded amount). TOTAL row T = sab becho to. Paid interest dobara nahi; tax nahi kaata; account ka pehle se cash nahi joda.')]:
+  s.merge_cells(start_row=k,start_column=1,end_row=k,end_column=20);put('A'+str(k),text);s.row_dimensions[k].height=32
+ s.auto_filter.ref='A9:T'+str(last);s.freeze_panes='E10';s.sheet_view.showGridLines=False
  for row in s:
   for c in row:
    c.font=Font(name='Arial',size=10,color='000000' if c.data_type=='f' else '0000FF' if isinstance(c.value,(int,float,dt.date)) else '243B53');c.alignment=Alignment(wrap_text=True,vertical='center')
    if c.data_type=='f' or isinstance(c.value,(int,float)):c.number_format='#,##0.00;[Red](#,##0.00);"-"'
  for k in [1,9,total]:
   for c in s[k]:c.fill=PatternFill('solid',fgColor='243B53');c.font=Font(name='Arial',bold=True,color='FFFFFF')
- for c in 'ABCDEFGHIJKLMNOPQ':s.column_dimensions[c].width=24 if c in 'PQ' else 18
+ for c in 'ABCDEFGHIJKLMNOPQRST':s.column_dimensions[c].width=24 if c in 'PQRST' else 18
+ for k in range(10,total+1):s['T'+str(k)].fill=PatternFill('solid',fgColor='D9EAD3');s['T'+str(k)].font=Font(name='Arial',bold=True,color='166534')
  for ref in ['B4','D4','F4','B5','D5','F5','B6','D6']:s[ref].fill=PatternFill('solid',fgColor='FFF2CC')
  s['B4'].number_format='dd-mmm-yyyy';s['F4'].number_format=s['F5'].number_format='0.00%'
  s.row_dimensions[9].height=42
- s.row_dimensions.group(fee_start,lot_end,hidden=True);s.print_area='A1:Q'+str(total+3);s.page_setup.orientation='landscape';s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=0
+ s.row_dimensions.group(fee_start,lot_end,hidden=True);s.print_area='A1:T'+str(total+4);s.page_setup.orientation='landscape';s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=0
  path=validate_output_path(path);path.parent.mkdir(parents=True,exist_ok=True);fd,tmp=tempfile.mkstemp(prefix='.mtf-report-',suffix='.xlsx',dir=str(path.parent));os.close(fd)
  try:
   w.save(tmp);cache_formula_values(tmp,cache);validate_output_path(path);os.replace(tmp,path)

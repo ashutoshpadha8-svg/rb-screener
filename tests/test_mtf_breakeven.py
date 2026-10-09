@@ -28,7 +28,7 @@ class BreakevenTests(unittest.TestCase):
  def test_tax_disabled_equals_broker_target(self):
   for r in b.calculate(fixture(),TODAY,tax=0):self.assertEqual(r['full'],r['broker'])
  def test_no_ledger_double_count(self):
-  r=fixture();original=b.calculate(r,TODAY);r['paid']=m.Num(999999);r['unpaid']=m.Num(999999);self.assertEqual(b.calculate(r,TODAY),original)
+  r=fixture();original=b.calculate(r,TODAY);r['paid']=m.Num(999999);r['unpaid']=m.Num(999999);strip=lambda L:[{k:v for k,v in x.items() if k not in ('loan_share','unpaid_share','cash_now')} for x in L];self.assertEqual(strip(b.calculate(r,TODAY)),strip(original))
  def test_missing_loan_unknown(self):
   r=fixture();r['loan']=m.Num();self.assertTrue(all(x['broker'] is None for x in b.calculate(r,TODAY)))
  def test_excess_loan_unknown(self):
@@ -136,4 +136,51 @@ class BreakevenTests(unittest.TestCase):
    p=Path(d)/'calc.xlsx';b.write_report(fixture(),TODAY,p);w=load_workbook(p,data_only=True).active;x=ExcelCompiler(filename=str(p))
    for ref in ('D10','E10','F10','H10','D11','E11','E18','F18','G18','E19','F19','G19','G20'):
     self.assertAlmostEqual(x.evaluate('Breakeven!'+ref),w[ref].value,places=4)
+ def test_cash_in_hand_if_sold_today(self):
+  f=fixture();f['unpaid']=m.Num(264.48,m.ESTIMATED,'x')
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)/'cash.xlsx';rows=b.write_report(f,TODAY,p);w=load_workbook(p,data_only=True).active;fo=load_workbook(p).active
+   want=sum(r['now_value']-r['now_sale_fee'] for r in rows)-261888.33-264.48
+   self.assertAlmostEqual(w['D48'].value,want,places=6);self.assertEqual(fo['D48'].value,'=IF(COUNT(D44:D47)=4,D44-D45-D46-D47,"UNKNOWN")')
+   # sell ONE stock: its own value - its fees - cost-ratio loan + unpaid share; parts add up to the total
+   for j,r in enumerate(rows):
+    c='BC'[j];share=r['cost']/414598.3
+    self.assertEqual(w[c+'43'].value,r['symbol'])
+    self.assertAlmostEqual(w[c+'48'].value,r['now_value']-r['now_sale_fee']-261888.33*share-264.48*share,places=4)
+   self.assertAlmostEqual(w['B48'].value+w['C48'].value,w['D48'].value,places=4)
+   f['unpaid']=m.Num();b.write_report(f,TODAY,p);w=load_workbook(p,data_only=True).active
+   self.assertEqual(w['D48'].value,'UNKNOWN');self.assertEqual(w['B48'].value,'UNKNOWN')
+   f=fixture();f['unpaid']=m.Num(10);f['loan']=m.Num();b.write_report(f,TODAY,p);self.assertEqual(load_workbook(p,data_only=True).active['B48'].value,'UNKNOWN')
+ def test_cash_formulas_recalculate(self):
+  try:from pycel import ExcelCompiler
+  except ImportError:return
+  f=fixture();f['unpaid']=m.Num(264.48)
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)/'c.xlsx';b.write_report(f,TODAY,p);w=load_workbook(p,data_only=True).active;x=ExcelCompiler(filename=str(p))
+   for ref in ('B46','C46','B47','C47','B48','C48','D45','D48'):self.assertAlmostEqual(x.evaluate('Breakeven!'+ref),w[ref].value,places=4)
+ def test_many_stocks_cash_per_stock_and_total(self):
+  f=fixture();f['unpaid']=m.Num(300.0)
+  lots=f['fifo']['lots'];lots['INFY']=[['2026-03-02',10,1500.0,0]]
+  f['rows'].append({'Symbol':'INFY','Qty':10,'Open cost (Rs)':m.Num(15000.0,m.ESTIMATED),'Price':1400})
+  f['open_cost_num']=m.Num(414598.3+15000);f['current_lots']=lots
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)/'many.xlsx';rows=b.write_report(f,TODAY,p);w=load_workbook(p,data_only=True).active
+   self.assertEqual(len(rows),3);self.assertIn('HAATH MEIN',w['T9'].value)
+   for k,r in zip(range(10,13),rows):
+    self.assertEqual(w['A%d'%k].value,r['symbol']);self.assertAlmostEqual(w['T%d'%k].value,r['cash_now'],places=4)
+    self.assertAlmostEqual(r['cash_now'],r['now_value']-r['now_sale_fee']-(261888.33+300)*r['cost']/429598.3,places=4)
+   self.assertAlmostEqual(w['T13'].value,sum(r['now_value']-r['now_sale_fee'] for r in rows)-261888.33-300,places=4)
+   try:from pycel import ExcelCompiler
+   except ImportError:return
+   x=ExcelCompiler(filename=str(p))
+   for ref in ('R10','S11','T12','T13'):self.assertAlmostEqual(x.evaluate('Breakeven!'+ref),w[ref].value,places=4)
+ def test_drive_copy_goes_to_account_folder(self):
+  import os
+  with tempfile.TemporaryDirectory() as d:
+   drive=Path(d)/'MyDrive';drive.mkdir();src=Path(d)/'MTF_Check.xlsx';b.write_report(fixture(),TODAY,src)
+   acc=types.SimpleNamespace(broker='DHAN',name='Tanya')
+   with patch.dict(os.environ,{'RB_DRIVE_ROOT':str(drive)}),contextlib.redirect_stdout(io.StringIO()):dst=m.drive_mtf_copy(str(src),acc,any_path=True)
+   self.assertIsNone(m.drive_mtf_copy(str(src),acc))  # temp/test file never copied
+   self.assertEqual(Path(dst),drive/'RB_Reports'/'DHAN_Tanya'/'MTF_Check_DHAN_Tanya.xlsx');self.assertEqual(Path(dst).read_bytes(),src.read_bytes())
+   with patch.dict(os.environ,{'RB_DRIVE_ROOT':str(Path(d)/'missing')}),contextlib.redirect_stdout(io.StringIO()):self.assertIsNone(m.drive_mtf_copy(str(src),acc,any_path=True))
 if __name__=='__main__':unittest.main()

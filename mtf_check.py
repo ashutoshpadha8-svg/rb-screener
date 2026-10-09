@@ -1279,6 +1279,31 @@ def build(args, sess, today, frm):
             "complete_net": complete_net, "ok": essential_ok, "confirmed": confirmed, "cross_matches":cross_matches, "current_lots":use}
 
 
+def drive_mtf_copy(path, acc, any_path=False):
+    """RB 9 Oct: MTF report also in Google Sheets. Copies ONLY MTF_Check.xlsx into the
+    Google Drive for desktop folder My Drive/RB_Reports/<BROKER>_<Name>/ (same folder as
+    the Portfolio file). No Drive app / any error -> local file is untouched."""
+    try:
+        import shutil, drive_copy, account as ac
+        # only the real account report (tests / temp copies never reach the real Drive)
+        accounts = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "accounts"))
+        if not any_path and not os.path.realpath(path).startswith(accounts + os.sep):
+            return None
+        root = drive_copy.drive_root()
+        if not root or not os.path.isfile(path):
+            print("  Google Drive copy: Drive for desktop folder nahi mila -- local file hi hai.")
+            return None
+        tag = ac.file_tag(acc)
+        dst = os.path.join(root, drive_copy.TOP, tag, "MTF_Check_%s.xlsx" % tag)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(path, dst)
+        print("  Google Drive copy: My Drive/%s" % os.path.relpath(dst, root))
+        return dst
+    except Exception as e:
+        print("  ! Google Drive copy failed (%s) -- local file is fine." % type(e).__name__)
+        return None
+
+
 def sanitize_report(value,sess):
     """Redact external text in terminal/audit/default report, without altering numbers."""
     if isinstance(value,Num):return Num(value.value,value.status,redact_text(value.note,sess),value.partial)
@@ -1341,6 +1366,11 @@ def print_current_report(R, rows, acc, today, args):
     item("Broker loan repayment",loan)
     item("Interest jo abhi debit hona baaki hai",num_value('unpaid'),"already paid interest is not deducted twice")
     item("Settlement mein cash released (estimate)",num_value('exit'),R.get('exit').note if isinstance(R.get('exit'),Num) and not R['exit'].known else "loan, unpaid interest and modeled sell charges deducted")
+    if rows:
+        print("  Agar SIRF ek stock becho (loan/unpaid interest stock-wise = cost ratio, MODEL):")
+        print("  %-13s %15s %13s %15s %13s %17s" % ("Stock","Value","Sell chg","Loan wapas","Unpaid int","HAATH MEIN"))
+        for r in rows:
+            print("  %-13s %15s %13s %15s %13s %17s" % (r['symbol'],amount(r.get('now_value')),amount(r.get('now_sale_fee')),amount(r.get('loan_share')),amount(r.get('unpaid_share')),amount(r.get('cash_now'))))
     print("\n5. CURRENT NET PROFIT / LOSS")
     item("Buy brokerage/taxes/pledge estimate",total_field('buy'))
     item("Optional positive-gain tax reserve",total_field('now_tax'),"reserve, not confirmed personal tax")
@@ -1433,6 +1463,7 @@ def main():
         out = write_report(R, today, path, days=a.buffer_days, settlement=a.settlement_buffer, tax=a.tax_reserve, rate=a.rate)
         print_current_report(R, out, acc, today, a)
         print("\nExcel (same account file refreshed):", path)
+        drive_mtf_copy(path, acc)
         print("READ-ONLY broker access: koi order nahi gaya. Missing inputs remain UNKNOWN.")
         return 2 if not out or any(r["status"]==UNKNOWN or r["now_net_tax"] is None for r in out) or (isinstance(R.get("exit"),Num) and not R["exit"].known) else 0
     f = R["fifo"]

@@ -131,6 +131,13 @@
                         #   'Rs per share upar' (H) + %; P/L table D price P/L - E interest - F charges (buy+sell+tax) = G
                         #   'AAJ BECHO TO NET P/L'. Demo on 9 Oct numbers: TCS sell 3,364.65 / PERSISTENT 5,941.30, net if sold
                         #   now -58,597 / -4,440 = -63,037 (interest model 22,296). run_offline 510 / 22.
+                        #   MTF7.4 (RB: 'aaj bechne par balance kya hoga', per stock, any future stocks, Google Sheets):
+                        #   Breakeven rows 42-49 'AAJ BECHO TO HAATH MEIN' per stock (sell ONLY that one) + SAB BECHO =
+                        #   value - sell chg - loan share - unpaid share (share = cost ratio, MODEL; D47 unpaid input); 3+
+                        #   stocks: cols R/S/T + TOTAL; terminal section 4 per-stock table. 9 Oct: TCS 11,954.62 /
+                        #   PERSISTENT 1,06,422.71 / all 1,18,377.33. rbmtf copies the real accounts/ report to Drive
+                        #   RB_Reports/<BROKER>_<Name>/MTF_Check_<BROKER>_<Name>.xlsx (drive_mtf_copy; temp/test files never).
+                        #   run_offline 514 / 22. Package RB_Screener_MTF7_4_Update.zip.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.

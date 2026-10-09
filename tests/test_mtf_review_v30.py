@@ -119,7 +119,7 @@ class ReviewTests(unittest.TestCase):
   ts=[tr(symbol='AAA',qty=15,price=1000,product='CNC'),tr(symbol='AAA',qty=5,price=1100,side='SELL',product='CNC',date='2026-09-02',ts=m._ts('2026-09-02 10:00:00'))]
   r=inventory_model(ts);self.assertEqual(r['current_lots']['AAA'][0][:3],['2026-09-01',10,1000])
  def test_lifetime_interest_cannot_change_current_targets(self):
-  r=inventory_model();a=b.calculate(r,TODAY);r['paid']=m.Num(999999);r['unpaid']=m.Num(999999);self.assertEqual(b.calculate(r,TODAY),a)
+  r=inventory_model();a=b.calculate(r,TODAY);r['paid']=m.Num(999999);r['unpaid']=m.Num(999999);strip=lambda L:[{k:v for k,v in x.items() if k not in ('loan_share','unpaid_share','cash_now')} for x in L];self.assertEqual(strip(b.calculate(r,TODAY)),strip(a))
  def test_default_report_literal_provenance_no_formula(self):
   r=fixture();r['rows'][0]['Price source']='=HYPERLINK("https://example.invalid")'
   with tempfile.TemporaryDirectory() as d:
