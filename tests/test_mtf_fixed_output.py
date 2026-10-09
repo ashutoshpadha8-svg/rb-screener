@@ -63,7 +63,12 @@ class FixedOutputTests(unittest.TestCase):
    self.assertEqual(code,1);self.assertEqual((p/'MTF_Check.xlsx').read_bytes(),before)
  def test_unsupported_broker_not_written_as_dhan(self):
   with tempfile.TemporaryDirectory() as d:
-   p=Path(d)/'ANGEL/reports';code,txt=self.run_cli(p,broker='ANGEL');self.assertEqual(code,1);self.assertFalse((p/'MTF_Check.xlsx').exists());self.assertIn('sirf Dhan',txt)
+   # 9 Oct: ANGEL/ZERODHA now supported (mtf_generic); an UNKNOWN broker still refuses.
+   p=Path(d)/'UPSTOX/reports';code,txt=self.run_cli(p,broker='UPSTOX');self.assertEqual(code,1);self.assertFalse((p/'MTF_Check.xlsx').exists());self.assertIn('rate card nahi',txt)
+   import broker_api as ba
+   p=Path(d)/'ANGEL/reports'
+   with patch.object(ba,'mtf_holdings',side_effect=ba.BrokerError('DUMMY down')):code,txt=self.run_cli(p,broker='ANGEL')
+   self.assertEqual(code,2);self.assertIn('MISSING holdings',txt);self.assertNotIn('DHAN',load_workbook(p/'MTF_Check.xlsx').active['A3'].value or '')
  def test_atomic_failure_preserves_old_report(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/'MTF_Check.xlsx';p.write_bytes(b'ORIGINAL REPORT')

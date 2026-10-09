@@ -1074,6 +1074,59 @@ def available_funds(sess):
         return None, "funds reply had no balance field"
 
 
+def mtf_holdings(sess):
+    """{SYMBOL: {qty, avg_price, own_margin, source}} of MTF stocks for ANGEL / ZERODHA
+    (rbmtf for every broker, 9 Oct). READ-ONLY GETs. own_margin = cash margin the broker
+    says you put in (Kite holdings 'mtf.initial_margin'); None when the API has no such field.
+      Zerodha  GET /portfolio/holdings -> row['mtf'] {quantity, average_price, initial_margin}
+      Angel    getHolding rows with product MARGIN/MTF; carried MARGIN positions (getPosition)
+               only for symbols not already in holdings (no double count)."""
+    def num(v):
+        try:
+            n = float(v or 0)
+        except (TypeError, ValueError):
+            raise BrokerError("Invalid numeric MTF response")
+        if not math.isfinite(n):
+            raise BrokerError("Non-finite MTF response")
+        return n
+    out = {}
+    if sess.broker == "ZERODHA":
+        d = _call(sess, "GET", "/portfolio/holdings")
+        if not isinstance(d, list):
+            raise BrokerError("invalid Kite holdings response; MTF unknown")
+        for h in d:
+            m = h.get("mtf") or {}
+            q = num(m.get("quantity"))
+            if q > 0:
+                im = m.get("initial_margin")
+                out[str(h.get("tradingsymbol") or "").upper()] = dict(
+                    qty=q, avg_price=num(m.get("average_price")),
+                    own_margin=num(im) if im not in (None, "") else None,
+                    source="Kite holdings mtf block")
+    elif sess.broker == "ANGEL":
+        d = _call(sess, "GET", "/rest/secure/angelbroking/portfolio/v1/getHolding")
+        if not isinstance(d, list):
+            raise BrokerError("invalid Angel holdings response; MTF unknown")
+        for h in d:
+            if str(h.get("product") or "").upper() in ("MARGIN", "MTF"):
+                q = num(h.get("quantity")) + num(h.get("t1quantity"))
+                if q > 0:
+                    out[re.sub(r"-(EQ|BE)$", "", str(h.get("tradingsymbol") or "").upper())] = dict(
+                        qty=q, avg_price=num(h.get("averageprice")), own_margin=None,
+                        source="Angel holdings product %s" % h.get("product"))
+        pos = _call(sess, "GET", "/rest/secure/angelbroking/order/v1/getPosition")
+        for p in (pos or []):
+            if str(p.get("producttype") or "").upper() in ("MARGIN", "MTF"):
+                sym = re.sub(r"-(EQ|BE)$", "", str(p.get("tradingsymbol") or "").upper())
+                q = num(p.get("netqty"))
+                if q > 0 and sym not in out:
+                    out[sym] = dict(qty=q, avg_price=num(p.get("buyavgprice") or p.get("avgnetprice")),
+                                    own_margin=None, source="Angel position producttype %s" % p.get("producttype"))
+    else:
+        raise BrokerError("mtf_holdings: use the Dhan path for " + str(sess.broker))
+    return out
+
+
 def trades(sess, frm, to=None):
     """Executed trades (BUY and SELL) between two dates, for the journal:
     [{symbol, side, qty, price, date}]. Read-only.

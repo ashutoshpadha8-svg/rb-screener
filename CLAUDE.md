@@ -156,6 +156,17 @@
                         #   MTF8.2 (RB Numbers): one-section money format (Numbers showed '--Rs37,066' with an explicit
                         #   negative section) + red via conditional formatting; Section 2 lot days 'oldest se newest din
                         #   (N buys)' instead of a comma list (TEXT() warning in Numbers); qty '#,##0'.
+                        #   MTF9 (RB 9 Oct: 'har broker ke liye'): rbmtf on ANGEL / ZERODHA via mtf_generic.py (no trade-history
+                        #   / ledger API there): broker_api.mtf_holdings (Kite holdings 'mtf' block incl. initial_margin; Angel
+                        #   getHolding product MARGIN/MTF + carried MARGIN positions not in holdings) + NSE quotes; loan = --loan,
+                        #   Zerodha fallback cost - initial_margin (ESTIMATED); --buy-date SYM:YYYY-MM-DD saved in
+                        #   accounts/<..>/data/mtf_inputs.json (dropped when qty changes); --mtf SYM:QTY[@AVG] override; unpaid
+                        #   = --unpaid-interest else ESTIMATE since last debit (Angel fortnightly 1st/16th, Zerodha monthly 1st).
+                        #   mtf_portfolio_report.BROKER_CARDS + set_broker(): DHAN 0.03%/Rs20, DP 12.5, pledge 15, 12.49%;
+                        #   ZERODHA 0.3%/Rs20, DP 13, pledge 15, 0.04%/day = 14.6%; ANGEL 0.1%/Rs20, DP 20, pledge 20, 14.99%
+                        #   (web, 9 Oct, ESTIMATES). --rate default = broker card; main resets the card to DHAN after.
+                        #   Holdings failure -> everything UNKNOWN (bug caught by test before shipping). Angel MTF product
+                        #   field names NOT verified on a live account. tests/test_mtf_generic.py 9; run_offline 563 / 26.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.

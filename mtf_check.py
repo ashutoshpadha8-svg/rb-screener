@@ -1304,6 +1304,36 @@ def drive_mtf_copy(path, acc, any_path=False):
         return None
 
 
+def main_generic(a, acc, sess, today):
+    """ANGEL / ZERODHA: no trade-history / ledger API -> mtf_generic (RB 9 Oct)."""
+    from mtf_generic import build_generic
+    from mtf_portfolio_report import write_report, print_report, complete
+    if a.audit or a.ledger or a.trades or getattr(a, "confirm_mtf", None):
+        print("--audit / --ledger / --trades / --confirm-mtf are Dhan-only; for %s use --mtf, --buy-date, --loan, --unpaid-interest." % sess.broker)
+        return 1
+    try:
+        R = build_generic(a, sess, today, getattr(acc, "data", None))
+    except ValueError as e:
+        print("MTF input error: " + safe_error(e, sess)); return 1
+    R = sanitize_report(R, sess)
+    R["report_account"] = redact_text(acc.label, sess)
+    path = os.path.join(acc.reports, "MTF_Check.xlsx")
+    out = write_report(R, today, path, days=a.buffer_days, settlement=a.settlement_buffer, tax=a.tax_reserve, rate=a.rate)
+    print_report(R, out, acc, today, a)
+    print("\n%s: no trade-history / ledger API -> rate %.2f%% (broker card), loan / buy dates from you." % (sess.broker, a.rate * 100))
+    if not R["rows"] and R["src"].get("holdings", ("",))[0] != UNKNOWN:
+        print("  Is account mein koi MTF stock nahi mila. Agar hai to: rbmtf --mtf SYMBOL:QTY")
+    for k, (st, note) in sorted(R["src"].items()):
+        if st == UNKNOWN:
+            print("  MISSING %s: %s" % (k, note))
+    if not R["loan"].known:
+        print("  -> " + R["loan"].note)
+    print("\nExcel (same account file refreshed):", path)
+    drive_mtf_copy(path, acc)
+    print("READ-ONLY broker access: koi order nahi gaya. Missing inputs remain UNKNOWN.")
+    return 0 if complete(R, out) else 2
+
+
 def sanitize_report(value,sess):
     """Redact external text in terminal/audit/default report, without altering numbers."""
     if isinstance(value,Num):return Num(value.value,value.status,redact_text(value.note,sess),value.partial)
@@ -1402,8 +1432,8 @@ def main():
     ap.add_argument("--ledger", help="downloaded Dhan ledger (xlsx/csv; detected by file content)")
     ap.add_argument("--trades", help="downloaded Dhan trade history CSV; explicit MTF products")
     ap.add_argument("--instruments", help="optional local Dhan scrip master CSV for exact company-name mapping")
-    ap.add_argument("--rate", type=float, default=MTF_RATE,
-                    help="MTF interest per year as a fraction (0.1249)")
+    ap.add_argument("--rate", type=float, default=None,
+                    help="MTF interest per year as a fraction; default = the broker's published rate (Dhan 0.1249)")
     ap.add_argument("--loan", type=float, help="current MTF funded amount "
                     "from the Dhan app (Rs)")
     ap.add_argument("--unpaid-interest", type=float,
@@ -1411,6 +1441,8 @@ def main():
     ap.add_argument("--own-cash", type=float,
                     help="your own cash put into the open MTF lots (Rs)")
     ap.add_argument("--confirm-mtf", help="CURRENT stocks confirmed MTF: TCS,PERSISTENT or TCS:52; remembers this account qty/cost for 7 days")
+    ap.add_argument("--mtf", help="ANGEL/ZERODHA: MTF stocks if the API does not tag them: TCS:52 or TCS:52@3082.5")
+    ap.add_argument("--buy-date", help="ANGEL/ZERODHA: first buy date per MTF stock, remembered: TCS:2025-11-24,INFY:2026-02-04")
     ap.add_argument("--audit", action="store_true", help="optional detailed multi-sheet reconciliation")
     ap.add_argument("--buffer-days", type=int, default=30, help="future calendar holding days (default 30)")
     ap.add_argument("--settlement-buffer", type=int, default=3, help="extra calendar interest days after exit (scenario reserve)")
@@ -1423,6 +1455,9 @@ def main():
         a.confirm_requests = parse_confirmations(a.confirm_mtf)
     except ValueError as e:
         print(str(e)); return 1
+    rate_given = a.rate is not None
+    if a.rate is None:
+        a.rate = MTF_RATE        # replaced by the active broker's card below
     if 1 < a.rate <= 100:
         print("  --rate %.2f read as %.2f%% -> %.4f" % (a.rate, a.rate,
                                                        a.rate / 100))
@@ -1446,9 +1481,19 @@ def main():
         print("Token expire hai -- token.txt mein naya token daalo.")
         return 1
     sess = acc.session
-    if sess.broker != "DHAN":
-        print("Ye check abhi sirf Dhan ke liye hai (account: %s)." % sess.broker)
+    import mtf_portfolio_report as mpr
+    try:
+        card_rate = mpr.set_broker(sess.broker)       # broker's own brokerage/DP/pledge/rate
+    except ValueError:
+        print("MTF rate card nahi hai is broker ke liye: %s" % sess.broker)
         return 1
+    if not rate_given:
+        a.rate = card_rate
+    if sess.broker != "DHAN":
+        try:
+            return main_generic(a, acc, sess, today)
+        finally:
+            mpr.set_broker("DHAN")       # never leave another broker's card loaded
     a.account_key = getattr(acc, "key", acc.label)
     a.confirmation_path = os.path.join(acc.data, "mtf_product_confirmation.json") if getattr(acc, "data", None) else None
     try:

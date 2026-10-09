@@ -22,6 +22,30 @@ RISK_SOURCE = 'https://dhan.co/risk-management-policy/'
 EXCH=.000030699; SEBI=.000001; IPFT=.000000001; GST=.18
 STT=.001; STAMP=.00015; BROKER=.0003; CAP=20; DP=12.5; PLEDGE=15
 
+# Per-broker MTF rate cards (RB 9 Oct: 'har broker ke liye'). Statutory parts (STT, stamp,
+# exchange, SEBI, GST) are the same for every broker; brokerage / DP / pledge / interest differ.
+# Sources checked 9 Oct 2026; ESTIMATES -- confirm in the broker app.
+BROKER_CARDS = {
+    'DHAN': dict(BROKER=.0003, CAP=20, DP=12.5, PLEDGE=15, RATE=.1249,
+                 FEES_SOURCE='https://dhan.co/pricing/', INTEREST_SOURCE=INTEREST_SOURCE, RISK_SOURCE=RISK_SOURCE),
+    # Zerodha: brokerage 0.3% or Rs20 per MTF order, pledge/unpledge Rs15+GST per ISIN, 0.04%/day.
+    'ZERODHA': dict(BROKER=.003, CAP=20, DP=13.0, PLEDGE=15, RATE=.146,
+                    FEES_SOURCE='https://zerodha.com/tos/mtf', INTEREST_SOURCE='https://support.zerodha.com/category/trading-and-markets/margins/margin-trading-facility/articles/margin-trading-facility-mtf-faqs',
+                    RISK_SOURCE='https://zerodha.com/tos/mtf'),
+    # Angel One: brokerage 0.1% or Rs20, pledge/unpledge Rs20+GST per ISIN, DP Rs20+GST, 14.99% p.a.
+    'ANGEL': dict(BROKER=.001, CAP=20, DP=20.0, PLEDGE=20, RATE=.1499,
+                  FEES_SOURCE='https://www.angelone.in/margin-trading-facility', INTEREST_SOURCE='https://www.angelone.in/news/product-updates/pricing-update-2024',
+                  RISK_SOURCE='https://www.angelone.in/margin-trading-facility'),
+}
+def set_broker(name):
+    """Switch the module rate card (functions read these globals at call time)."""
+    card = BROKER_CARDS.get(str(name).upper())
+    if card is None:raise ValueError('No MTF rate card for broker '+str(name))
+    g = globals()
+    for k, v in card.items():
+        if k != 'RATE':g[k] = v
+    return card['RATE']
+
 def finite(v):
     try:return v is not None and not isinstance(v,bool) and math.isfinite(float(v))
     except (ValueError,TypeError,OverflowError):return False
@@ -171,7 +195,8 @@ def print_report(R,rows,acc,today,args):
         if getattr(R.get('exit'),'status',None)==UNKNOWN:print('  Cash basis: '+getattr(R['exit'],'note','UNKNOWN'))
     print('  Actual current-lot paid interest, original cash and realised settlement remain UNKNOWN.')
     print('  Fees: '+FEES_SOURCE+' | Interest model: '+INTEREST_SOURCE)
-    print('  Detailed history/reconciliation: rbmtf --audit')
+    if BROKER_CARDS['DHAN']['FEES_SOURCE']==FEES_SOURCE:  # --audit is Dhan-only
+        print('  Detailed history/reconciliation: rbmtf --audit')
 
 def _seed(q,c,past,buy,funded,rate,hold,settle,tax,buffer):
     a=1-STT-(EXCH+SEBI+IPFT)*(1+GST)-tax-rate*settle/365
