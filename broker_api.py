@@ -867,10 +867,16 @@ def refresh(sess, frames, bm=None, want=None, warns=None, every=10):
         ltp = live_prices(sess, list(frames))
         live = {s: ltp[s.upper()] for s in frames if s.upper() in ltp}
     except AuthError as e:
-        print("\n*** %s refused the request (%s)." % (sess.label, e))
-        print("*** Check: token copied fully / not expired / data API "
-              "access active on the account.")
-        print("*** Continuing WITHOUT the broker -- prices may be OLD. ***\n")
+        # RB 9 Oct: 'broker data na de to NSE se'. Stocks + Nifty already came
+        # from NSE's free daily files above; say what is actually used.
+        last = max(f.index[-1] for f in frames.values()).date() if frames else None
+        plan = "PLUS" in str(e) or "subscription" in str(e).lower()
+        print("\n  %s se data nahi mila (%s)." % (sess.label,
+              "Data API plan active nahi" if plan else e))
+        if not plan:
+            print("  Check: token poora copy hua / expire to nahi / data API active?")
+        print("  -> NSE ki free daily files se chal raha hai (data till %s). Market time mein"
+              " live price nahi -- last close use hoga.\n" % last)
         live = {}
     except Exception as e:
         print("\n  ! %s price step failed (%s). Continuing without it."
