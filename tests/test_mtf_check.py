@@ -154,9 +154,9 @@ def main():
           any(r["Symbol"] == "BBB" and r["Status"] == U for r in R["rec"])
           and not R["val"].known and R["val"].partial == 95000, R["rec"])
     R = run(trades, {"AAA": 100, "ZZZ": 3}, {"AAA": 950.0}, ledger=lg)
-    check("CNC demat stock with no MTF trade -> 'NOT MTF', totals still "
-          "known", any(r["Symbol"] == "ZZZ" and r["Status"] == "NOT MTF"
-                       for r in R["rec"]) and R["val"].value == 95000,
+    check("demat stock without product evidence -> UNKNOWN, totals incomplete",
+          any(r["Symbol"] == "ZZZ" and r["Status"] == U for r in R["rec"])
+          and not R["val"].known and R["val"].partial == 95000,
           R["rec"])
     R = run(trades, {"AAA": 60}, {"AAA": 950.0}, ledger=lg)
     check("demat 60 < MTF lots 100 -> UNKNOWN (no full-lot average)",
@@ -170,7 +170,7 @@ def main():
     check("ledger charged MTF interest last week but no MTF lot found -> "
           "inventory UNKNOWN, never 'no position / unpaid 0'",
           not R["val"].known and not R["period"].known and
-          any(r["Symbol"] == "?" for r in R["rec"]), (R["val"], R["rec"]))
+          any(r["Status"] == U for r in R["rec"]), (R["val"], R["rec"]))
 
     print("6) F5: exact execution time, uncovered sells")
     f = mc.fifo([tr("CCC", "SELL", 4, 60, "2024-08-01 09:30:00"),

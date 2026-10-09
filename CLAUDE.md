@@ -102,6 +102,19 @@
                         #   MTF_Open_Summary, MTF_Open, MTF_Exit_Estimate, MTF_Period, Reconciliation, MTF_Trades, Ledger.
                         #   tests/test_mtf_check.py 38 (Codex acceptance cases incl. 282.31 lot fixture, 19,480 demo).
                         #   Still estimates: Dhan rate slabs/settlement days, journal.fees (product arg unused) for sells.
+                        #   v29-Codex-MTF6 (9 Oct, zip from RB, applied as-is after SHA check of the 4 manifest files;
+                        #   built on our v29, Codex MTF2-5 iterations happened on RB's Mac): output = FIXED
+                        #   accounts/<..>/reports/MTF_Check.xlsx refreshed every run (--audit -> MTF_Audit.xlsx);
+                        #   mtf_prices.py = NSE website quote endpoint (GetQuoteApi getMetaData + getSymbolData, EQ only,
+                        #   timestamp/staleness checks, fail closed) primary, broker LTP second, dated last close =
+                        #   ESTIMATED; Dhan /profile dataPlan=Deactive on Tanya's account (no paid plan activated);
+                        #   mtf_breakeven.py (breakeven sheet, published Dhan MTF fees/tax model, Excel formulas + cached
+                        #   values); new args --trades CSV, --instruments, --confirm-mtf TCS:52 (remembered 7 days),
+                        #   --buffer-days, --settlement-buffer, --tax-reserve; ledger 'Net MTF Funding' today-dated row =
+                        #   loan. 9 Oct real run: TCS 2156 / PERSISTENT 5770 (NSE 16:00), gross price P&L -37,066; net P&L +
+                        #   breakeven UNKNOWN (200 blank-product trades, 4 historical symbols not in demat). Tests: 471 offline
+                        #   here (Mac 468), MTF groups breakeven 38, check 38, cli 13, inventory 38, fixed_output 12,
+                        #   prices 24, safety 22.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.
