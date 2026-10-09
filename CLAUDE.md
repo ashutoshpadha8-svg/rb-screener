@@ -187,6 +187,9 @@
                         #   exit reserve + buy/sell fees); helpers AJ..AM. Negative values: red font written in the cell
                         #   (Numbers) + the conditional rule (B4:AM). Demo: PERSISTENT 5,945.30 by 06-Nov -> +3,986 pre-tax,
                         #   today -13,843; 921 formulas = pycel. tests/test_mtf_layout.py 12; run_offline 572 / 26.
+                        #   v34 (RB: 'total value - loan = own money, itna simple'): B7 = formula D6 - B5 (purchase cost - loan;
+                        #   a typed number / --own-cash replaces it; validation no longer on B7), row 15 = B7, row 24 = 'Aaj ki
+                        #   equity (market value - loan)' (was an UNKNOWN row); terminal prints both. Unknown loan -> UNKNOWN.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.

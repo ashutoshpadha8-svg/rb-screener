@@ -36,16 +36,25 @@ class LayoutTests(unittest.TestCase):
   with contextlib.redirect_stdout(buf):p.print_report(self.r,self.rows,types.SimpleNamespace(label='DEMO'),TODAY,types.SimpleNamespace(rate=.1249,buffer_days=30,settlement_buffer=3,tax_reserve=.208))
   out=buf.getvalue();self.assertTrue(p.RUPEE+'414,598.30' in out);self.assertIn('-'+p.RUPEE+'48,156.60',out)
 class OwnCash(unittest.TestCase):
- def test_unknown_own_cash_is_blank_input_and_unknown_row(self):
+ def test_own_cash_is_cost_minus_loan(self):
+  # RB 9 Oct: 'total value - loan = own money invested' -> B7 = D6 - B5 by default
   with tempfile.TemporaryDirectory() as d:
-   path=Path(d)/'x.xlsx';r=model();p.write_report(r,TODAY,path)
+   path=Path(d)/'x.xlsx';r=model();rows=p.write_report(r,TODAY,path)
    f=load_workbook(path).active;v=load_workbook(path,data_only=True).active
-   self.assertIsNone(f['B7'].value);self.assertIsNotNone(f['B7'].comment)          # no 'UNKNOWN' text in an input
-   self.assertEqual(f['B15'].value,'=IFERROR(IF(ISNUMBER(B7),B7,"UNKNOWN"),"UNKNOWN")');self.assertEqual(v['B15'].value,'UNKNOWN')
+   own=p.number(r['open_cost_num'])-258386.43
+   self.assertEqual(f['B7'].value,'=IFERROR(IF(AND(COUNT(D6,B5)=2,B5<=D6),D6-B5,"UNKNOWN"),"UNKNOWN")')
+   self.assertAlmostEqual(v['B7'].value,own,places=2);self.assertAlmostEqual(v['B15'].value,own,places=2)
+   self.assertAlmostEqual(v['B24'].value,sum(x['value'] for x in rows)-258386.43,places=2)
+   self.assertEqual(v['A24'].value,'Aaj ki equity (market value - loan)')
    try:
     from pycel import ExcelCompiler
-    self.assertEqual(ExcelCompiler(filename=str(path)).evaluate('Breakeven!B15'),'UNKNOWN')   # blank never 0
+    xc=ExcelCompiler(filename=str(path))
+    for ref in ('B7','B15','B24'):self.assertAlmostEqual(xc.evaluate('Breakeven!'+ref),v[ref].value,places=2)
    except ImportError:pass
+  r=model();r['loan']=m.Num()
+  with tempfile.TemporaryDirectory() as d:
+   path=Path(d)/'u.xlsx';p.write_report(r,TODAY,path);v=load_workbook(path,data_only=True).active
+   self.assertEqual(v['B7'].value,'UNKNOWN');self.assertEqual(v['B24'].value,'UNKNOWN')   # unknown loan never becomes 0
  def test_known_own_cash_shown(self):
   with tempfile.TemporaryDirectory() as d:
    path=Path(d)/'x.xlsx';r=model();r['init_cash']=m.Num(150000.0);p.write_report(r,TODAY,path)
