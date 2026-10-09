@@ -35,4 +35,26 @@ class LayoutTests(unittest.TestCase):
   buf=io.StringIO()
   with contextlib.redirect_stdout(buf):p.print_report(self.r,self.rows,types.SimpleNamespace(label='DEMO'),TODAY,types.SimpleNamespace(rate=.1249,buffer_days=30,settlement_buffer=3,tax_reserve=.208))
   out=buf.getvalue();self.assertTrue(p.RUPEE+'414,598.30' in out);self.assertIn('-'+p.RUPEE+'48,156.60',out)
+class OwnCash(unittest.TestCase):
+ def test_unknown_own_cash_is_blank_input_and_unknown_row(self):
+  with tempfile.TemporaryDirectory() as d:
+   path=Path(d)/'x.xlsx';r=model();p.write_report(r,TODAY,path)
+   f=load_workbook(path).active;v=load_workbook(path,data_only=True).active
+   self.assertIsNone(f['B7'].value);self.assertIsNotNone(f['B7'].comment)          # no 'UNKNOWN' text in an input
+   self.assertEqual(f['B15'].value,'=IFERROR(IF(ISNUMBER(B7),B7,"UNKNOWN"),"UNKNOWN")');self.assertEqual(v['B15'].value,'UNKNOWN')
+   try:
+    from pycel import ExcelCompiler
+    self.assertEqual(ExcelCompiler(filename=str(path)).evaluate('Breakeven!B15'),'UNKNOWN')   # blank never 0
+   except ImportError:pass
+ def test_known_own_cash_shown(self):
+  with tempfile.TemporaryDirectory() as d:
+   path=Path(d)/'x.xlsx';r=model();r['init_cash']=m.Num(150000.0);p.write_report(r,TODAY,path)
+   v=load_workbook(path,data_only=True).active;self.assertEqual(v['B7'].value,150000);self.assertEqual(v['B15'].value,150000)
+ def test_own_cash_remembered(self):
+  import mtf_generic as g
+  with tempfile.TemporaryDirectory() as d:
+   a=types.SimpleNamespace(own_cash=150000.0);g.remember_own_cash(a,d)
+   b=types.SimpleNamespace(own_cash=None);g.remember_own_cash(b,d);self.assertEqual(b.own_cash,150000.0)
+   c=types.SimpleNamespace(own_cash=90000.0);g.remember_own_cash(c,d)
+   e=types.SimpleNamespace(own_cash=None);g.remember_own_cash(e,d);self.assertEqual(e.own_cash,90000.0)
 if __name__=='__main__':unittest.main()

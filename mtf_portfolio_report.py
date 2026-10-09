@@ -14,7 +14,7 @@ from openpyxl.comments import Comment
 from openpyxl.worksheet.datavalidation import DataValidation
 from mtf_breakeven import cache_formula_values, validate_output_path
 
-VERSION = 'v30-Codex-MTF8'
+VERSION = 'v31'
 UNKNOWN = 'UNKNOWN'
 FEES_SOURCE = 'https://dhan.co/pricing/'
 INTEREST_SOURCE = 'https://dhan.co/support/mtf-pledge-experience/mtf-general/how-is-interest-calculated-for-margin-trading-facility-mtf-transactions-and-what-should-i-know-about-the-process/'
@@ -155,7 +155,7 @@ def print_report(R,rows,acc,today,args):
     cost=number(R.get('open_cost_num'));loan=number(R.get('loan'))
     line('FIFO purchase cost',cost);line('Current broker loan',loan,getattr(R.get('loan'),'note',''))
     line('Own principal: cost minus current loan',total(rows,'own'),'not original deposits/top-ups')
-    line('Actual original margin supplied by you',number(R.get('init_cash')))
+    line('Actual original margin supplied by you',number(R.get('init_cash')),'' if number(R.get('init_cash')) is not None else 'broker API nahi deta -> ek baar: rbmtf --own-cash <Rs>')
     line('Accrued interest MODEL',total(rows,'past'));print('  Actual paid interest for current lots: UNKNOWN')
     line('Unpaid interest as of valuation',number(R.get('unpaid')),getattr(R.get('unpaid'),'note',''))
     line('Paid-interest PROXY',total(rows,'paid_proxy'),'model accrual minus modeled unpaid')
@@ -251,10 +251,14 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
     bar(1,'CURRENT MTF — OWN MONEY, LOAN, INTEREST, EXIT PAYOUT & TARGETS | '+VERSION)
     note(2,'MODEL != ACTUAL. Quote time/source is shown per stock. Missing current-lot paid interest, original deposits and actual margin-call levels remain UNKNOWN.')
     note(3,'Account: '+str(R.get('report_account','UNKNOWN'))+' | Refreshed '+today.isoformat()+' | Current positions only; historical closed trades excluded.')
-    for ref,value,label in [('B4',today,'Valuation date'),('D4',rate,'Annual rate fraction'),('F4',days,'Future holding days'),('B5',loan,'Current total loan'),('D5',tax,'Optional tax reserve'),('F5',settlement,'Extra exit reserve days'),('B6',unpaid,'UNPAID interest at valuation'),('D6',basis,'Reconciled share purchase cost'),('F6',.05,'Assumed price tick'),('B7',number(R.get('init_cash')),'Actual original cash, if supplied'),('D7',2,'Safe-target Rs buffer'),('F7',int(cash_basis),'Ledger/settlement basis available')]:
+    for ref,value,label in [('B4',today,'Valuation date'),('D4',rate,'Annual rate fraction'),('F4',days,'Future holding days'),('B5',loan,'Current total loan'),('D5',tax,'Optional tax reserve'),('F5',settlement,'Extra exit reserve days'),('B6',unpaid,'UNPAID interest at valuation'),('D6',basis,'Reconciled share purchase cost'),('F6',.05,'Assumed price tick'),('B7',number(R.get('init_cash')),'Your original own cash (blank = not known)'),('D7',2,'Safe-target Rs buffer'),('F7',int(cash_basis),'Ledger/settlement basis available')]:
         put(ref,value,label+'; supplied active-account input/model. Loan/unpaid interest source: '+getattr(R.get('loan' if ref=='B5' else 'unpaid'),'note','') if ref in ('B5','B6') else label+'; source: reconciled current account or user scenario.')
         label_ref=col(s[ref].column-1)+str(s[ref].row);put(label_ref,label)
         if ref!='F7':s[ref].fill=PatternFill('solid',fgColor=YELLOW)
+    if number(R.get('init_cash')) is None:
+        # RB 9 Oct (Sheets 'Invalid' popup): an input cell never holds the text UNKNOWN.
+        s['B7']=None
+        s['B7'].comment=Comment('Pata ho to apni jeb se MTF mein dala paisa yahan likho, ya ek baar: rbmtf --own-cash 150000 (account ke liye yaad rehta hai). Broker API ye number nahi deti.','Source / model')
     put('H4','Quote/date edits are scenarios; this worksheet does not fetch prices. Refresh broker loan, quote and interest evidence together.')
     s.merge_cells('H4:K7')
     # Layout indices scale with any current stock count.
@@ -355,10 +359,11 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
         expr='IF(AND(COUNT(%s%d:%s%d)=%d,COUNT($D$6)=1),SUM(%s%d:%s%d),"UNKNOWN")'%(c,hstart,c,hend,n,c,hstart,c,hend) if n else '0' if complete(R,rows) else '"UNKNOWN"'
         return expr,value if n else 0 if complete(R,rows) else None
     bar(10,'SECTION 1 — AAPKA LAGAYA PAISA / INVESTOR CAPITAL BREAKDOWN')
-    caprows=[(12,'Total FIFO purchase value','D6',basis,'SOURCE','Share cost; purchase fees separate.'),(13,'Current broker funded loan','B5',loan,'SOURCE','Current principal, not historical funding.'),(14,'Own principal: cost - current loan','F','own','DERIVED','Current principal split; original deposits not proven.'),(15,'Actual ORIGINAL margin supplied','B7',number(R.get('init_cash')),'USER / UNKNOWN','Original invested cash only if separately supplied.'),(16,'Accrued interest MODEL','H','past','ESTIMATED','Current funded ratio x each lot cost x calendar age x rate/365.'),(17,'Actual interest PAID for current lots',None,None,'UNKNOWN','Account-wide history is not allocated to these remaining lots.'),(18,'As-of UNPAID interest','B6',unpaid,'SOURCE / MODEL','Excludes future exit reserve. See source comment.'),(19,'Paid-interest PROXY','AB','paid_proxy','ESTIMATED','Model accrual - outstanding proxy; not a ledger-certified amount.'),(20,'Own principal + paid proxy',None,None,'ESTIMATED','Requested cash-burden model before purchase fees.'),(21,'Purchase/pledge costs MODEL','I','buy','ESTIMATED','One purchase order + pledge per remaining tranche.'),(22,'Cash burden incl buy fees','AC','pocket','ESTIMATED','Reconciliation proxy; not original deposits.'),(23,'Current daily interest burn','G','daily','ESTIMATED','Rs/day; current funded balance x rate/365.'),(24,'ACTUAL total cash out of pocket',None,None,'UNKNOWN','Historical funding/interest allocation required.')]
+    caprows=[(12,'Total FIFO purchase value','D6',basis,'SOURCE','Share cost; purchase fees separate.'),(13,'Current broker funded loan','B5',loan,'SOURCE','Current principal, not historical funding.'),(14,'Own principal: cost - current loan','F','own','DERIVED','Current principal split; original deposits not proven.'),(15,'Actual ORIGINAL margin supplied','B7',number(R.get('init_cash')),'USER / UNKNOWN','Broker API does not give it: type it in B7 or run rbmtf --own-cash <Rs> once.'),(16,'Accrued interest MODEL','H','past','ESTIMATED','Current funded ratio x each lot cost x calendar age x rate/365.'),(17,'Actual interest PAID for current lots',None,None,'UNKNOWN','Account-wide history is not allocated to these remaining lots.'),(18,'As-of UNPAID interest','B6',unpaid,'SOURCE / MODEL','Excludes future exit reserve. See source comment.'),(19,'Paid-interest PROXY','AB','paid_proxy','ESTIMATED','Model accrual - outstanding proxy; not a ledger-certified amount.'),(20,'Own principal + paid proxy',None,None,'ESTIMATED','Requested cash-burden model before purchase fees.'),(21,'Purchase/pledge costs MODEL','I','buy','ESTIMATED','One purchase order + pledge per remaining tranche.'),(22,'Cash burden incl buy fees','AC','pocket','ESTIMATED','Reconciliation proxy; not original deposits.'),(23,'Current daily interest burn','G','daily','ESTIMATED','Rs/day; current funded balance x rate/365.'),(24,'ACTUAL total cash out of pocket',None,None,'UNKNOWN','Historical funding/interest allocation required.')]
     for k,label,expr,value,status,explain in caprows:
         put('A'+str(k),label);put('C'+str(k),status);put('D'+str(k),explain);s.merge_cells(start_row=k,start_column=4,end_row=k,end_column=11)
-        if k==20:f('B20','IF(COUNT(B14,B19)=2,B14+B19,"UNKNOWN")',total(rows,'own')+total(rows,'paid_proxy') if total(rows,'own') is not None and total(rows,'paid_proxy') is not None else 0 if not n and complete(R,rows) else None)
+        if k==15:f('B15','IF(ISNUMBER(B7),B7,"UNKNOWN")',number(R.get('init_cash')))   # blank B7 -> UNKNOWN, never 0
+        elif k==20:f('B20','IF(COUNT(B14,B19)=2,B14+B19,"UNKNOWN")',total(rows,'own')+total(rows,'paid_proxy') if total(rows,'own') is not None and total(rows,'paid_proxy') is not None else 0 if not n and complete(R,rows) else None)
         elif k in (14,16,19,21,22,23):ex,val=sumfield(expr,value);f('B'+str(k),ex,val)
         elif expr:f('B'+str(k),expr,value)
         else:put('B'+str(k),UNKNOWN)
@@ -456,7 +461,7 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
     s.row_dimensions.group(hstart,nextrow,hidden=True)
     s.freeze_panes='B12';s.sheet_view.showGridLines=False;s.sheet_properties.pageSetUpPr.fitToPage=True;s.page_setup.orientation='landscape';s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=0;s.print_area='A1:'+col(max(17,n+2))+str(max(source_row,lot_end,fee_start+10))
     for refs,kind,lo,hi in [('B5 B6 B7','decimal',0,1e10),('D4','decimal',0,.999),('D5','decimal',0,.799),('F4','whole',0,3650),('F5','whole',0,90)]+[('B'+str(start4+i),'decimal',.01,1e10) for i in range(n)]:
-        dv=DataValidation(type=kind,operator='between',formula1=str(lo),formula2=str(hi));dv.showErrorMessage=True;dv.error='Enter an input in the documented range.';s.add_data_validation(dv)
+        dv=DataValidation(type=kind,operator='between',formula1=str(lo),formula2=str(hi),allow_blank=True);dv.showErrorMessage=True;dv.error='Enter an input in the documented range.';s.add_data_validation(dv)
         for ref in refs.split():dv.add(s[ref])
     w.calculation.fullCalcOnLoad=True;w.calculation.forceFullCalc=True;w.calculation.calcMode='auto'
     path=validate_output_path(Path(path));path.parent.mkdir(parents=True,exist_ok=True)

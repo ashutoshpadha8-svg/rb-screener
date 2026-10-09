@@ -1489,6 +1489,8 @@ def main():
         return 1
     if not rate_given:
         a.rate = card_rate
+    from mtf_generic import remember_own_cash
+    remember_own_cash(a, getattr(acc, "data", None))     # --own-cash typed once, remembered
     if sess.broker != "DHAN":
         try:
             return main_generic(a, acc, sess, today)

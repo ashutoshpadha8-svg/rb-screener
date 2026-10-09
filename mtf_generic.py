@@ -66,6 +66,22 @@ def save_inputs(path, data):
     os.replace(tmp, path)
 
 
+def remember_own_cash(args, data_dir):
+    """--own-cash is a fact about the account, typed ONCE: saved in mtf_inputs.json ('_own_cash')
+    and reused on later runs until a new --own-cash replaces it (RB 9 Oct: 'yeh unknown kyon')."""
+    if not data_dir:
+        return
+    path = os.path.join(data_dir, INPUTS_FILE)
+    saved = load_inputs(path)
+    if getattr(args, "own_cash", None) is not None:
+        saved["_own_cash"] = float(args.own_cash)
+        os.makedirs(data_dir, exist_ok=True)
+        save_inputs(path, saved)
+    elif isinstance(saved.get("_own_cash"), (int, float)):
+        args.own_cash = float(saved["_own_cash"])
+        args.own_cash_saved = True
+
+
 def billing_start(broker, today):
     """Start of the current interest-debit period (ASSUMPTION, printed as such):
     Angel One debits MTF interest fortnightly (1st / 16th); Zerodha monthly (1st)."""

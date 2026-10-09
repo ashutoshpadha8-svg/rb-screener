@@ -173,6 +173,10 @@
                         #   No version guards: brings ANY older install (MTF6..MTF9) to this code. Never touches accounts/,
                         #   token.txt, data/, reports/, EMA/. Tested on MTF7.4 + MTF8.1 trees (runtime files byte-identical,
                         #   code == HEAD, rollback exact). Future updates = a new FULL package, not small patch zips.
+                        #   v32 (RB Sheets screenshot: B7 'UNKNOWN' + red 'Invalid'): 'Actual original cash' is NOT in any broker
+                        #   API (ledger money in/out is account-wide) -> B7 blank + comment (never the text UNKNOWN in an input),
+                        #   B15 =IF(ISNUMBER(B7),B7,"UNKNOWN") (blank never shows 0), validation allow_blank; --own-cash typed
+                        #   once -> mtf_inputs.json '_own_cash' (mtf_generic.remember_own_cash, all brokers). VERSION 'v31'.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.
