@@ -138,6 +138,16 @@
                         #   PERSISTENT 1,06,422.71 / all 1,18,377.33. rbmtf copies the real accounts/ report to Drive
                         #   RB_Reports/<BROKER>_<Name>/MTF_Check_<BROKER>_<Name>.xlsx (drive_mtf_copy; temp/test files never).
                         #   run_offline 514 / 22. Package RB_Screener_MTF7_4_Update.zip.
+                        #   v30-Codex-MTF8 (9 Oct, zip from RB, built on our MTF7.4: all expected_existing SHAs matched,
+                        #   applied as-is): default rbmtf -> mtf_portfolio_report.py (write_report/print_report/complete),
+                        #   4 sections: 1 capital (cost, loan, own principal, interest MODEL, as-of unpaid, paid PROXY,
+                        #   daily burn), 2 per stock + dated FIFO lots, 3 aaj becho per stock + total (rounded fee parts,
+                        #   loan, as-of unpaid, separate 3-day full-sale exit reserve, cash credit, net P/L), 4 targets (pure
+                        #   cost BE / + exit reserve / safe + tax, exact .05 tick search). Auto unpaid estimate now through
+                        #   valuation only (old +1 day removed). mtf_breakeven.py kept (legacy/--compat, cache helper).
+                        #   drive_mtf_copy kept. Demo 9 Oct numbers (unpaid 176.32): TCS cash 11,873.73 / PERSISTENT
+                        #   1,06,204.73 / total 1,18,078.45; safe targets 3,365.90 / 5,943.15. 898 formulas = pycel 0 mismatch.
+                        #   tests/test_mtf_portfolio_report.py 32; run_offline 546 / 23 here (Codex Mac 543).
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.

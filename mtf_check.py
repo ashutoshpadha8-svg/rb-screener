@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-mtf_check.py -- MTF hisaab (v30-Codex-MTF7, 9 Oct 2026).
+mtf_check.py -- MTF hisaab (v30-Codex-MTF8, 9 Oct 2026).
 READ-ONLY: no order, nothing changed in split.csv / journal.
 
 v29 = rewrite after Codex's v27 review (8 findings, 17 synthetic cases):
@@ -1227,9 +1227,9 @@ def build(args, sess, today, frm):
     elif open_inventory_ok and not rows and not gap:
         unpaid = Num(0.0, VERIFIED, "no open MTF position")
     elif per_day is not None and per_end is not None:
-        days = max(0, (today - per_end).days) + 1   # + ~T+1 settlement day
+        days = max(0, (today - per_end).days)   # accrued through valuation only; forward reserve is separate
         unpaid = Num(round(per_day * days, 2), ESTIMATED,
-                     "%d days (includes 1 assumed settlement day) x last Rs %.2f/day after %s; actual billing may differ" % (days, per_day, per_end))
+                     "%d as-of days x last Rs %.2f/day after %s; excludes future exit reserve; actual billing may differ" % (days, per_day, per_end))
     else:
         unpaid = Num(None, UNKNOWN, "no interest rate history")
     own = total([open_cost_num, -loan], "open cost - current loan; principal repayments are not expenses")
@@ -1457,15 +1457,15 @@ def main():
         print("MTF input error: " + safe_error(e, sess)); return 1
     R=sanitize_report(R,sess)
     if not a.audit:
-        from mtf_breakeven import write_report
+        from mtf_portfolio_report import write_report, print_report, complete
         path = os.path.join(acc.reports, "MTF_Check.xlsx")
         R["report_account"] = redact_text(acc.label,sess)
         out = write_report(R, today, path, days=a.buffer_days, settlement=a.settlement_buffer, tax=a.tax_reserve, rate=a.rate)
-        print_current_report(R, out, acc, today, a)
+        print_report(R, out, acc, today, a)
         print("\nExcel (same account file refreshed):", path)
         drive_mtf_copy(path, acc)
         print("READ-ONLY broker access: koi order nahi gaya. Missing inputs remain UNKNOWN.")
-        return 2 if not out or any(r["status"]==UNKNOWN or r["now_net_tax"] is None for r in out) or (isinstance(R.get("exit"),Num) and not R["exit"].known) else 0
+        return 0 if complete(R, out) else 2
     f = R["fifo"]
 
     print("\n==== MTF HISAAB  %s  %s  %s ====" % (

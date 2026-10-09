@@ -132,7 +132,7 @@ class ReviewTests(unittest.TestCase):
     self.assertEqual(m.main(),2)
    self.assertIn('INCOMPLETE',stream.getvalue());self.assertIn('ledger unavailable',stream.getvalue())
  def test_historical_gap_does_not_block_complete_current_model(self):
-  r=inventory_model();r['exit']=m.Num(9000,m.ESTIMATED,'synthetic current settlement')
+  r=inventory_model();r['exit']=m.Num(9000,m.ESTIMATED,'synthetic current settlement');r['unpaid']=m.Num(0,m.VERIFIED,'synthetic current unpaid known')
   with tempfile.TemporaryDirectory() as d:
    acc=types.SimpleNamespace(activate=lambda:types.SimpleNamespace(token_ok=True,session=types.SimpleNamespace(broker='DHAN'),label='DUMMY',reports=d))
    with patch.dict(sys.modules,{'account':acc}),patch.object(m,'build',return_value=r),patch.object(sys,'argv',['mtf_check.py']),contextlib.redirect_stdout(io.StringIO()):self.assertEqual(m.main(),0)

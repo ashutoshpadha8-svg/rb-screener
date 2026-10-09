@@ -7,6 +7,11 @@ ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT));sys.path.i
 import mtf_check as m
 import mtf_breakeven as b
 from test_mtf_breakeven import fixture,TODAY
+def metric(ws,label,stock='TCS'):
+ row=next(c.row for c in ws['A'] if c.value==label)
+ header=next(c.row for c in ws['A'] if c.value=='Metric')
+ column=next(c.column for c in ws[header] if c.value==stock)
+ return ws.cell(row,column).value
 class FixedOutputTests(unittest.TestCase):
  def run_cli(self,reports,label='DUMMY A',day=TODAY,price=2100,broker='DHAN',token_ok=True):
   reports.mkdir(parents=True,exist_ok=True);r=fixture();r['rows'][0]['Price']=price
@@ -23,8 +28,8 @@ class FixedOutputTests(unittest.TestCase):
    p=Path(d)/'A/reports';code,txt=self.run_cli(p);self.assertEqual(code,0);self.assertTrue((p/'MTF_Check.xlsx').is_file());self.assertEqual(len(list(p.glob('*.xlsx'))),1)
  def test_same_day_refresh_changes_value(self):
   with tempfile.TemporaryDirectory() as d:
-   p=Path(d)/'A/reports';self.run_cli(p);before=load_workbook(p/'MTF_Check.xlsx',data_only=True).active['G18'].value
-   self.run_cli(p,price=3500);after=load_workbook(p/'MTF_Check.xlsx',data_only=True).active['G18'].value
+   p=Path(d)/'A/reports';self.run_cli(p);before=metric(load_workbook(p/'MTF_Check.xlsx',data_only=True).active,'Net P/L including exit reserve')
+   self.run_cli(p,price=3500);after=metric(load_workbook(p/'MTF_Check.xlsx',data_only=True).active,'Net P/L including exit reserve')
    self.assertLess(before,0);self.assertGreater(after,0);self.assertEqual(len(list(p.glob('*.xlsx'))),1)
  def test_new_day_updates_same_file_asof(self):
   with tempfile.TemporaryDirectory() as d:
@@ -43,7 +48,7 @@ class FixedOutputTests(unittest.TestCase):
  def test_numbered_claude_style_output(self):
   with tempfile.TemporaryDirectory() as d:
    _,txt=self.run_cli(Path(d)/'A/reports')
-   for heading in ['1. ABHI KE MTF STOCKS','2. CAPITAL KA BREAKUP','3. CURRENT VALUE AUR INTEREST','4. AAJ KE PRICE PAR BECHO','5. CURRENT NET PROFIT / LOSS','6. 30-DAY BREAKEVEN']:self.assertIn(heading,txt)
+   for heading in ['1. AAPKA LAGAYA PAISA','2. PER-STOCK HOLDING','3. AAJ BECHO TOH KYA MILEGA','4. BREAKEVEN / 30-DAY TARGET']:self.assertIn(heading,txt)
    self.assertIn('UNKNOWN',txt);self.assertNotIn('ACTUAL LOSS',txt)
  def test_profit_prints_plus(self):
   with tempfile.TemporaryDirectory() as d:
@@ -51,7 +56,7 @@ class FixedOutputTests(unittest.TestCase):
  def test_missing_price_overwrites_with_unknown_not_old_profit(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/'A/reports';self.run_cli(p,price=3500);code,txt=self.run_cli(p,price=None)
-   self.assertEqual(code,2);self.assertEqual(load_workbook(p/'MTF_Check.xlsx',data_only=True).active['G18'].value,'UNKNOWN');self.assertIn('INCOMPLETE',txt)
+   self.assertEqual(code,2);self.assertEqual(metric(load_workbook(p/'MTF_Check.xlsx',data_only=True).active,'Net P/L including exit reserve'),'UNKNOWN');self.assertIn('INCOMPLETE',txt)
  def test_invalid_token_does_not_overwrite_existing_report(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/'A/reports';self.run_cli(p);before=(p/'MTF_Check.xlsx').read_bytes();code,_=self.run_cli(p,token_ok=False)

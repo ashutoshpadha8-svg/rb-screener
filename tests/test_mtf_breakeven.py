@@ -10,7 +10,7 @@ TODAY=dt.date(2026,10,7)
 def fixture():
  lots={'TCS':[['2025-11-24',32,3175.8,0],['2026-02-04',10,3006.3,0],['2026-02-12',10,2858,0]],'PERSISTENT':[['2025-12-10',5,6142,0],['2026-01-21',5,6115,0],['2026-01-21',3,6066,0],['2026-02-04',9,5977.5,0],['2026-02-12',9,5658.5,0],['2026-05-14',15,70122.7/15,0]]}
  rows=[{'Symbol':s,'Qty':sum(x[1] for x in v),'Open cost (Rs)':m.Num(round(sum(x[1]*x[2] for x in v),2),m.ESTIMATED),'Price':2100 if s=='TCS' else 5521} for s,v in lots.items()]
- return dict(loan=m.Num(261888.33),open_cost_num=m.Num(414598.3),fifo={'lots':lots},rows=rows)
+ return dict(loan=m.Num(261888.33),unpaid=m.Num(0, m.VERIFIED, 'synthetic no outstanding interest'),open_cost_num=m.Num(414598.3),fifo={'lots':lots},rows=rows)
 class BreakevenTests(unittest.TestCase):
  def test_tcs_expected_broker_target(self):self.assertAlmostEqual(b.calculate(fixture(),TODAY)[0]['broker'],3307.35)
  def test_persistent_expected_broker_target(self):self.assertAlmostEqual(b.calculate(fixture(),TODAY)[1]['broker'],5857.2)
