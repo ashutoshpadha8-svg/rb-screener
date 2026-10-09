@@ -74,6 +74,12 @@ def cache_formula_values(path,values):
  """Keep formulas, set display caches from the independent Python model.
  Excel recalculates all editable inputs on open. No macro/add-in required."""
  ns={'s':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'};tag='{'+ns['s']+'}'
+ # Google Sheets refuses a worksheet whose main namespace is written with a
+ # prefix (<s:worksheet>); keep it the default namespace like Excel/openpyxl.
+ ET.register_namespace('',ns['s'])
+ ET.register_namespace('r','http://schemas.openxmlformats.org/officeDocument/2006/relationships')
+ ET.register_namespace('mc','http://schemas.openxmlformats.org/markup-compatibility/2006')
+ ET.register_namespace('x14ac','http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac')
  with zipfile.ZipFile(path) as z: entries={name:z.read(name) for name in z.namelist()}
  root=ET.fromstring(entries['xl/worksheets/sheet1.xml'])
  for cell in root.findall('.//s:c',ns):
