@@ -148,6 +148,11 @@
                         #   drive_mtf_copy kept. Demo 9 Oct numbers (unpaid 176.32): TCS cash 11,873.73 / PERSISTENT
                         #   1,06,204.73 / total 1,18,078.45; safe targets 3,365.90 / 5,943.15. 898 formulas = pycel 0 mismatch.
                         #   tests/test_mtf_portfolio_report.py 32; run_offline 546 / 23 here (Codex Mac 543).
+                        #   MTF8.1 (RB Numbers screenshot: 'heading kahi aur, data kahi aur' + 'Rs1550.50 format'): column A
+                        #   left, every other header + value centred (_align), explanation/price-source left, columns 17 wide;
+                        #   money = '"Rs-sign"#,##0.00' (MONEY_FMT), qty/days plain, % stays %; terminal RUPEE (falls back to
+                        #   'Rs ' if stdout can't encode). tests/test_mtf_layout.py 3; run_offline 549 / 24. Package
+                        #   RB_Screener_MTF8_1_Update.zip installs on MTF7.4 OR MTF8 (expected_existing accepts a list).
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.

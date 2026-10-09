@@ -121,7 +121,9 @@ def complete(R,rows):
     return all(r['status']!=UNKNOWN and r['cash'] is not None and r['net_exit'] is not None for r in rows)
 
 def print_report(R,rows,acc,today,args):
-    def money(x,sign=False):return 'UNKNOWN' if not finite(x) else ('+Rs {:,.2f}' if sign and x>0 else 'Rs {:,.2f}').format(x)
+    def money(x,sign=False):
+        if not finite(x):return 'UNKNOWN'
+        return ('+' if sign and x>0 else '-' if x<0 else '')+RUPEE+'{:,.2f}'.format(abs(x))
     def line(label,x,note='',sign=False):print('  %-47s %20s %s'%(label,money(x,sign),note))
     print('\n==== CURRENT MTF | %s | %s | %s ===='%(acc.label,today,VERSION))
     print('Quote timestamps/sources below. MODEL != ACTUAL; no orders. Current holdings only.')
@@ -176,6 +178,27 @@ def _seed(q,c,past,buy,funded,rate,hold,settle,tax,buffer):
     num=c+past+buy+funded*rate*hold/365+buffer+(DP+PLEDGE)*(1+GST)-tax*c
     unc=num/(a-BROKER*(1+GST))
     return (unc if unc<=CAP/BROKER else (num+CAP*(1+GST))/a)/q
+
+# RB 9 Oct: amounts as Rs1,550.50 with the rupee sign (sheet + terminal); qty/days/% stay plain.
+MONEY_FMT='"\u20b9"#,##0.00;[Red]-"\u20b9"#,##0.00;"-"'
+def _rupee():
+    import sys
+    try:'\u20b9'.encode(getattr(sys.stdout,'encoding',None) or 'ascii');return '\u20b9'
+    except (UnicodeEncodeError,LookupError):return 'Rs '
+RUPEE=_rupee()
+
+
+def _align(cell,sec2,start4):
+    """RB 9 Oct: 'heading kahi aur, data kahi aur'. Text defaults left and numbers right in
+    Excel/Numbers/Sheets, so a header never sat over its numbers. Column A = labels (left);
+    every other table cell, header AND value, is centred; long text stays left."""
+    r,c=cell.row,cell.column
+    if c==1:return 'left'
+    if 4<=r<=7:return 'right' if c in (3,5) else 'left' if c>=8 else 'center'   # input labels sit next to their values
+    if 12<=r<=24 and c>=4:return 'left'             # Section 1 explanation text
+    if r<start4 and c==11:return 'left'             # Section 2 price source
+    return 'center'
+
 
 def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
     """Atomic fixed-account worksheet; formulas plus display caches, no live calls."""
@@ -381,8 +404,10 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
     for rr in s:
         for cell in rr:
             if cell.fill.fgColor.rgb not in (NAVY,'00'+NAVY):cell.font=Font(name='Arial',size=10,color='000000' if cell.data_type=='f' else '0000FF' if isinstance(cell.value,(int,float,dt.date)) else NAVY)
-            cell.alignment=Alignment(wrap_text=True,vertical='center')
-            if cell.data_type=='f' or isinstance(cell.value,(int,float)):cell.number_format='#,##0.00;[Red](#,##0.00);"-"'
+            cell.alignment=Alignment(wrap_text=True,vertical='center',horizontal=_align(cell,sec2,start4))
+            if cell.data_type=='f' or isinstance(cell.value,(int,float)):cell.number_format=MONEY_FMT
+    plain=['F4','F5','F7']+['B'+str(k) for k in range(start2,total2+1)]+[c+str(k) for k in range(lot_start,lot_end+1) for c in 'CF']
+    for ref in plain:s[ref].number_format='#,##0;[Red]-#,##0;0'
     for ref in ['D4','D5']+['F'+str(start4+i) for i in range(n)]+[c+str(risk+i) for i in [1,2,3] for c in 'ACD']:s[ref].number_format='0.00%'
     s['B4'].number_format='dd-mmm-yyyy'
     for k in range(lot_start,lot_end+1):s['B'+str(k)].number_format='dd-mmm-yyyy'
@@ -391,8 +416,9 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
         for c in s[k]:c.fill=PatternFill('solid',fgColor=PALE);c.font=Font(name='Arial',bold=True,color=NAVY,size=10)
     for k in range(12,25):s.row_dimensions[k].height=36
     for k in range(start3,start3+len(metrics)):s.row_dimensions[k].height=32
-    for c,width in [('A',45),('B',22),('C',22),('D',25),('E',26),('F',23),('G',26),('H',25),('I',25),('J',25),('K',44)]:s.column_dimensions[c].width=width
-    for j in range(12,max(18,n+3)):s.column_dimensions[col(j)].width=22
+    # RB 9 Oct (Numbers screenshot): narrower columns so the sheet fits without zooming to 42%.
+    for c,width in [('A',38),('B',17),('C',17),('D',17),('E',17),('F',17),('G',26),('H',17),('I',17),('J',17),('K',40)]:s.column_dimensions[c].width=width
+    for j in range(12,max(18,n+3)):s.column_dimensions[col(j)].width=17
     s.row_dimensions.group(hstart,nextrow,hidden=True)
     s.freeze_panes='B12';s.sheet_view.showGridLines=False;s.sheet_properties.pageSetUpPr.fitToPage=True;s.page_setup.orientation='landscape';s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=0;s.print_area='A1:'+col(max(17,n+2))+str(max(source_row,lot_end,fee_start+10))
     for refs,kind,lo,hi in [('B5 B6 B7','decimal',0,1e10),('D4','decimal',0,.999),('D5','decimal',0,.799),('F4','whole',0,3650),('F5','whole',0,90)]+[('B'+str(start4+i),'decimal',.01,1e10) for i in range(n)]:
