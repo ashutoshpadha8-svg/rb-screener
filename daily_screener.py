@@ -487,6 +487,7 @@ def main():
         frames, bm, live = ba.refresh(sess, frames, bm, want, warns)
     else:
         print("  (no usable broker token -- running on the free source only)")
+        bm = ba.index_fill(bm, want, warns)
 
     # ---------------------------------------------------------------- panel
     cal = bm.index
@@ -560,12 +561,15 @@ def main():
             fails.append("more than 25% below 52w high")
         if px < 1.3 * lo52[s].iloc[-1]:
             fails.append("less than 30% above 52w low")
-        if rs[s].iloc[-1] < 70:
-            fails.append("RS rank fell to %.0f" % rs[s].iloc[-1])
+        rs_now = rs[s].iloc[-1]
+        if np.isnan(rs_now):                  # Nifty/stock bar missing: never a FIT, never a crash
+            fails.append("RS rank unknown (Nifty/price data missing for the last bar)")
+        elif rs_now < 70:
+            fails.append("RS rank fell to %.0f" % rs_now)
 
         base = {"symbol": s.upper(),
                 "mcap_cr": int(round(caps.get(s, np.nan))) if s in caps else None,
-                "rs_rank": int(round(rs[s].iloc[-1])),
+                "rs_rank": None if np.isnan(rs_now) else int(round(rs_now)),
                 "signal_date": sd.date(), "bars_ago": bars_ago,
                 "signal_px": round(sig_px, 1), "price": round(px, 1),
                 "px_src": src, "vs_signal_pct": round(ext, 1)}

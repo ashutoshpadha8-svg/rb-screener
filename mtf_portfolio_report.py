@@ -180,7 +180,9 @@ def _seed(q,c,past,buy,funded,rate,hold,settle,tax,buffer):
     return (unc if unc<=CAP/BROKER else (num+CAP*(1+GST))/a)/q
 
 # RB 9 Oct: amounts as Rs1,550.50 with the rupee sign (sheet + terminal); qty/days/% stay plain.
-MONEY_FMT='"\u20b9"#,##0.00;[Red]-"\u20b9"#,##0.00;"-"'
+# ONE section only: Apple Numbers puts its own minus in front of an explicit negative
+# section ('[Red]-"Rs"..' showed '--Rs37,066.30', RB 9 Oct). Red comes from conditional formatting.
+MONEY_FMT='"\u20b9"#,##0.00'
 def _rupee():
     import sys
     try:'\u20b9'.encode(getattr(sys.stdout,'encoding',None) or 'ascii');return '\u20b9'
@@ -336,13 +338,18 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
         elif expr:f('B'+str(k),expr,value)
         else:put('B'+str(k),UNKNOWN)
     bar(sec2,'SECTION 2 — PER-STOCK HOLDINGS / LOAN / INTEREST')
-    for j,label in enumerate(['Stock','Qty','FIFO avg','Buy cost','Loan proxy','Own principal','Lot calendar days','Daily burn','Interest MODEL','Actual paid interest','Price source'],1):put(col(j)+str(head2),label)
+    for j,label in enumerate(['Stock','Qty','FIFO avg','Buy cost','Loan proxy','Own principal','Kitne din se (purani se nayi buy)','Daily burn','Interest MODEL','Actual paid interest','Price source'],1):put(col(j)+str(head2),label)
     for i,r in enumerate(rows):
         k=hstart+i;v=start2+i;put('A'+str(v),r['symbol'])
         for c,helper,key in [('B','B','qty'),('D','C','cost'),('E','E','funded'),('F','F','own'),('H','G','daily'),('I','H','past')]:f(c+str(v),helper+str(k),r[key])
         f('C'+str(v),'IF(COUNT(B{0},D{0})=2,IF(B{0}>0,D{0}/B{0},"UNKNOWN"),"UNKNOWN")'.format(v),r['cost']/r['qty'] if r['cost'] is not None and r['qty'] else None)
         indices=[lot_start+j for j,z in enumerate(all_lots) if z['symbol']==r['symbol']]
-        if indices:f('G'+str(v),'&", "&'.join('TEXT(F%d,"0")'%k for k in indices),', '.join(str(z['days']) if z['days'] is not None else UNKNOWN for z in r['lots']))
+        # RB 9 Oct: '303, 261, 261, 247, 239, 148' was unreadable (+ Numbers warned on TEXT()). Now
+        # 'oldest se newest din (N buys)'; every lot stays listed in the FIFO tranche table below.
+        dd=[z['days'] for z in r['lots']];nb=len(dd);bl='buy' if nb==1 else 'buys'
+        dval=(('%d din (1 buy)'%dd[0]) if nb==1 else '%d se %d din (%d buys)'%(max(dd),min(dd),nb)) if dd and all(isinstance(x,int) for x in dd) else None
+        rng=','.join('F%d'%k for k in indices)
+        if indices:f('G'+str(v),('IF(COUNT({0})={1},MAX({0})&" se "&MIN({0})&" din ({1} buys)","UNKNOWN")' if nb>1 else 'IF(COUNT({0})=1,{0}&" din (1 buy)","UNKNOWN")').format(rng,nb),dval)
         else:put('G'+str(v),UNKNOWN)
         put('J'+str(v),UNKNOWN);put('K'+str(v),r['price_source']);s.row_dimensions[v].height=42
     put('A'+str(total2),'TOTAL')
@@ -407,7 +414,7 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
             cell.alignment=Alignment(wrap_text=True,vertical='center',horizontal=_align(cell,sec2,start4))
             if cell.data_type=='f' or isinstance(cell.value,(int,float)):cell.number_format=MONEY_FMT
     plain=['F4','F5','F7']+['B'+str(k) for k in range(start2,total2+1)]+[c+str(k) for k in range(lot_start,lot_end+1) for c in 'CF']
-    for ref in plain:s[ref].number_format='#,##0;[Red]-#,##0;0'
+    for ref in plain:s[ref].number_format='#,##0'
     for ref in ['D4','D5']+['F'+str(start4+i) for i in range(n)]+[c+str(risk+i) for i in [1,2,3] for c in 'ACD']:s[ref].number_format='0.00%'
     s['B4'].number_format='dd-mmm-yyyy'
     for k in range(lot_start,lot_end+1):s['B'+str(k)].number_format='dd-mmm-yyyy'
@@ -419,6 +426,8 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
     # RB 9 Oct (Numbers screenshot): narrower columns so the sheet fits without zooming to 42%.
     for c,width in [('A',38),('B',17),('C',17),('D',17),('E',17),('F',17),('G',26),('H',17),('I',17),('J',17),('K',40)]:s.column_dimensions[c].width=width
     for j in range(12,max(18,n+3)):s.column_dimensions[col(j)].width=17
+    from openpyxl.formatting.rule import CellIsRule
+    s.conditional_formatting.add('B4:AI%d'%max(nextrow,source_row),CellIsRule(operator='lessThan',formula=['0'],font=Font(name='Arial',size=10,color='C00000')))
     s.row_dimensions.group(hstart,nextrow,hidden=True)
     s.freeze_panes='B12';s.sheet_view.showGridLines=False;s.sheet_properties.pageSetUpPr.fitToPage=True;s.page_setup.orientation='landscape';s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=0;s.print_area='A1:'+col(max(17,n+2))+str(max(source_row,lot_end,fee_start+10))
     for refs,kind,lo,hi in [('B5 B6 B7','decimal',0,1e10),('D4','decimal',0,.999),('D5','decimal',0,.799),('F4','whole',0,3650),('F5','whole',0,90)]+[('B'+str(start4+i),'decimal',.01,1e10) for i in range(n)]:

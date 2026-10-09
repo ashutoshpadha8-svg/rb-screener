@@ -661,6 +661,77 @@ def bhav_fill(frames, want, warns=None):
     return len(filled)
 
 
+INDEX_URL = ("https://nsearchives.nseindia.com/content/indices/"
+             "ind_close_all_%s.csv")
+
+
+def _index_day(d, name="Nifty 50"):
+    """(O, H, L, C) of one NSE index for one session from NSE's free daily
+    index file, or None. Cached in data/_bhav/ like the stock bhavcopy."""
+    tag = d.strftime("%d%m%Y")
+    path = os.path.join(BHAV_DIR, "ind_close_all_" + tag + ".csv")
+    if not os.path.exists(path):
+        r = None
+        for hdr in (ds.NSE_HDRS, {"User-Agent": "Mozilla/5.0"}, ds.NSE_HDRS):
+            try:
+                r = requests.get(INDEX_URL % tag, headers=hdr, timeout=30)
+            except requests.RequestException:
+                r = None
+            if r is not None and r.status_code == 200 and \
+                    r.content[:10] == b"Index Name":
+                break
+            time.sleep(1.5)
+        if r is None or r.status_code != 200 or r.content[:10] != b"Index Name":
+            return None
+        os.makedirs(BHAV_DIR, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(r.content)
+    try:
+        t = pd.read_csv(path)
+        row = t[t["Index Name"].str.strip().str.lower() == name.lower()].iloc[0]
+        vals = [float(row[c]) for c in ("Open Index Value", "High Index Value",
+                                        "Low Index Value", "Closing Index Value")]
+    except Exception:
+        return None
+    return tuple(vals) if all(v > 0 for v in vals) else None
+
+
+def index_fill(bm, want, warns=None):
+    """Fill missing Nifty 50 sessions from NSE's daily index file (9 Oct, RB:
+    Tanya's FREE Dhan plan refused the Nifty fill -> 10-day gap > ffill limit 5
+    -> every RS rank NaN -> daily_screener crashed). Never raises."""
+    warns = warns if warns is not None else []
+    if bm is None or bm.index[-1].date() >= want:
+        return bm
+    d = max(bm.index[-1].date() + dt.timedelta(days=1), want - dt.timedelta(days=21))
+    add, prev = [], float(bm["Close"].iloc[-1])
+    while d <= want:
+        if d.weekday() < 5:
+            try:
+                row = _index_day(d)
+            except Exception:
+                row = None
+            if row:
+                o, h, l, c = row
+                if not 0.7 < c / prev < 1.3:
+                    warns.append("NIFTY: %.0f%% jump vs NSE index file on %s -- fill stopped" % ((c / prev - 1) * 100, d))
+                    break
+                add.append((pd.Timestamp(d), o, h, l, c))
+                prev = c
+        d += dt.timedelta(days=1)
+    if not add:
+        return bm
+    a = pd.DataFrame([x[1:] for x in add], index=[x[0] for x in add],
+                     columns=["Open", "High", "Low", "Close"])
+    for c in bm.columns:
+        if c not in a.columns:
+            a[c] = 0 if c == "Volume" else float("nan")
+    a = a[list(bm.columns)]
+    a.index.name = bm.index.name
+    print("  NSE index file: Nifty 50 filled %d day(s)" % len(add))
+    return pd.concat([bm, a])
+
+
 # Broker bars fetched today are kept on disk, so the 2nd screen of the same
 # scan (momentum after W+TT) does not ask the broker for all 500 stocks again.
 _FILL = {"path": None, "bars": {}, "dirty": False}
@@ -736,6 +807,7 @@ def refresh(sess, frames, bm=None, want=None, warns=None, every=10):
     warns = warns if warns is not None else []
     want = want or ds.last_expected_session()
     live = {}
+    bm = index_fill(bm, want, warns)        # Nifty: NSE index file first
     behind = [s for s, f in frames.items() if f.index[-1].date() < want]
     if behind:                              # fast path: NSE daily file
         n = bhav_fill(frames, want, warns)

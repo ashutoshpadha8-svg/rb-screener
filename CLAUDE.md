@@ -153,6 +153,9 @@
                         #   money = '"Rs-sign"#,##0.00' (MONEY_FMT), qty/days plain, % stays %; terminal RUPEE (falls back to
                         #   'Rs ' if stdout can't encode). tests/test_mtf_layout.py 3; run_offline 549 / 24. Package
                         #   RB_Screener_MTF8_1_Update.zip installs on MTF7.4 OR MTF8 (expected_existing accepts a list).
+                        #   MTF8.2 (RB Numbers): one-section money format (Numbers showed '--Rs37,066' with an explicit
+                        #   negative section) + red via conditional formatting; Section 2 lot days 'oldest se newest din
+                        #   (N buys)' instead of a comma list (TEXT() warning in Numbers); qty '#,##0'.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.
@@ -753,6 +756,11 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 - 29 Sep: Angel getCandleData rate limit (3/s, 180/min) -> HTTP 403 'exceeding access rate' was read as a bad token,
   the fill stopped after ~50 big caps and momentum ranked ONLY those (liq needed the last bar). Fixed: throttle,
   rate-limit = retry, per-stock failures skip, loud 'N stocks not filled' warning, liq min_periods=50.
+- 9 Oct (rb on Tanya's FREE Dhan plan, DH-902 'requires PLUS'): Nifty stuck at the free source (25 Sep), 10 sessions >
+  ffill(limit=5) -> every RS NaN -> daily_screener crashed int(NaN). FIX: broker_api.index_fill = NSE daily index file
+  nsearchives.nseindia.com/content/indices/ind_close_all_DDMMYYYY.csv ('Nifty 50' OHLC, cached data/_bhav/, jump guard
+  0.7-1.3x), run first in refresh() and in the no-token path; daily_screener: NaN RS -> NO-FIT 'RS rank unknown', never
+  a crash. Live-checked from the cloud: 8 Oct 22231.8 = Angel run. tests/test_index_fill.py 5; run_offline 554 / 25.
 - 30 Sep: gap fill first from NSE CM bhavcopy (broker_api.bhav_fill, BhavCopy_NSE_CM_0_0_0_YYYYMMDD_F_0000.csv.zip,
   series EQ/BE/BZ, cached data/_bhav/, split guard 0.6-1.4x) -> broker only for leftovers + Nifty + today's bar before
   NSE publishes it (evening). Checked vs eod2: 4578 stock-days (23-25 Sep), 0 mismatches in OHLC and volume.
