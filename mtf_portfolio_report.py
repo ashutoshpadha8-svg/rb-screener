@@ -14,7 +14,7 @@ from openpyxl.comments import Comment
 from openpyxl.worksheet.datavalidation import DataValidation
 from mtf_breakeven import cache_formula_values, validate_output_path
 
-VERSION = 'v31'
+VERSION = 'v33'
 UNKNOWN = 'UNKNOWN'
 FEES_SOURCE = 'https://dhan.co/pricing/'
 INTEREST_SOURCE = 'https://dhan.co/support/mtf-pledge-experience/mtf-general/how-is-interest-calculated-for-margin-trading-facility-mtf-transactions-and-what-should-i-know-about-the-process/'
@@ -133,7 +133,13 @@ def calculate(R,today,days=30,settlement=3,tax=.208,rate=.1249):
         safe=target(q,c,past,buy,funded,rate,days,settlement,tax,2) if ready else None
         hold_i=funded*rate*days/365 if funded is not None and inp else None
         safe_i=safe*q*rate*settlement/365 if safe is not None else None
-        out.append(dict(symbol=sym,qty=q if qty_ok else None,cmp=p if price_ok else None,cost=c,lots=lots,lot_basis_ok=bool(ready),funded=funded,own=own,daily=daily,past=past,buy=buy,sale_fees=sell,unpaid=outstanding,extra=extra,cash=cash,net_asof=net_asof,net_exit=net_exit,now_tax=reserve,now_net_tax=after_tax,paid_proxy=paid_proxy,pocket=pocket,pure=pure,today_be=now_be,full=safe,recovery=safe/p-1 if safe is not None and price_ok else None,hold_interest=hold_i,safe_exit_interest=safe_i,value=value,price_pnl=gain,price_source=str(row.get('Price source','UNKNOWN')),status='ESTIMATED' if ready and safe is not None else UNKNOWN))
+        # RB 9 Oct: 'safe target choose kiya to 30 din mein net P/L kya hoga' -> sale at the safe
+        # target on the LAST day (aaj + days): full hold interest + exit reserve; earlier = less interest.
+        tgt_gross=safe*q if safe is not None else None
+        tgt_fees=fees(tgt_gross)['total'] if tgt_gross is not None else None
+        tgt_net=tgt_gross-c-past-buy-tgt_fees-hold_i-safe_i if None not in (tgt_gross,tgt_fees,hold_i,safe_i) else None
+        tgt_net_tax=tgt_net-max(tgt_gross-c,0)*tax if tgt_net is not None else None
+        out.append(dict(symbol=sym,qty=q if qty_ok else None,cmp=p if price_ok else None,cost=c,lots=lots,lot_basis_ok=bool(ready),funded=funded,own=own,daily=daily,past=past,buy=buy,sale_fees=sell,unpaid=outstanding,extra=extra,cash=cash,net_asof=net_asof,net_exit=net_exit,now_tax=reserve,now_net_tax=after_tax,paid_proxy=paid_proxy,pocket=pocket,pure=pure,today_be=now_be,full=safe,recovery=safe/p-1 if safe is not None and price_ok else None,target_date=today+dt.timedelta(days=int(days)) if inp else None,target_gross=tgt_gross,target_fees=tgt_fees,target_net=tgt_net,target_net_tax=tgt_net_tax,hold_interest=hold_i,safe_exit_interest=safe_i,value=value,price_pnl=gain,price_source=str(row.get('Price source','UNKNOWN')),status='ESTIMATED' if ready and safe is not None else UNKNOWN))
     return out
 
 def total(rows,key):
@@ -182,7 +188,12 @@ def print_report(R,rows,acc,today,args):
     line('Net after optional tax reserve',total(rows,'now_net_tax'),sign=True)
     print('  Paid interest is not deducted again from payout; loan repayment is not another P/L loss.')
     print('\n4. BREAKEVEN / %d-DAY TARGET + %d EXIT RESERVE DAYS'%(args.buffer_days,args.settlement_buffer))
-    for r in rows:print('  %s | Pure cost BE %s | BE including exit reserve %s | Safe + tax reserve %s | rise %s'%(r['symbol'],money(r['pure']),money(r['today_be']),money(r['full']),'UNKNOWN' if r['recovery'] is None else '%.2f%%'%(100*r['recovery'])))
+    for r in rows:
+        print('  %s | Pure cost BE %s | BE including exit reserve %s | Safe + tax reserve %s | rise %s'%(r['symbol'],money(r['pure']),money(r['today_be']),money(r['full']),'UNKNOWN' if r['recovery'] is None else '%.2f%%'%(100*r['recovery'])))
+        print('    Target date %s tak safe target %s pe becho -> net P/L %s (tax reserve ke baad %s) | AAJ becho -> net P/L %s'%(r['target_date'].strftime('%d-%b-%Y') if r['target_date'] else 'UNKNOWN',money(r['full']),money(r['target_net'],True),money(r['target_net_tax'],True),money(r['net_exit'],True)))
+        print('    Interest kata hua: ab tak %s + aaj se target date tak %s'%(money(r['past']),money(r['hold_interest'])))
+    line('TOTAL net P/L at safe targets (tax se pehle)',total(rows,'target_net'),sign=True)
+    line('TOTAL net P/L AAJ becho',total(rows,'net_exit'),sign=True)
     value=total(rows,'value')
     if finite(loan) and finite(value) and value>0:
         print('  Risk SCENARIO only: equity/value %.2f%%; hypothetical 20%% floor uniform fall %.2f%% (zero extra collateral).'%(100*(value-loan)/value,100*(1-loan/.8/value)))
@@ -223,7 +234,7 @@ def _align(cell,sec2,start4):
     if c==1:return 'left'
     if 4<=r<=7:return 'right' if c in (3,5) else 'left' if c>=8 else 'center'   # input labels sit next to their values
     if 12<=r<=24 and c>=4:return 'left'             # Section 1 explanation text
-    if r<start4 and c==11:return 'left'             # Section 2 price source
+    if r<start4-1 and c==11:return 'left'           # Section 2 price source (not the Section 4 header)
     return 'center'
 
 
@@ -267,7 +278,7 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
     metrics=[('Market value','value','J'),('Price profit/loss','price_pnl','K'),('Exit brokerage','brokerage','Q'),('Exit STT','stt','P'),('Exchange fees','exchange','M'),('SEBI','sebi','N'),('IPFT','ipft','O'),('DP base','dp','S'),('Unpledge base','pledge','T'),('GST on applicable fees','gst','R'),('TOTAL EXIT CHARGES','fee_total','L'),('Loan repayment','funded','E'),('As-of UNPAID interest','unpaid','U'),('Extra sale-realisation reserve','extra','V'),('NET CASH CREDIT SCENARIO','cash','X'),('Net P/L before extra exit days','net_asof','Y'),('Net P/L including exit reserve','net_exit','Z'),('Optional gross-gain tax reserve','now_tax','W'),('Net P/L after optional reserve','now_net_tax','AA'),('ACTUAL settlement / realised P/L',None,None)]
     map3={key:start3+j for j,(_,key,_) in enumerate(metrics) if key}
     sec4=start3+len(metrics)+3;head4=sec4+1;start4=sec4+2
-    risk=start4+n+3;notes=risk+6;fee_start=notes+11;lot_head=fee_start+13;lot_start=lot_head+1
+    risk=start4+n+4;notes=risk+6;fee_start=notes+11;lot_head=fee_start+13;lot_start=lot_head+1
     all_lots=[z for r in rows for z in r['lots']];lot_end=lot_start+len(all_lots)-1
     hstart=max(300,lot_end+len(R.get('src',{}))+15);hend=hstart+n-1;lookup={r['symbol']:hstart+i for i,r in enumerate(rows)}
     const={'broker':BROKER,'cap':CAP,'exchange':EXCH,'sebi':SEBI,'ipft':IPFT,'gst':GST,'stt':STT,'stamp':STAMP,'dp':DP,'pledge':PLEDGE}
@@ -320,6 +331,11 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
         f('W'+str(k),'IF(AND(COUNT(K{0},$D$5)=2,$D$5>=0,$D$5<0.8),MAX(K{0},0)*$D$5,"UNKNOWN")'.format(k),r['now_tax'])
         expressions={'X':('cash','IF(COUNT(J{0},E{0},L{0},U{0},V{0})=5,J{0}-E{0}-L{0}-U{0}-V{0},"UNKNOWN")'), 'Y':('net_asof','IF(COUNT(K{0},H{0},I{0},L{0})=4,K{0}-H{0}-I{0}-L{0},"UNKNOWN")'), 'Z':('net_exit','IF(COUNT(Y{0},V{0})=2,Y{0}-V{0},"UNKNOWN")'), 'AA':('now_net_tax','IF(COUNT(Z{0},W{0})=2,Z{0}-W{0},"UNKNOWN")'), 'AB':('paid_proxy','IF(COUNT(H{0},U{0})=2,IF(H{0}>=U{0},H{0}-U{0},"UNKNOWN"),"UNKNOWN")'), 'AC':('pocket','IF(COUNT(F{0},AB{0},I{0})=3,F{0}+AB{0}+I{0},"UNKNOWN")'), 'AH':('hold_interest','IF(COUNT(E{0},$D$4,$F$4)=3,E{0}*$D$4*$F$4/365,"UNKNOWN")'), 'AI':('safe_exit_interest','IF(COUNT(AD{0},B{0},$D$4,$F$5)=4,AD{0}*B{0}*$D$4*$F$5/365,"UNKNOWN")')}
         for c,(key,expr) in expressions.items():f(c+str(k),expr.format(k),r[key])
+        # Sale at the safe target on the last day of the holding scenario (RB 9 Oct).
+        f('AJ'+str(k),'IF(COUNT(AD{0},B{0})=2,AD{0}*B{0},"UNKNOWN")'.format(k),r['target_gross'])
+        f('AK'+str(k),'IF(COUNT(AJ%d)=1,%s,"UNKNOWN")'%(k,fee_formula('AJ'+str(k))),r['target_fees'])
+        f('AL'+str(k),'IF(COUNT(AJ{0},C{0},H{0},I{0},AK{0},AH{0},AI{0})=7,AJ{0}-C{0}-H{0}-I{0}-AK{0}-AH{0}-AI{0},"UNKNOWN")'.format(k),r['target_net'])
+        f('AM'+str(k),'IF(AND(COUNT(AL{0},AJ{0},C{0},$D$5)=4,$D$5>=0,$D$5<0.8),AL{0}-MAX(AJ{0}-C{0},0)*$D$5,"UNKNOWN")'.format(k),r['target_net_tax'])
         # Integer-tick binary search; robust to ROUND jumps and small quantities.
         # The documented net-proceeds slope bound handles fee-rounding jumps.
         for output,key,hold,settle,tx,buf in [('AE','pure','0','0','0','0'),('AF','today_be','0','$F$5','0','0'),('AD','full','$F$4','$F$5','$D$5','$D$7')]:
@@ -381,7 +397,7 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
         rng=','.join('F%d'%k for k in indices)
         if indices:f('G'+str(v),('IF(COUNT({0})={1},MAX({0})&" se "&MIN({0})&" din ({1} buys)","UNKNOWN")' if nb>1 else 'IF(COUNT({0})=1,{0}&" din (1 buy)","UNKNOWN")').format(rng,nb),dval)
         else:put('G'+str(v),UNKNOWN)
-        put('J'+str(v),UNKNOWN);put('K'+str(v),r['price_source']);s.row_dimensions[v].height=42
+        put('J'+str(v),UNKNOWN);put('K'+str(v),r['price_source']);s.row_dimensions[v].height=30
     put('A'+str(total2),'TOTAL')
     for c,helper,key in [('B','B','qty'),('D','C','cost'),('E','E','funded'),('F','F','own'),('H','G','daily'),('I','H','past')]:ex,val=sumfield(helper,key);f(c+str(total2),ex,val)
     bar(sec3,'SECTION 3 — AAJ BECHO: ACCOUNT CASH CREDIT vs NET P/L')
@@ -404,12 +420,22 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
         if key in ('cash','net_exit','now_net_tax','fee_total'):
             for c in s[v]:c.fill=PatternFill('solid',fgColor=YELLOW)
     note(start3+len(metrics)+1,'Paid interest is not deducted again from payout. Tax reserve is separate from broker payout. Exit reserve = full gross sale value x rate x additional calendar days / 365; not confirmed T+3 settlement.')
-    bar(sec4,'SECTION 4 — BREAKEVEN / SAFE TARGET / MARGIN RISK')
-    for j,label in enumerate(['Stock','LTP / scenario','Pure BE now','BE incl exit reserve','Safe hold+exit+tax','Required rise','Future hold interest','Safe exit reserve','Actual call level'],1):put(col(j)+str(head4),label)
+    bar(sec4,'SECTION 4 — SAFE TARGET: %d DIN TAK HOLD KARO TO NET P/L vs AAJ BECHO'%days)
+    # RB 9 Oct: per stock -> target price, by which date, net P/L at that target, net P/L if sold today.
+    heads4=['Stock','LTP / scenario','Safe hold+exit+tax','Kitna upar %','Target date (aaj + %d din)'%days,'Interest ab tak (MODEL)','Interest aaj se target date tak','Net P/L target pe (tax se pehle)','Net P/L target pe (tax reserve ke baad)','Net P/L AAJ becho','Pure BE now','BE incl exit reserve','Safe exit reserve']
+    for j,label in enumerate(heads4,1):put(col(j)+str(head4),label)
+    serial=lambda d:(d-dt.date(1899,12,30)).days if d is not None else None
     for i,r in enumerate(rows):
         k=hstart+i;v=start4+i;put('A'+str(v),r['symbol'])
-        for c,h,key in [('C','AE','pure'),('D','AF','today_be'),('E','AD','full'),('G','AH','hold_interest'),('H','AI','safe_exit_interest')]:f(c+str(v),h+str(k),r[key])
-        f('F'+str(v),'IF(COUNT(B{0},E{0})=2,IF(B{0}>0,E{0}/B{0}-1,"UNKNOWN"),"UNKNOWN")'.format(v),r['recovery']);s['F'+str(v)].number_format='0.00%';put('I'+str(v),UNKNOWN);s.row_dimensions[v].height=40
+        for c,h,key in [('C','AD','full'),('F','H','past'),('G','AH','hold_interest'),('H','AL','target_net'),('I','AM','target_net_tax'),('J','Z','net_exit'),('K','AE','pure'),('L','AF','today_be'),('M','AI','safe_exit_interest')]:f(c+str(v),h+str(k),r[key])
+        f('D'+str(v),'IF(COUNT(B{0},C{0})=2,IF(B{0}>0,C{0}/B{0}-1,"UNKNOWN"),"UNKNOWN")'.format(v),r['recovery'])
+        f('E'+str(v),'IF(AND(COUNT($B$4,$F$4)=2,$F$4>=0),$B$4+$F$4,"UNKNOWN")',serial(r['target_date']))
+    if n:
+        put('A'+str(start4+n),'TOTAL')
+        for c,key in [('F','past'),('G','hold_interest'),('H','target_net'),('I','target_net_tax'),('J','net_exit')]:
+            vals=[r[key] for r in rows]
+            f(c+str(start4+n),'IF(COUNT({0}{1}:{0}{2})={3},SUM({0}{1}:{0}{2}),"UNKNOWN")'.format(c,start4,start4+n-1,n),sum(vals) if all(finite(x) for x in vals) else None)
+    note(start4+n+1,'Target date tak safe target pe becha to net P/L = H/I: ab tak ka interest (F) + aaj se target date tak ka interest (G, %d din) + %d din exit reserve + buy/sell charges sab kata hua; pehle becha to interest kam = net thoda zyada. I ~ Rs2 = safe target ki definition. J = aaj becho (exit reserve incl., tax reserve se pehle; Section 3 jaisa).'%(days,settlement))
     for j,label in enumerate(['Hypothetical equity floor','Critical portfolio value','Uniform fall %','Current equity %','Extra cash/collateral'],1):put(col(j)+str(risk),label)
     value=total(rows,'value')
     for i,m in enumerate([.20,.25,.30]):
@@ -445,21 +471,29 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
             if cell.data_type=='f' or isinstance(cell.value,(int,float)):cell.number_format=MONEY_FMT
     plain=['F4','F5','F7']+['B'+str(k) for k in range(start2,total2+1)]+[c+str(k) for k in range(lot_start,lot_end+1) for c in 'CF']
     for ref in plain:s[ref].number_format='#,##0'
-    for ref in ['D4','D5']+['F'+str(start4+i) for i in range(n)]+[c+str(risk+i) for i in [1,2,3] for c in 'ACD']:s[ref].number_format='0.00%'
+    for ref in ['D4','D5']+['D'+str(start4+i) for i in range(n)]+[c+str(risk+i) for i in [1,2,3] for c in 'ACD']:s[ref].number_format='0.00%'
     s['B4'].number_format='dd-mmm-yyyy'
     for k in range(lot_start,lot_end+1):s['B'+str(k)].number_format='dd-mmm-yyyy'
+    for i in range(n):s['E'+str(start4+i)].number_format='dd-mmm-yyyy'
     for k in [head2,head3,head4,risk,lot_head,total2]:
-        s.row_dimensions[k].height=44
+        s.row_dimensions[k].height=58 if k==head4 else 44
         for c in s[k]:c.fill=PatternFill('solid',fgColor=PALE);c.font=Font(name='Arial',bold=True,color=NAVY,size=10)
-    for k in range(12,25):s.row_dimensions[k].height=36
-    for k in range(start3,start3+len(metrics)):s.row_dimensions[k].height=32
-    # RB 9 Oct (Numbers screenshot): narrower columns so the sheet fits without zooming to 42%.
-    for c,width in [('A',38),('B',17),('C',17),('D',17),('E',17),('F',17),('G',26),('H',17),('I',17),('J',17),('K',40)]:s.column_dimensions[c].width=width
-    for j in range(12,max(18,n+3)):s.column_dimensions[col(j)].width=17
+    # RB 9 Oct (2nd screenshot): 'column bahut bade' -> compact: labels 24, numbers 14, one-line rows.
+    for k in range(4,8):s.row_dimensions[k].height=30
+    for k in range(12,25):s.row_dimensions[k].height=28
+    for k in range(start3,start3+len(metrics)):s.row_dimensions[k].height=26
+    for k in range(start4,start4+n+1):s.row_dimensions[k].height=22
+    for k in range(start4+n,start4+n+1):
+        for c in s[k]:c.font=Font(name='Arial',size=10,bold=True,color='C00000' if isinstance(cache.get(c.coordinate),(int,float)) and cache[c.coordinate]<0 else '000000')
+    for j in range(1,max(18,n+3)):s.column_dimensions[col(j)].width=24 if j==1 else 22 if j==11 else 14
+    # RB 9 Oct: 'negative entries red honni chahiye' -> red font written into the cell itself
+    # (works in Numbers/Sheets/Excel); the conditional rule below re-colours after edits in Excel/Sheets.
+    for ref,val in cache.items():
+        if isinstance(val,(int,float)) and not isinstance(val,bool) and val<0:s[ref].font=Font(name='Arial',size=10,color='C00000',bold=s[ref].font.bold)
     from openpyxl.formatting.rule import CellIsRule
-    s.conditional_formatting.add('B4:AI%d'%max(nextrow,source_row),CellIsRule(operator='lessThan',formula=['0'],font=Font(name='Arial',size=10,color='C00000')))
+    s.conditional_formatting.add('B4:AM%d'%max(nextrow,source_row),CellIsRule(operator='lessThan',formula=['0'],font=Font(name='Arial',size=10,color='C00000')))
     s.row_dimensions.group(hstart,nextrow,hidden=True)
-    s.freeze_panes='B12';s.sheet_view.showGridLines=False;s.sheet_properties.pageSetUpPr.fitToPage=True;s.page_setup.orientation='landscape';s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=0;s.print_area='A1:'+col(max(17,n+2))+str(max(source_row,lot_end,fee_start+10))
+    s.freeze_panes='B1';s.sheet_view.showGridLines=False;s.sheet_properties.pageSetUpPr.fitToPage=True;s.page_setup.orientation='landscape';s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=0;s.print_area='A1:'+col(max(17,n+2))+str(max(source_row,lot_end,fee_start+10))
     for refs,kind,lo,hi in [('B5 B6 B7','decimal',0,1e10),('D4','decimal',0,.999),('D5','decimal',0,.799),('F4','whole',0,3650),('F5','whole',0,90)]+[('B'+str(start4+i),'decimal',.01,1e10) for i in range(n)]:
         dv=DataValidation(type=kind,operator='between',formula1=str(lo),formula2=str(hi),allow_blank=True);dv.showErrorMessage=True;dv.error='Enter an input in the documented range.';s.add_data_validation(dv)
         for ref in refs.split():dv.add(s[ref])

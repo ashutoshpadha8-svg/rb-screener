@@ -57,4 +57,58 @@ class OwnCash(unittest.TestCase):
    b=types.SimpleNamespace(own_cash=None);g.remember_own_cash(b,d);self.assertEqual(b.own_cash,150000.0)
    c=types.SimpleNamespace(own_cash=90000.0);g.remember_own_cash(c,d)
    e=types.SimpleNamespace(own_cash=None);g.remember_own_cash(e,d);self.assertEqual(e.own_cash,90000.0)
+class TargetPlan(unittest.TestCase):
+ """v33 (RB 9 Oct): small freeze + narrow columns; Section 4 per stock = target date, net P/L at the
+ safe target (sold on the last day of the hold), net P/L if sold today."""
+ def setUp(self):
+  self.d=tempfile.TemporaryDirectory();self.path=Path(self.d.name)/'MTF_Check.xlsx';self.r=model()
+  self.rows=p.write_report(self.r,TODAY,self.path);self.f=load_workbook(self.path).active;self.v=load_workbook(self.path,data_only=True).active
+ def tearDown(self):self.d.cleanup()
+ def head(self):return next(c for row in self.f.iter_rows() for c in row if c.value=='Safe hold+exit+tax')
+ def test_calculate_target_keys(self):
+  for r in self.rows:
+   self.assertEqual(r['target_date'],TODAY+dt.timedelta(days=30))
+   want=p.target_net(r['full'],r['qty'],r['cost'],r['past'],r['buy'],r['funded'],.1249,30,3,0)
+   self.assertAlmostEqual(r['target_net'],want,places=6)
+   self.assertGreaterEqual(r['target_net_tax'],2);self.assertLess(r['target_net_tax'],2+r['qty']*.05+1)
+   self.assertGreaterEqual(r['target_net'],r['target_net_tax'])
+  self.assertEqual(p.calculate(self.r,TODAY,days=60)[0]['target_date'],TODAY+dt.timedelta(days=60))
+ def test_section4_cells(self):
+  h=self.head();row=h.row;heads=[self.f.cell(row,c).value for c in range(1,14)]
+  for want in ('Interest ab tak (MODEL)','Interest aaj se target date tak','Target date (aaj + 30 din)','Net P/L target pe (tax se pehle)','Net P/L target pe (tax reserve ke baad)','Net P/L AAJ becho'):self.assertIn(want,heads)
+  for i,r in enumerate(self.rows):
+   k=row+1+i;self.assertEqual(self.v.cell(k,1).value,r['symbol'])
+   self.assertEqual(self.v.cell(k,5).value.date(),r['target_date']);self.assertEqual(self.f.cell(k,5).number_format,'dd-mmm-yyyy')
+   for c,key in [(6,'past'),(7,'hold_interest'),(8,'target_net'),(9,'target_net_tax'),(10,'net_exit')]:
+    self.assertAlmostEqual(self.v.cell(k,c).value,r[key],places=2);self.assertIn('₹',self.f.cell(k,c).number_format)
+  tot=row+1+len(self.rows);self.assertEqual(self.v.cell(tot,1).value,'TOTAL')
+  self.assertAlmostEqual(self.v.cell(tot,10).value,sum(r['net_exit'] for r in self.rows),places=2)
+  try:
+   from pycel import ExcelCompiler
+   xc=ExcelCompiler(filename=str(self.path))
+   for i,r in enumerate(self.rows):
+    k=row+1+i
+    for c in 'EFGHIJ':self.assertAlmostEqual(xc.evaluate('Breakeven!%s%d'%(c,k)),self.v[c+str(k)].value if c!='E' else (r['target_date']-dt.date(1899,12,30)).days,places=2)
+  except ImportError:pass
+ def test_negatives_red_in_the_cell(self):
+  h=self.head();k=h.row+1;net_today=self.f.cell(k,10)
+  self.assertLess(self.v.cell(k,10).value,0);self.assertEqual(net_today.font.color.rgb[-6:],'C00000')
+  self.assertGreater(self.v.cell(k,8).value,0);self.assertNotEqual((self.f.cell(k,8).font.color.rgb or '')[-6:],'C00000')
+  tot=self.f.cell(k+len(self.rows),10);self.assertEqual(tot.font.color.rgb[-6:],'C00000');self.assertTrue(tot.font.bold)
+  pl=next(c for row in self.f.iter_rows() for c in row if c.value=='Price profit/loss')
+  neg=[self.f.cell(pl.row,c) for c in range(2,2+len(self.rows)+1) if self.v.cell(pl.row,c).value<0]
+  self.assertTrue(neg and all(c.font.color.rgb[-6:]=='C00000' for c in neg))
+ def test_layout_compact(self):
+  self.assertEqual(self.f.freeze_panes,'B1')                       # no frozen rows hiding the data
+  self.assertTrue(all(d.width<=24 for d in self.f.column_dimensions.values()))
+  self.assertEqual(self.f.column_dimensions['A'].width,24)
+ def test_unknown_loan_gives_unknown_target_pnl(self):
+  r=model();r['loan']=m.Num();path=Path(self.d.name)/'u.xlsx';rows=p.write_report(r,TODAY,path)
+  self.assertTrue(all(x['target_net'] is None and x['target_net_tax'] is None for x in rows))
+  v=load_workbook(path,data_only=True).active;h=next(c for row in v.iter_rows() for c in row if c.value=='Safe hold+exit+tax')
+  self.assertEqual(v.cell(h.row+1,8).value,'UNKNOWN');self.assertEqual(v.cell(h.row+1+len(rows),8).value,'UNKNOWN')
+ def test_terminal_lines(self):
+  buf=io.StringIO()
+  with contextlib.redirect_stdout(buf):p.print_report(self.r,self.rows,types.SimpleNamespace(label='DEMO'),TODAY,types.SimpleNamespace(rate=.1249,buffer_days=30,settlement_buffer=3,tax_reserve=.208))
+  out=buf.getvalue();self.assertIn('Target date 08-Nov-2026 tak',out);self.assertIn('AAJ becho -> net P/L',out);self.assertIn('TOTAL net P/L at safe targets',out);self.assertIn('Interest kata hua: ab tak',out)
 if __name__=='__main__':unittest.main()

@@ -177,6 +177,16 @@
                         #   API (ledger money in/out is account-wide) -> B7 blank + comment (never the text UNKNOWN in an input),
                         #   B15 =IF(ISNUMBER(B7),B7,"UNKNOWN") (blank never shows 0), validation allow_blank; --own-cash typed
                         #   once -> mtf_inputs.json '_own_cash' (mtf_generic.remember_own_cash, all brokers). VERSION 'v31'.
+                        #   v33 (RB 9 Oct: 'freeze rows + columns bade', 'safe target 30 din mein choose karoon to net P/L kya,
+                        #   aaj becha to kya', 'interest 06-Nov tak', 'negative red'): freeze only column A ('B1', was B12 = 11
+                        #   frozen rows), widths A 24 / K 22 / rest 14, one-line data rows. Section 4 per stock: Safe target |
+                        #   Kitna upar % | Target date (B4+F4) | Interest ab tak (MODEL) | Interest aaj se target date tak |
+                        #   Net P/L target pe (tax se pehle) | (tax reserve ke baad ~Rs2 by definition) | Net P/L AAJ becho
+                        #   (net_exit) | Pure BE | BE+exit | Safe exit reserve + TOTAL row. calculate keys target_date/
+                        #   target_gross/target_fees/target_net/target_net_tax (sale on the LAST day: past + hold interest +
+                        #   exit reserve + buy/sell fees); helpers AJ..AM. Negative values: red font written in the cell
+                        #   (Numbers) + the conditional rule (B4:AM). Demo: PERSISTENT 5,945.30 by 06-Nov -> +3,986 pre-tax,
+                        #   today -13,843; 921 formulas = pycel. tests/test_mtf_layout.py 12; run_offline 572 / 26.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.
