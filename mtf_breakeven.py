@@ -67,7 +67,8 @@ def calculate(R,today,days=30,settlement=3,tax=.208,tick=.05):
   now_tax=max(price_pnl,0)*tax if price_pnl is not None and valid_inputs else None
   now_net=with_interest-buy-now_sale_fee if with_interest is not None and buy is not None and now_sale_fee is not None else None
   now_net_tax=now_net-now_tax if now_net is not None and now_tax is not None else None
-  out.append(dict(now_value=now_value,price_pnl=price_pnl,with_interest=with_interest,now_sale_fee=now_sale_fee,now_tax=now_tax,now_net=now_net,now_net_tax=now_net_tax,price_source=row.get('Price source','quote provenance not supplied'),symbol=sym,qty=q,cmp=row.get('Price'),cost=c,lots=lots,funded=funded,past=past,future=future,buy=buy,broker=broker,full=full,sell_fee=fee,tax=reserve,net=net,status='ESTIMATED' if ready else 'UNKNOWN'))
+  charges_now=buy+now_sale_fee+now_tax if None not in (buy,now_sale_fee,now_tax) else None
+  out.append(dict(charges_now=charges_now,now_value=now_value,price_pnl=price_pnl,with_interest=with_interest,now_sale_fee=now_sale_fee,now_tax=now_tax,now_net=now_net,now_net_tax=now_net_tax,price_source=row.get('Price source','quote provenance not supplied'),symbol=sym,qty=q,cmp=row.get('Price'),cost=c,lots=lots,funded=funded,past=past,future=future,buy=buy,broker=broker,full=full,sell_fee=fee,tax=reserve,net=net,status='ESTIMATED' if ready else 'UNKNOWN'))
  return out
 
 def cache_formula_values(path,values):
@@ -119,12 +120,12 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
  put('D5',R['loan'].value if R['loan'].known else None,R['loan'].note)
  put('F5',tax,'Optional conservative tax reserve on gross positive price gain, no loss setoff/transaction deductions/surcharge. Not an actual tax liability. Source: '+SOURCE_TAX)
  put('B5',settlement,'Extra calendar days after the 30-day holding buffer. This default is a scenario reserve, not an NSE settlement calendar prediction. Change if broker settlement is longer.')
- headers=['Stock','Shares','Saved / current price Rs','Broker-cost BE Rs','BE + tax reserve Rs','Rise to tax target','Status']
+ headers=['Stock','Shares','Aaj ka price Rs','Breakeven bina tax Rs','SELL ORDER PRICE Rs (breakeven, sab kharche + tax)','Kitna % upar jaana hai','Status','Rs per share upar']
  for j,h in enumerate(headers,1):s.cell(9,j,h)
  s.merge_cells('A8:G8');put('A8','Prices: '+'; '.join(r['symbol']+' — '+r['price_source'] for r in rows))
  s['A8'].alignment=Alignment(wrap_text=True,vertical='center');s.row_dimensions[8].height=32
  s.merge_cells('A7:G7');formula('A7','="Holding horizon: "&TEXT(B4+D4,"dd-mmm-yyyy")&"; interest reserve through "&TEXT(B4+D4+B5,"dd-mmm-yyyy")&". Split exits change targets."','Holding horizon: '+(today+dt.timedelta(days=days)).strftime('%d-%b-%Y')+'; interest reserve through '+(today+dt.timedelta(days=days+settlement)).strftime('%d-%b-%Y')+'. Split exits change targets.')
- s.merge_cells('A13:G13');put('A13','Blue cells = editable inputs. Loan is allocated by cost ratio; actual stock-wise loan and past charges were not provided.')
+ s.merge_cells('A13:H13');put('A13','SELL ORDER PRICE = is price par poori qty becho to buy cost + interest ab tak + agle %d+%d din ka interest + buy/sell charges + tax reserve sab nikal ke ~Rs 2 bachenge (breakeven). Blue cells = editable inputs.'%(days,settlement)+' Loan is allocated by cost ratio; actual stock-wise loan and past charges were not provided.')
  s.merge_cells('A14:G14');put('A14','Interest is a MODEL: current funded share applied since each buy. Historical funding dates/changes and actual stock-wise billed interest are UNKNOWN unless separately supplied. Lifetime account interest is excluded.')
  start=44;lot_rows=[]
  for j,r in enumerate(rows):
@@ -133,7 +134,9 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
    put('A'+str(k),r['symbol']);put('B'+str(k),dt.date.fromisoformat(date));put('C'+str(k),q);put('D'+str(k),p)
    formula('E'+str(k),'=C%d*D%d'%(k,k),q*p)
    age=max(0,(today-dt.date.fromisoformat(date)).days)
-   formula('F'+str(k),'=MAX(0,$B$4-B%d)'%k,age)
+   # Plain number, not =B4-B<k>: Apple Numbers makes date-date a DURATION and
+   # the interest formulas then show 0 (RB's 9 Oct screenshot). Days as of B4.
+   put('F'+str(k),age)
    # Excel must preserve the same inventory/funding gate as the Python model.
    # A visible sum of candidate costs is not a reconciled funded-share basis.
    ready=r['status']=='ESTIMATED'
@@ -170,6 +173,7 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
   formula('D'+str(top),'=%s24'%c,r['broker'] if ready else 'UNKNOWN');formula('E'+str(top),'=%s25'%c,r['full'] if ready else 'UNKNOWN')
   formula('F'+str(top),'=IF(COUNT(C%d,E%d)=2,IF(C%d>0,E%d/C%d-1,""),"")'%(top,top,top,top,top),(r['full']/r['cmp']-1) if ready and finite(r['cmp']) and r['cmp']>0 else None)
   put('G'+str(top),r['status'])
+  formula('H'+str(top),'=IF(COUNT(C%d,E%d)=2,E%d-C%d,"")'%(top,top,top,top),(r['full']-r['cmp']) if ready and finite(r['cmp']) else None)
  for refs,kind,lo,hi in [('D4','whole',0,3650),('B5','whole',0,90),('F4','decimal',0,.999),('F5','decimal',0,.799),('B6','decimal',.01,100),('D6','decimal',0,10000),('D5','decimal',0, sum(r['cost'] or 0 for r in rows))]:
   dv=DataValidation(type=kind,operator='between',formula1=str(lo),formula2=str(hi),allow_blank=False);dv.showErrorMessage=True;dv.errorTitle='Invalid assumption';dv.error='Enter a valid non-negative assumption in the documented range.';s.add_data_validation(dv);dv.add(s[refs])
  s.merge_cells('A39:G39');put('A39','Tax reserve uses 20.8% by default on gross gain. Actual setoffs, deductions, holding period, surcharge and personal tax can change it. This is a reserve, not tax advice.')
@@ -193,7 +197,7 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
  s.move_range('A31:B37',rows=21,cols=0,translate=False)
  s.move_range('A16:D28',rows=8,cols=0,translate=False)
  s.merge_cells('A16:G16');put('A16','ABHI KA PROFIT / LOSS — INTEREST AUR COSTS KE SAATH (ESTIMATED)')
- for j,h in enumerate(['Stock','Buy cost Rs','Snapshot value Rs','Price P/L Rs','Interest till today Rs','P/L incl interest Rs','Net P/L if sold now Rs'],1):s.cell(17,j,h)
+ for j,h in enumerate(['Stock','Buy cost Rs','Aaj ki value Rs','Stock upar / neeche Rs (price P/L)','Interest ab tak Rs (model)','Kharche: buy + sell charges + tax Rs','AAJ BECHO TO NET P/L Rs'],1):s.cell(17,j,h)
  for j,r in enumerate(rows):
   k=18+j;c=chr(66+j);top=10+j;put('A'+str(k),r['symbol'])
   cost_known=finite(r['cost']) and r['cost']>0
@@ -201,21 +205,21 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
   formula('C'+str(k),'=IF(COUNT(C%d)=1,IF(C%d>0,B%d*C%d,"UNKNOWN"),"UNKNOWN")'%(top,top,top,top),r['now_value'] if r['now_value'] is not None else 'UNKNOWN')
   formula('D'+str(k),'=IF(COUNT(B%d:C%d)=2,C%d-B%d,"UNKNOWN")'%(k,k,k,k),r['price_pnl'] if r['price_pnl'] is not None else 'UNKNOWN')
   formula('E'+str(k),'=%s28'%c,r['past'] if r['past'] is not None else 'UNKNOWN')
-  formula('F'+str(k),'=IF(COUNT(D%d:E%d)=2,D%d-E%d,"UNKNOWN")'%(k,k,k,k),r['with_interest'] if r['with_interest'] is not None else 'UNKNOWN')
+  formula('F'+str(k),'=IF(COUNT(%s30,%s37:%s38)=3,SUM(%s30,%s37:%s38),"UNKNOWN")'%(c,c,c,c,c,c),r['charges_now'] if r['charges_now'] is not None else 'UNKNOWN')
   formula(c+'37','=IF(COUNT(C%d)=1,C%d*$B$52+MIN($B$53,C%d*$B$54)*(1+$B$55)+$B$56*(1+$B$55),"UNKNOWN")'%(k,k,k),r['now_sale_fee'] if r['now_sale_fee'] is not None else 'UNKNOWN')
   formula(c+'38','=IF(COUNT(D%d)=1,MAX(D%d,0)*$F$5,"UNKNOWN")'%(k,k),r['now_tax'] if r['now_tax'] is not None else 'UNKNOWN')
-  formula('G'+str(k),'=IF(COUNT(F%d,%s30,%s37:%s38)=4,F%d-SUM(%s30,%s37:%s38),"UNKNOWN")'%(k,c,c,c,k,c,c,c),r['now_net_tax'] if r['now_net_tax'] is not None else 'UNKNOWN')
+  formula('G'+str(k),'=IF(COUNT(D%d:F%d)=3,D%d-E%d-F%d,"UNKNOWN")'%(k,k,k,k,k),r['now_net_tax'] if r['now_net_tax'] is not None else 'UNKNOWN')
   put('C'+str(top),r['cmp'],str(r['price_source']))
  put('A37','Sale charges at snapshot price Rs');put('A38','Tax reserve at snapshot price Rs')
  put('A20','TOTAL')
- names=['cost','now_value','price_pnl','past','with_interest','now_net_tax']
+ names=['cost','now_value','price_pnl','past','charges_now','now_net_tax']
  for col,name in zip('BCDEFG',names):
   vals=[r[name] for r in rows];ok=bool(rows) and all(finite(v) for v in vals)
   formula(col+'20','=IF(COUNT(%s18:%s%d)=%d,SUM(%s18:%s%d),"UNKNOWN")'%(col,col,17+len(rows),len(rows),col,col,17+len(rows)) if rows else '="UNKNOWN"',sum(vals) if ok else 'UNKNOWN')
- s.merge_cells('A21:G21');put('A21','Current net P/L = value - purchase cost - interest till today - buy charges - estimated sale charges - optional tax reserve. Future 30-day interest is excluded here.')
+ s.merge_cells('A21:G21');put('A21','AAJ BECHO TO NET P/L = stock upar/neeche (aaj ki value - buy cost) - interest ab tak - kharche (buy charges + sell charges + tax reserve; loss par tax 0). Aage ke 30 din ka interest isme nahi, woh SELL ORDER PRICE mein hai.')
  s.merge_cells('A22:G22');put('A22','Price column uses the quoted/saved source beside each stock (cell comment). A saved snapshot remains a snapshot; a newly fetched broker quote is identified by its source. Missing prices stay UNKNOWN.')
- s.conditional_formatting.add('D18:D20 F18:G20',CellIsRule(operator='lessThan',formula=['0'],font=Font(color='C00000',bold=True)))
- s.conditional_formatting.add('D18:D20 F18:G20',CellIsRule(operator='greaterThan',formula=['0'],font=Font(color='166534',bold=True)))
+ s.conditional_formatting.add('D18:D20 G18:G20',CellIsRule(operator='lessThan',formula=['0'],font=Font(color='C00000',bold=True)))
+ s.conditional_formatting.add('D18:D20 G18:G20',CellIsRule(operator='greaterThan',formula=['0'],font=Font(color='166534',bold=True)))
  for row in s:
   for cell in row:
    cell.font=Font(name='Arial',size=10,color='000000' if cell.data_type=='f' else '0000FF' if isinstance(cell.value,(int,float,dt.date)) else '243B53')
@@ -224,19 +228,20 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
  for k in [1,9,16,17,24,63]:
   for cell in s[k]:cell.fill=PatternFill('solid',fgColor='243B53');cell.font=Font(name='Arial',bold=True,color='FFFFFF',size=12 if k==1 else 10)
  for top in range(10,10+len(rows)):
-  s['E'+str(top)].fill=PatternFill('solid',fgColor='D9EAD3');s['E'+str(top)].font=Font(name='Arial',size=16,bold=True,color='166534');s.row_dimensions[top].height=36;s['F'+str(top)].number_format='0.0%'
+  s['E'+str(top)].fill=PatternFill('solid',fgColor='D9EAD3');s['E'+str(top)].font=Font(name='Arial',size=16,bold=True,color='166534');s.row_dimensions[top].height=36;s['F'+str(top)].number_format='+0.0%;[Red]-0.0%';s['H'+str(top)].number_format='+#,##0.00;[Red]-#,##0.00'
  for ref in ['B4','D4','F4','B5','D5','F5','B6','D6']:s[ref].fill=PatternFill('solid',fgColor='FFF2CC')
  for ref in ['B4']+[f'B{k+20}' for k,_,_,_,_ in lot_rows]:s[ref].number_format='dd-mmm-yyyy'
  for ref in ['F4','F5','B52','B54','B55','B57']:s[ref].number_format='0.0000%'
- for col,width in [('A',38),('B',16),('C',22),('D',22),('E',24),('F',20),('G',24),('H',18)]:s.column_dimensions[col].width=width
+ for col,width in [('A',38),('B',16),('C',22),('D',22),('E',24),('F',20),('G',16),('H',18)]:s.column_dimensions[col].width=width
  for k in [2,7,13,14,21,22,39,40]:s.row_dimensions[k].height=32
  s.row_dimensions[16].height=24;s.row_dimensions[17].height=32
  for k in (18,19,20):
-  for col in ('D','F','G'):s[col+str(k)].number_format='+#,##0.00;[Red](#,##0.00);"0.00"'
+  for col in ('D','G'):s[col+str(k)].number_format='+#,##0.00;[Red](#,##0.00);"0.00"'
+  for col in ('E','F'):s[col+str(k)].number_format='#,##0.00;[Red](#,##0.00);0.00'
  for cell in s[20]:cell.fill=PatternFill('solid',fgColor='FFF2CC');cell.font=Font(name='Arial',bold=True,size=11,color='243B53')
  for k in (18,19,20):s.row_dimensions[k].height=28
  s.row_dimensions.group(52,58,hidden=True);s.row_dimensions.group(63,end+20,hidden=True)
- s.freeze_panes='A10';s.sheet_view.showGridLines=False;s.print_options.horizontalCentered=True;s.sheet_properties.pageSetUpPr.fitToPage=True;s.page_setup.orientation='landscape';s.page_setup.paperSize=s.PAPERSIZE_A3;s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=1;s.print_area='A1:G40'
+ s.freeze_panes='A10';s.sheet_view.showGridLines=False;s.print_options.horizontalCentered=True;s.sheet_properties.pageSetUpPr.fitToPage=True;s.page_setup.orientation='landscape';s.page_setup.paperSize=s.PAPERSIZE_A3;s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=1;s.print_area='A1:H40'
  path.parent.mkdir(parents=True,exist_ok=True)
  fd,tmp=tempfile.mkstemp(prefix='.mtf-report-',suffix='.xlsx',dir=str(path.parent));os.close(fd)
  try:
@@ -294,7 +299,7 @@ def write_many_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
  for j,(sym,date,q,p,ready) in enumerate(lot_rows):
   k=lot_start+j;put('A'+str(k),sym);put('B'+str(k),dt.date.fromisoformat(date));put('C'+str(k),q);put('D'+str(k),p)
   formula('E'+str(k),'=C%d*D%d'%(k,k),q*p)
-  age=max(0,(today-dt.date.fromisoformat(date)).days);formula('F'+str(k),'=MAX(0,$B$4-B%d)'%k,age)
+  age=max(0,(today-dt.date.fromisoformat(date)).days);put('F'+str(k),age)  # plain days (Numbers: date-date = duration)
   expr='=E%d*F%d*$D$5/%s*$F$4/365'%(k,k,cost_total) if ready else '="UNKNOWN"'
   formula('G'+str(k),expr,q*p*age*R['loan'].value/R['open_cost_num'].value*rate/365 if ready else 'UNKNOWN')
  for i,r in enumerate(rows):

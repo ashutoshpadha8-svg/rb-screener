@@ -124,6 +124,13 @@
                         #   + CLAUDE FIX MTF7.1: sanitize_report used DataFrame.applymap (removed in pandas 3) -> crashed;
                         #   now DataFrame.map with applymap fallback. Package RB_Screener_MTF7_1_Update.zip (manifest SHA updated).
                         #   tests/test_mtf_review_v30.py 32; run_offline 503 / 21 groups here (Mac ~500, no pycel).
+                        #   MTF7.2: Google Sheets refused the cached workbook (<s:worksheet> prefix) -> default namespace.
+                        #   MTF7.3 (RB 9 Oct screenshot in Numbers: 'Interest till today' = '-', BE 3,114 = no past interest):
+                        #   lot 'Days held' = plain number (Numbers makes date-date a duration -> interest 0); top table
+                        #   'SELL ORDER PRICE Rs' (breakeven incl. interest so far + 30+3 days + charges + tax reserve) +
+                        #   'Rs per share upar' (H) + %; P/L table D price P/L - E interest - F charges (buy+sell+tax) = G
+                        #   'AAJ BECHO TO NET P/L'. Demo on 9 Oct numbers: TCS sell 3,364.65 / PERSISTENT 5,941.30, net if sold
+                        #   now -58,597 / -4,440 = -63,037 (interest model 22,296). run_offline 510 / 22.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.

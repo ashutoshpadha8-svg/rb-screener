@@ -98,7 +98,7 @@ class BreakevenTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/'loss.xlsx';rows=b.write_report(fixture(),TODAY,p);w=load_workbook(p,data_only=True).active;f=load_workbook(p).active
    self.assertAlmostEqual(w['G18'].value,rows[0]['now_net_tax']);self.assertAlmostEqual(w['G20'].value,sum(r['now_net_tax'] for r in rows));self.assertAlmostEqual(w['D20'].value,-51432.3);self.assertTrue(f['G18'].value.startswith('='))
-   self.assertEqual(str(list(f.conditional_formatting)[0].sqref),'D18:D20 F18:G20')
+   self.assertEqual(str(list(f.conditional_formatting)[0].sqref),'D18:D20 G18:G20')
  def test_profit_sheet_cache_positive(self):
   f=fixture();f['rows'][0]['Price']=3500;f['rows'][1]['Price']=6500
   with tempfile.TemporaryDirectory() as d:
@@ -114,4 +114,26 @@ class BreakevenTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/'unknown.xlsx';b.write_report(f,TODAY,p);w=load_workbook(p,data_only=True).active
    self.assertAlmostEqual(w['D18'].value,-51068.6);self.assertEqual(w['G18'].value,'UNKNOWN');self.assertEqual(w['G20'].value,'UNKNOWN')
+ def test_days_held_plain_number_not_date_formula(self):
+  # Apple Numbers turns date-date into a duration -> interest showed 0 (RB 9 Oct).
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)/'days.xlsx';b.write_report(fixture(),TODAY,p);f=load_workbook(p).active
+   days=[f.cell(k,6).value for k in range(64,64+9)]
+   self.assertEqual(days[0],(TODAY-dt.date(2025,11,24)).days);self.assertTrue(all(isinstance(x,int) for x in days))
+   self.assertFalse(any('$B$4-' in str(c.value) for row in f.iter_rows() for c in row))
+ def test_sold_now_net_is_price_minus_interest_minus_charges(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)/'net.xlsx';rows=b.write_report(fixture(),TODAY,p);w=load_workbook(p,data_only=True).active;f=load_workbook(p).active
+   for k,r in zip((18,19),rows):
+    self.assertGreater(w['E%d'%k].value,1000);self.assertAlmostEqual(w['F%d'%k].value,r['buy']+r['now_sale_fee']+r['now_tax'])
+    self.assertAlmostEqual(w['G%d'%k].value,w['D%d'%k].value-w['E%d'%k].value-w['F%d'%k].value,places=6)
+   self.assertEqual(f['G18'].value,'=IF(COUNT(D18:F18)=3,D18-E18-F18,"UNKNOWN")')
+   self.assertAlmostEqual(w['H10'].value,rows[0]['full']-rows[0]['cmp']);self.assertIn('SELL ORDER PRICE',w['E9'].value)
+ def test_formulas_recalculate_to_cached_values(self):
+  try:from pycel import ExcelCompiler
+  except ImportError:return
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)/'calc.xlsx';b.write_report(fixture(),TODAY,p);w=load_workbook(p,data_only=True).active;x=ExcelCompiler(filename=str(p))
+   for ref in ('D10','E10','F10','H10','D11','E11','E18','F18','G18','E19','F19','G19','G20'):
+    self.assertAlmostEqual(x.evaluate('Breakeven!'+ref),w[ref].value,places=4)
 if __name__=='__main__':unittest.main()
