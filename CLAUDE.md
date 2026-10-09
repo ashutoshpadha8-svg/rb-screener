@@ -167,6 +167,12 @@
                         #   (web, 9 Oct, ESTIMATES). --rate default = broker card; main resets the card to DHAN after.
                         #   Holdings failure -> everything UNKNOWN (bug caught by test before shipping). Angel MTF product
                         #   field names NOT verified on a live account. tests/test_mtf_generic.py 9; run_offline 563 / 26.
+                        #   FULL v31 (9 Oct, RB: 'khichdi -- ek he code'): ONE package RB_Screener_FULL_v31.zip = every tracked
+                        #   root/tests .py (80 files, no reports/code_audit) + install_full.py: SHA check -> all offline tests on
+                        #   the staged copy (563) -> backup ~/RB_Backups/RB_Screener_FULL_<time>/ + rollback.py -> copy + verify.
+                        #   No version guards: brings ANY older install (MTF6..MTF9) to this code. Never touches accounts/,
+                        #   token.txt, data/, reports/, EMA/. Tested on MTF7.4 + MTF8.1 trees (runtime files byte-identical,
+                        #   code == HEAD, rollback exact). Future updates = a new FULL package, not small patch zips.
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.
