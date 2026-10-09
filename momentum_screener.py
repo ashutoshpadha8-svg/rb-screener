@@ -261,7 +261,8 @@ def load_data(sess):
     if sess:
         frames, bm, live = ba.refresh(sess, frames, bm, want, warns, every=25)
     else:
-        print("  (no usable broker token -- free source only, prices may be old)")
+        print("  (no usable broker token -- NSE daily files only, no live price)")
+        frames, bm = ba.free_fill(frames, bm, want, warns)
     return frames, bm, caps, live, warns, want
 
 

@@ -487,7 +487,7 @@ def main():
         frames, bm, live = ba.refresh(sess, frames, bm, want, warns)
     else:
         print("  (no usable broker token -- running on the free source only)")
-        bm = ba.index_fill(bm, want, warns)
+        frames, bm = ba.free_fill(frames, bm, want, warns)   # Nifty + stocks from NSE
 
     # ---------------------------------------------------------------- panel
     cal = bm.index

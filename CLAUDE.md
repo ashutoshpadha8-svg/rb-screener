@@ -770,7 +770,8 @@ YOY Quarterly sales growth, Profit growth 3Years, Sales growth 3Years. For backt
 - 9 Oct (rb on Tanya's FREE Dhan plan, DH-902 'requires PLUS'): Nifty stuck at the free source (25 Sep), 10 sessions >
   ffill(limit=5) -> every RS NaN -> daily_screener crashed int(NaN). FIX: broker_api.index_fill = NSE daily index file
   nsearchives.nseindia.com/content/indices/ind_close_all_DDMMYYYY.csv ('Nifty 50' OHLC, cached data/_bhav/, jump guard
-  0.7-1.3x), run first in refresh() and in the no-token path; daily_screener: NaN RS -> NO-FIT 'RS rank unknown', never
+  0.7-1.3x), run first in refresh(); no-token path = broker_api.free_fill (Nifty index file + stock bhavcopy, same last
+  date; before only Nifty was filled -> stocks 25 Sep vs Nifty 9 Oct, caught by an end-to-end run); daily_screener: NaN RS -> NO-FIT 'RS rank unknown', never
   a crash. Live-checked from the cloud: 8 Oct 22231.8 = Angel run. tests/test_index_fill.py 5; run_offline 554 / 25.
 - 30 Sep: gap fill first from NSE CM bhavcopy (broker_api.bhav_fill, BhavCopy_NSE_CM_0_0_0_YYYYMMDD_F_0000.csv.zip,
   series EQ/BE/BZ, cached data/_bhav/, split guard 0.6-1.4x) -> broker only for leftovers + Nifty + today's bar before

@@ -732,6 +732,15 @@ def index_fill(bm, want, warns=None):
     return pd.concat([bm, a])
 
 
+def free_fill(frames, bm, want, warns=None):
+    """No broker token: Nifty + stocks from NSE's free daily files (same last date)."""
+    bm = index_fill(bm, want, warns)
+    n = bhav_fill(frames, want, warns)
+    if n:
+        print("  NSE bhavcopy: %d stock(s) filled (daily files, fast)" % n)
+    return frames, bm
+
+
 # Broker bars fetched today are kept on disk, so the 2nd screen of the same
 # scan (momentum after W+TT) does not ask the broker for all 500 stocks again.
 _FILL = {"path": None, "bars": {}, "dirty": False}
