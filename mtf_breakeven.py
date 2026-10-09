@@ -9,7 +9,7 @@ from openpyxl.styles import Font,PatternFill,Alignment
 from openpyxl.formatting.rule import CellIsRule
 from openpyxl.comments import Comment
 from openpyxl.worksheet.datavalidation import DataValidation
-EXCH=.0000307;SEBI=.000001;IPFT=.000000001;GST=.18;STT=.001;STAMP=.00015
+EXCH=.000030699;SEBI=.000001;IPFT=.000000001;GST=.18;STT=.001;STAMP=.00015
 BROK_CAP=20;BROK_RATE=.0003;DP=12.5;PLEDGE=15
 SOURCE_FEES='https://dhan.co/support/mtf-pledge-experience/mtf-general/what-charges-do-i-have-to-pay-on-mtf/'
 SOURCE_TAX='https://www.incometaxindia.gov.in/w/capital-gain'
@@ -33,16 +33,18 @@ def target(q,cost,past,future,buy,tax=0,orders=1,tick=.05,rounding=2):
 def calculate(R,today,days=30,settlement=3,tax=.208,tick=.05):
  loan=R['loan'].value if R['loan'].known else None
  known_total=R['open_cost_num'].value if R['open_cost_num'].known else None
+ costs=[r['Open cost (Rs)'].value if r['Open cost (Rs)'].known else None for r in R['rows']]
+ basis_matches=bool(costs) and all(finite(x) and x>0 for x in costs) and finite(known_total) and abs(sum(costs)-known_total)<=.02
  out=[]
  rate=R.get('breakeven_rate',.1249)
  valid_inputs=all(finite(v) for v in (days,settlement,tax,tick,rate)) and 0<=days<=3650 and 0<=settlement<=90 and 0<=tax<.8 and tick>0 and 0<=rate<1
  for row in sorted(R['rows'],key=lambda r:(0 if r['Symbol']=='TCS' else 1,r['Symbol'])):
-  sym=row['Symbol'];lots=R['fifo']['lots'].get(sym,[])
+  sym=row['Symbol'];lots=R.get('current_lots',R['fifo']['lots']).get(sym,[])
   c=row['Open cost (Rs)'].value if row['Open cost (Rs)'].known else None
   q=row['Qty'];date_qty=sum(x[1] for x in lots)
   try:valid_dates=all(dt.date.fromisoformat(x[0])<=today for x in lots)
   except (TypeError,ValueError):valid_dates=False
-  ready=bool(valid_inputs and finite(loan) and finite(known_total) and known_total>0 and 0<=loan<=known_total and finite(c) and c>0 and q>0 and abs(date_qty-q)<1e-8 and valid_dates and abs(sum(x[1]*x[2] for x in lots)-c)<.02)
+  ready=bool(valid_inputs and basis_matches and finite(loan) and finite(known_total) and known_total>0 and 0<=loan<=known_total and finite(c) and c>0 and q>0 and abs(date_qty-q)<1e-8 and valid_dates and abs(sum(x[1]*x[2] for x in lots)-c)<.02)
   funded=loan*c/known_total if ready else None
   # Current total funded share is an explicit estimated historical proxy.
   past=sum(x[1]*x[2]*(today-dt.date.fromisoformat(x[0])).days for x in lots)*loan/known_total*R.get('breakeven_rate',.1249)/365 if ready else None
@@ -95,13 +97,15 @@ def cache_formula_values(path,values):
 
 def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
  path=Path(path)
- if path.is_symlink():raise ValueError('Refusing symlink report destination')
+ validate_output_path(path)
+ if len(R['rows'])>2:return write_many_report(R,today,path,days,settlement,tax,rate)
  R=dict(R,breakeven_rate=rate);rows=calculate(R,today,days,settlement,tax)
  w=Workbook();s=w.active;s.title='Breakeven';cache={}
  def put(ref,value,note=None):
   s[ref]=value
+  if isinstance(value,str) and value.startswith('='):s[ref].data_type='s'
   if note:s[ref].comment=Comment(note,'Source / assumption')
- def formula(ref,value,calc):put(ref,value);cache[ref]=calc
+ def formula(ref,value,calc):s[ref]=value;cache[ref]=calc
  s.merge_cells('A1:G1');put('A1','CURRENT MTF — %d DIN KA BREAKEVEN'%days)
  s.merge_cells('A3:G3');put('A3','Account: '+str(R.get('report_account','source snapshot / account not supplied')))
  s.merge_cells('A2:G2');put('A2','ESTIMATED targets: current holdings only; past closed trades excluded. Sell the FULL quantity at the target; not a live quote or guaranteed fill.')
@@ -115,14 +119,14 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
  s['A8'].alignment=Alignment(wrap_text=True,vertical='center');s.row_dimensions[8].height=32
  s.merge_cells('A7:G7');formula('A7','="Holding horizon: "&TEXT(B4+D4,"dd-mmm-yyyy")&"; interest reserve through "&TEXT(B4+D4+B5,"dd-mmm-yyyy")&". Split exits change targets."','Holding horizon: '+(today+dt.timedelta(days=days)).strftime('%d-%b-%Y')+'; interest reserve through '+(today+dt.timedelta(days=days+settlement)).strftime('%d-%b-%Y')+'. Split exits change targets.')
  s.merge_cells('A13:G13');put('A13','Blue cells = editable inputs. Loan is allocated by cost ratio; actual stock-wise loan and past charges were not provided.')
- s.merge_cells('A14:G14');put('A14','Past interest already includes paid + unbilled modeled days: no second deduction of the full account ledger interest or unpaid estimate.')
+ s.merge_cells('A14:G14');put('A14','Interest is a MODEL: current funded share applied since each buy. Historical funding dates/changes and actual stock-wise billed interest are UNKNOWN unless separately supplied. Lifetime account interest is excluded.')
  start=44;lot_rows=[]
  for j,r in enumerate(rows):
   for date,q,p,fee in r['lots']:
    k=start+len(lot_rows);lot_rows.append((k,r['symbol'],date,q,p))
    put('A'+str(k),r['symbol']);put('B'+str(k),dt.date.fromisoformat(date));put('C'+str(k),q);put('D'+str(k),p)
    formula('E'+str(k),'=C%d*D%d'%(k,k),q*p)
-   age=(today-dt.date.fromisoformat(date)).days
+   age=max(0,(today-dt.date.fromisoformat(date)).days)
    formula('F'+str(k),'=MAX(0,$B$4-B%d)'%k,age)
    # Excel must preserve the same inventory/funding gate as the Python model.
    # A visible sum of candidate costs is not a reconciled funded-share basis.
@@ -133,18 +137,20 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
  s.cell(16,1,'COST BREAKUP (same sheet)')
  labels={17:'Quantity',18:'Current FIFO cost Rs',19:'Allocated loan Rs',20:'Past interest estimate Rs',21:'Next holding + settlement interest Rs',22:'Buy taxes/brokerage/pledge estimate Rs',23:'Recovery needed before sale Rs',24:'Broker-cost target Rs',25:'Target with tax reserve Rs',26:'Sell taxes/brokerage/DP/unpledge Rs',27:'Income-tax reserve Rs',28:'Net at tax target after model costs Rs'}
  for k,label in labels.items():put('A'+str(k),label)
- formula('D18','=SUM(B18:C18)',sum(r['cost'] for r in rows if r['cost'] is not None))
+ formula('D18','=IF(COUNT(B18:C18)=%d,SUM(B18:C18),"UNKNOWN")'%len(rows),sum(r['cost'] for r in rows) if rows and all(finite(r['cost']) for r in rows) else 'UNKNOWN')
  # Published cost inputs are explicit, editable, documented, and referenced.
  constants=[('Variable sale fee fraction',STT+(EXCH+SEBI+IPFT)*(1+GST)),('Brokerage cap Rs',BROK_CAP),('Brokerage fraction',BROK_RATE),('GST rate',GST),('DP + unpledge base Rs',DP+PLEDGE),('Variable buy fee fraction',STT+STAMP+(EXCH+SEBI+IPFT)*(1+GST)),('Pledge base Rs',PLEDGE)]
  for k,(label,val) in enumerate(constants,31):put('A'+str(k),label);put('B'+str(k),val,'Published charges model; source: '+SOURCE_FEES+' and https://dhan.co/pricing/. One sell order and one unpledge per stock; buy cap/pledge per remaining lot assumed conservatively.')
  for j,r in enumerate(rows):
-  c=chr(66+j);top=10+j;put(c+'16',r['symbol']);formula(c+'17','=SUMIF($A$%d:$A$%d,%s16,$C$%d:$C$%d)'%(start,end,c,start,end),r['qty'])
+  c=chr(66+j);top=10+j;put(c+'16',r['symbol']);put(c+'17',r['qty'],'Current reconciled broker quantity; missing historical lot dates never turn it into zero.')
   # Third+ stocks use additional columns; this focused report supports all current rows.
   if j>1:raise ValueError('Focused breakeven report currently supports at most two stocks; use --audit for larger inventory')
   ready=r['status']=='ESTIMATED';put('A'+str(top),r['symbol']);formula('B'+str(top),'=%s17'%c,r['qty']);put('C'+str(top),r['cmp'])
   formule={18:'=SUMIF($A$%d:$A$%d,%s16,$E$%d:$E$%d)'%(start,end,c,start,end),19:'=IF(COUNT($D$5,$D$18)=2,IF($D$18>0,$D$5*%s18/$D$18,""),"")'%c,20:'=IF(COUNT(%s19)=1,SUMIF($A$%d:$A$%d,%s16,$H$%d:$H$%d),"")'%(c,start,end,c,start,end),21:'=IF(COUNT(%s19)=1,%s19*$F$4*($D$4+$B$5)/365,"")'%(c,c),22:'=%s18*$B$36+COUNTIF($A$%d:$A$%d,%s16)*($B$32+$B$37)*(1+$B$34)'%(c,start,end,c),23:'=IF(COUNT(%s18:%s22)=5,SUM(%s18,%s20:%s22)+$D$6,"")'%(c,c,c,c,c)}
   vals={18:r['cost'],19:r['funded'],20:r['past'],21:r['future'],22:r['buy'],23:r['cost']+r['past']+r['future']+r['buy']+2 if ready else None}
-  for k,f in formule.items():formula(c+str(k),f if ready else '="UNKNOWN"',vals[k] if ready else 'UNKNOWN')
+  for k,f in formule.items():
+   if k==18:put(c+str(k),r['cost'] if finite(r['cost']) else 'UNKNOWN','Current row cost basis. Historical interest needs additional funding/lot evidence.')
+   else:formula(c+str(k),f if ready else '="UNKNOWN"',vals[k] if ready else 'UNKNOWN')
   for k,t,calc in [(24,'0',r['broker']),(25,'$F$5',r['full'])]:
    numerator='(%s23+$B$35*(1+$B$34)-%s*%s18)'%(c,t,c)
    a='(1-$B$31-%s)'%t
@@ -184,8 +190,8 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
  for j,h in enumerate(['Stock','Buy cost Rs','Snapshot value Rs','Price P/L Rs','Interest till today Rs','P/L incl interest Rs','Net P/L if sold now Rs'],1):s.cell(17,j,h)
  for j,r in enumerate(rows):
   k=18+j;c=chr(66+j);top=10+j;put('A'+str(k),r['symbol'])
-  cost_known=finite(r['cost']) and r['cost']>0 and abs(sum(x[1]*x[2] for x in r['lots'])-r['cost'])<.02
-  formula('B'+str(k),'=SUMIF($A$64:$A$%d,%s24,$E$64:$E$%d)'%(end+20,c,end+20) if cost_known else '="UNKNOWN"',r['cost'] if cost_known else 'UNKNOWN')
+  cost_known=finite(r['cost']) and r['cost']>0
+  formula('B'+str(k),'=%s26'%c if cost_known else '="UNKNOWN"',r['cost'] if cost_known else 'UNKNOWN')
   formula('C'+str(k),'=IF(COUNT(C%d)=1,IF(C%d>0,B%d*C%d,"UNKNOWN"),"UNKNOWN")'%(top,top,top,top),r['now_value'] if r['now_value'] is not None else 'UNKNOWN')
   formula('D'+str(k),'=IF(COUNT(B%d:C%d)=2,C%d-B%d,"UNKNOWN")'%(k,k,k,k),r['price_pnl'] if r['price_pnl'] is not None else 'UNKNOWN')
   formula('E'+str(k),'=%s28'%c,r['past'] if r['past'] is not None else 'UNKNOWN')
@@ -229,9 +235,99 @@ def write_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
  fd,tmp=tempfile.mkstemp(prefix='.mtf-report-',suffix='.xlsx',dir=str(path.parent));os.close(fd)
  try:
   w.save(tmp);cache_formula_values(tmp,cache)
-  if path.is_symlink():raise ValueError('Report destination became a symlink')
+  validate_output_path(path)
   os.replace(tmp,path)
  finally:
   for item in (tmp,tmp+'.tmp'):
+   if os.path.exists(item):os.unlink(item)
+ return rows
+
+def validate_output_path(path):
+ path=Path(path)
+ for p in (path,path.parent,path.parent.parent):
+  if p.is_symlink():raise ValueError('Refusing symlink report/account destination: '+str(p))
+ return path
+
+
+from contextlib import contextmanager
+@contextmanager
+def atomic_excel_writer(path):
+ import pandas as pd
+ path=validate_output_path(path);path.parent.mkdir(parents=True,exist_ok=True)
+ fd,tmp=tempfile.mkstemp(prefix='.mtf-audit-',suffix='.xlsx',dir=str(path.parent));os.close(fd)
+ try:
+  with pd.ExcelWriter(tmp,engine='openpyxl') as w:yield w
+  validate_output_path(path);os.replace(tmp,path)
+ finally:
+  if os.path.exists(tmp):os.unlink(tmp)
+
+
+def write_many_report(R,today,path,days=30,settlement=3,tax=.208,rate=.1249):
+ """One default sheet for any current stock count; no automatic audit switch.
+ Numeric current qty/cost inputs never depend on presence of old purchase lots.
+ """
+ R=dict(R,breakeven_rate=rate);rows=calculate(R,today,days,settlement,tax)
+ w=Workbook();s=w.active;s.title='Breakeven';cache={};n=len(rows);last=9+n;total=last+1;fee_start=total+5;lot_start=fee_start+10
+ def put(ref,val,note=None):
+  s[ref]=val
+  if isinstance(val,str) and val.startswith('='):s[ref].data_type='s'
+  if note:s[ref].comment=Comment(note,'Source / model')
+ def formula(ref,expr,val):s[ref]=expr;cache[ref]=val if val is not None else 'UNKNOWN'
+ for k,text in [(1,'CURRENT MTF — INTEREST, PROFIT / LOSS, BREAKEVEN'),(2,'Account: '+str(R.get('report_account','UNKNOWN'))),(7,'MODEL assumes today\'s funded share applied since each buy. Actual stock-wise billed interest/funding history remains UNKNOWN.'),(8,'Current holdings only. Closed trades excluded. Full-quantity sell scenario; published charges and tax reserve are estimates.')]:
+  s.merge_cells(start_row=k,start_column=1,end_row=k,end_column=17);put('A'+str(k),text);s.row_dimensions[k].height=32
+ for ref,val in {'A4':'As of','B4':today,'C4':'Holding days','D4':days,'E4':'Annual rate','F4':rate,'A5':'Settlement reserve','B5':settlement,'C5':'Current loan','D5':R['loan'].value if R['loan'].known else None,'E5':'Tax reserve','F5':tax,'A6':'Tick','B6':.05,'C6':'Rounding buffer','D6':2}.items():put(ref,val)
+ cols=['Stock','Shares','Buy cost Rs','Current price','Price P/L','Past interest MODEL','Net P/L MODEL','BE broker costs','BE + tax reserve','Allocated loan MODEL','Future interest MODEL','Buy charges MODEL','Sell charges MODEL','Tax reserve','Model status','Price source/time','Acquisition dates']
+ for j,text in enumerate(cols,1):s.cell(9,j,text)
+ constants=[('Sale variable fraction',STT+(EXCH+SEBI+IPFT)*(1+GST)),('Brokerage cap',BROK_CAP),('Brokerage rate',BROK_RATE),('GST',GST),('DP + unpledge',DP+PLEDGE),('Buy variable fraction',STT+STAMP+(EXCH+SEBI+IPFT)*(1+GST)),('Pledge per lot',PLEDGE)]
+ for j,(text,val) in enumerate(constants):put('A'+str(fee_start+j),text);put('B'+str(fee_start+j),val,SOURCE_FEES+'; https://dhan.co/pricing/. One sale order, buy cap/pledge per remaining acquisition lot assumed.')
+ v,cap,brok,gst,fixed,buyvar,pledge=['$B$'+str(fee_start+j) for j in range(7)]
+ cost_total='$C$'+str(total);lot_rows=[]
+ for r in rows:
+  for date,q,p,_ in r['lots']:lot_rows.append((r['symbol'],date,q,p,r['status']=='ESTIMATED'))
+ lot_end=lot_start+max(0,len(lot_rows)-1)
+ for j,(sym,date,q,p,ready) in enumerate(lot_rows):
+  k=lot_start+j;put('A'+str(k),sym);put('B'+str(k),dt.date.fromisoformat(date));put('C'+str(k),q);put('D'+str(k),p)
+  formula('E'+str(k),'=C%d*D%d'%(k,k),q*p)
+  age=max(0,(today-dt.date.fromisoformat(date)).days);formula('F'+str(k),'=MAX(0,$B$4-B%d)'%k,age)
+  expr='=E%d*F%d*$D$5/%s*$F$4/365'%(k,k,cost_total) if ready else '="UNKNOWN"'
+  formula('G'+str(k),expr,q*p*age*R['loan'].value/R['open_cost_num'].value*rate/365 if ready else 'UNKNOWN')
+ for i,r in enumerate(rows):
+  k=10+i;ready=r['status']=='ESTIMATED';put('A'+str(k),r['symbol']);put('B'+str(k),r['qty']);put('C'+str(k),r['cost'] if finite(r['cost']) else 'UNKNOWN');put('D'+str(k),r['cmp'] if finite(r['cmp']) else None)
+  put('O'+str(k),r['status']);put('P'+str(k),r['price_source']);put('Q'+str(k),', '.join(sorted(set(x[0] for x in r['lots']))) or 'UNKNOWN')
+  formula('E'+str(k),'=IF(COUNT(B%d:D%d)=3,IF(D%d>0,B%d*D%d-C%d,"UNKNOWN"),"UNKNOWN")'%(k,k,k,k,k,k),r['price_pnl'])
+  formula('J'+str(k),'=$D$5*C%d/%s'%(k,cost_total) if ready else '="UNKNOWN"',r['funded'])
+  formula('F'+str(k),'=SUMIF($A$%d:$A$%d,A%d,$G$%d:$G$%d)'%(lot_start,lot_end,k,lot_start,lot_end) if ready else '="UNKNOWN"',r['past'])
+  formula('K'+str(k),'=J%d*$F$4*($D$4+$B$5)/365'%k if ready else '="UNKNOWN"',r['future'])
+  formula('L'+str(k),'=C%d*%s+COUNTIF($A$%d:$A$%d,A%d)*(%s+%s)*(1+%s)'%(k,buyvar,lot_start,lot_end,k,cap,pledge,gst) if ready else '="UNKNOWN"',r['buy'])
+  formula('M'+str(k),'=IF(COUNT(B%d,D%d)=2,IF(D%d>0,B%d*D%d*%s+MIN(%s,B%d*D%d*%s)*(1+%s)+%s*(1+%s),"UNKNOWN"),"UNKNOWN")'%(k,k,k,k,k,v,cap,k,k,brok,gst,fixed,gst),r['now_sale_fee'])
+  formula('N'+str(k),'=IF(COUNT(E%d)=1,MAX(E%d,0)*$F$5,"UNKNOWN")'%(k,k),r['now_tax'])
+  formula('G'+str(k),'=IF(COUNT(E%d:F%d,L%d:N%d)=5,E%d-SUM(F%d,L%d:N%d),"UNKNOWN")'%(k,k,k,k,k,k,k,k),r['now_net_tax'])
+  for col,tx,value in [('H','0',r['broker']),('I','$F$5',r['full'])]:
+   need='(C%d+F%d+K%d+L%d+$D$6)'%(k,k,k,k);numerator='(%s+%s*(1+%s)-%s*C%d)'%(need,fixed,gst,tx,k);den='(1-%s-%s)'%(v,tx)
+   unc='%s/(%s-%s*(1+%s))'%(numerator,den,brok,gst);capped='(%s+%s*(1+%s))/%s'%(numerator,cap,gst,den)
+   expr='=CEILING(IF(%s<=%s/%s,%s,%s)/B%d,$B$6)'%(unc,cap,brok,unc,capped,k) if ready else '="UNKNOWN"';formula(col+str(k),expr,value)
+ put('A'+str(total),'TOTAL')
+ for col,key in [('C','cost'),('E','price_pnl'),('F','past'),('G','now_net_tax'),('J','funded'),('K','future'),('L','buy'),('M','now_sale_fee'),('N','now_tax')]:
+  vals=[r[key] for r in rows];val=sum(vals) if vals and all(finite(x) for x in vals) else None
+  formula(col+str(total),'=IF(COUNT(%s10:%s%d)=%d,SUM(%s10:%s%d),"UNKNOWN")'%(col,col,last,n,col,col,last),val)
+ for k,text in [(total+2,'Net P/L MODEL = price P/L - past interest model - buy/sell charges - optional tax reserve. Future buffer interest affects target only.'),(total+3,'Tax reserve on positive gross gain is conservative; it is not actual tax payable. Unknowns never become zero. '+SOURCE_TAX)]:
+  s.merge_cells(start_row=k,start_column=1,end_row=k,end_column=17);put('A'+str(k),text);s.row_dimensions[k].height=32
+ s.auto_filter.ref='A9:Q'+str(last);s.freeze_panes='E10';s.sheet_view.showGridLines=False
+ for row in s:
+  for c in row:
+   c.font=Font(name='Arial',size=10,color='000000' if c.data_type=='f' else '0000FF' if isinstance(c.value,(int,float,dt.date)) else '243B53');c.alignment=Alignment(wrap_text=True,vertical='center')
+   if c.data_type=='f' or isinstance(c.value,(int,float)):c.number_format='#,##0.00;[Red](#,##0.00);"-"'
+ for k in [1,9,total]:
+  for c in s[k]:c.fill=PatternFill('solid',fgColor='243B53');c.font=Font(name='Arial',bold=True,color='FFFFFF')
+ for c in 'ABCDEFGHIJKLMNOPQ':s.column_dimensions[c].width=24 if c in 'PQ' else 18
+ for ref in ['B4','D4','F4','B5','D5','F5','B6','D6']:s[ref].fill=PatternFill('solid',fgColor='FFF2CC')
+ s['B4'].number_format='dd-mmm-yyyy';s['F4'].number_format=s['F5'].number_format='0.00%'
+ s.row_dimensions[9].height=42
+ s.row_dimensions.group(fee_start,lot_end,hidden=True);s.print_area='A1:Q'+str(total+3);s.page_setup.orientation='landscape';s.page_setup.fitToWidth=1;s.page_setup.fitToHeight=0
+ path=validate_output_path(path);path.parent.mkdir(parents=True,exist_ok=True);fd,tmp=tempfile.mkstemp(prefix='.mtf-report-',suffix='.xlsx',dir=str(path.parent));os.close(fd)
+ try:
+  w.save(tmp);cache_formula_values(tmp,cache);validate_output_path(path);os.replace(tmp,path)
+ finally:
+  for item in [tmp,tmp+'.tmp']:
    if os.path.exists(item):os.unlink(item)
  return rows

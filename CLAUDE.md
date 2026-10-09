@@ -115,6 +115,15 @@
                         #   breakeven UNKNOWN (200 blank-product trades, 4 historical symbols not in demat). Tests: 471 offline
                         #   here (Mac 468), MTF groups breakeven 38, check 38, cli 13, inventory 38, fixed_output 12,
                         #   prices 24, safety 22.
+                        #   v30-Codex-MTF7 (9 Oct, Codex review of v30 MTF code, 7 findings: F1 ledger/trade file account
+                        #   identity fail-closed, F2 token redaction everywhere, F3 atomic/symlink-safe MTF_Audit, F4 strict
+                        #   completed-session/future timestamps + untimestamped broker LTP = ESTIMATED, F5 current qty/cost
+                        #   kept when lots missing (Excel recalculated 52 -> 0 before), F6 one Breakeven sheet for any number
+                        #   of stocks, F7 UNKNOWN settlement cash -> INCOMPLETE + exit 2). Current lots matched only for the
+                        #   current confirmed/broker-tagged MTF qty; interest = model (today's funded ratio x lot days).
+                        #   + CLAUDE FIX MTF7.1: sanitize_report used DataFrame.applymap (removed in pandas 3) -> crashed;
+                        #   now DataFrame.map with applymap fallback. Package RB_Screener_MTF7_1_Update.zip (manifest SHA updated).
+                        #   tests/test_mtf_review_v30.py 32; run_offline 503 / 21 groups here (Mac ~500, no pycel).
   rb.py                 # rb = THE daily command (27 Sep, RB: "sirf 2-3 commands"): token check (expired -> opens
                         #   token.txt, stops) -> auto_tracker_update --sync -> rb_scan -> portfolio -> ema_screener. No orders.
                         #   Commands now: rb + rbtrack (orders). rbscan/rbport/rbsync/rbcheck/rbtoken retired as aliases.

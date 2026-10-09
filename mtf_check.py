@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-mtf_check.py -- MTF hisaab (v29-Codex-MTF6, 9 Oct 2026).
+mtf_check.py -- MTF hisaab (v30-Codex-MTF7, 9 Oct 2026).
 READ-ONLY: no order, nothing changed in split.csv / journal.
 
 v29 = rewrite after Codex's v27 review (8 findings, 17 synthetic cases):
@@ -53,6 +53,7 @@ import re
 import sys
 
 import pandas as pd
+from mtf_prices import safe_error,redact_text
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -339,23 +340,39 @@ def read_trade_file(path, instruments, frm, today):
 
 
 def validate_statement_account(path, account_key, trade_file=False):
+    """Fail closed if a downloaded statement has no account identity.
+    Dhan's trade export embeds client ID only in its original filename;
+    ledger Excel/CSV must carry Client ID metadata. Contradictions reject.
+    Filename is a user-supplied export identity, not cryptographic proof.
+    """
+    import csv
     cid = str(account_key).removeprefix("DHAN_")
-    if not cid.isdigit(): return
+    if not cid.isdigit():
+        raise ValueError("statement validation needs a numeric active Dhan client ID")
+    found = set()
     if trade_file:
         match = re.search(r"TRADE_HISTORY_CSV_(\d+)_", os.path.basename(path), re.I)
-        if match and match.group(1) != cid:
-            raise ValueError("trade statement belongs to another account")
+        if match:
+            found.add(match.group(1))
+            if match.group(1)!=cid:raise ValueError("statement belongs to another account")
+    with open(path,"rb") as f:magic=f.read(8)
+    if magic.startswith(b"PK") or magic.startswith(bytes.fromhex("D0CF11E0")):
+        rows=pd.read_excel(path,header=None,nrows=20).fillna("").values.tolist()
     else:
-        with open(path,"rb") as f:magic=f.read(4)
-        if magic.startswith(b"PK"):
-            header=pd.read_excel(path,header=None,nrows=20)
-            for _,r in header.iterrows():
-                vals=r.tolist()
-                for i,v in enumerate(vals[:-1]):
-                    if str(v).strip().lower()=="client id":
-                        found=str(vals[i+1]).strip().removesuffix(".0")
-                        if found != cid: raise ValueError("ledger statement belongs to another account")
-                        return
+        with open(path,encoding="utf-8-sig") as f:
+            rows=[]
+            for i,row in enumerate(csv.reader(f)):
+                if i>=20:break
+                rows.append(row)
+    for row in rows:
+        for i,v in enumerate(row):
+            text=str(v).strip()
+            if text.lower() in ("client id","clientid","dhanclientid","client code") and i+1<len(row):
+                found.add(str(row[i+1]).strip().removesuffix(".0"))
+            match=re.fullmatch(r"(?:Client\s*ID|Client\s*Code)\s*[:=]\s*(\d+)",text,re.I)
+            if match:found.add(match.group(1))
+    if not found:raise ValueError("statement account identity missing; keep original Dhan export name / Client ID header")
+    if found!={cid}:raise ValueError("statement belongs to another account or conflicting account identities")
 
 
 def statement_loan(led, today):
@@ -704,12 +721,14 @@ def quotes(sess, symbols):
     """
     import broker_api as ba
     import daily_screener as ds
+    import nse_calendar as nc
     from mtf_prices import nse_quotes,safe_error,data_plan_note
     out, live = {}, {}
     # Synthetic legacy tests use object() sessions. Actual broker sessions
     # always have a broker attribute and use the official NSE primary source.
     if getattr(sess,'broker',None):
-        out=nse_quotes(symbols,ds.now_ist(),ds.last_expected_session(),ds.market_open())
+        now=ds.now_ist();trading=nc.is_trading_day(now.date())
+        out=nse_quotes(symbols,now,ds.last_expected_session(),trading and ds.market_open(),trading_day=trading)
     missing=[s for s in symbols if s not in out]
     try:
         live = ba.live_prices(sess, missing) if missing else {}
@@ -719,7 +738,7 @@ def quotes(sess, symbols):
         if note:print('! '+note)
     for s in symbols:
         if s not in out and _finite(live.get(s)) and live[s] > 0:
-            out[s] = (float(live[s]), VERIFIED, "%s broker LTP fetched %s IST (exchange timestamp unavailable)"%(getattr(sess,'broker','test'),ds.now_ist().strftime('%Y-%m-%d %H:%M:%S')))
+            out[s] = (float(live[s]), ESTIMATED, "%s broker LTP fetched %s IST (exchange timestamp unavailable)"%(getattr(sess,'broker','test'),ds.now_ist().strftime('%Y-%m-%d %H:%M:%S')))
     miss = [s for s in symbols if s not in out]
     if miss:
         for s, (c, d) in last_closes(miss).items():
@@ -879,14 +898,10 @@ def confirmed_inventory(args, demat, today):
 
 
 def mtf_sell_fees(value, broker="DHAN"):
-    """One NSE equity MTF sell order + one unpledge instruction per stock.
-    Dhan MTF brokerage: min(Rs20, 0.03%) + GST; unpledge Rs15+GST.
-    Order count/ETF exemptions/actual contract-note fees can differ."""
-    import journal
-    base = journal.fees(broker, "SELL", value)[0]
-    if broker == "DHAN":
-        base += min(20.0, value*.0003)*1.18 + 15*1.18
-    return round(base,2)
+    """Single MTF sale model shared by summary and audit (never an order)."""
+    if broker != "DHAN":raise ValueError("MTF fee model supports Dhan only")
+    from mtf_breakeven import sell_cost
+    return round(sell_cost(value),2)
 
 
 def holding_row(sym, h, qty, px, product_note, cost_valid=True):
@@ -968,6 +983,34 @@ def flatten(rows):
     return pd.DataFrame(out)
 
 
+def current_acquisition_lots(trades, demat, declared, today):
+    """All-product economic acquisition dates for explicitly CURRENT MTF qty.
+    Blank historical products never become historical MTF trades. Only a
+    full qty/cost reconciliation to current holdings permits this model.
+    Does NOT prove MTF funding began on acquisition date.
+    """
+    cash=[t for t in trades if t.get("product") != "INTRADAY"]
+    lots={};bad=set()
+    for t in cash:
+        if not valid_trade(t,today):bad.add(t.get("symbol"))
+    for t in sorted([t for t in cash if valid_trade(t,today)],key=lambda t:t["ts"]):
+        sym=t["symbol"];L=lots.setdefault(sym,[])
+        if t["side"]=="BUY":L.append([t["date"],t["qty"],t["price"],t.get("charges",0)])
+        else:
+            left=t["qty"]
+            while left>1e-9 and L:
+                take=min(left,L[0][1]);L[0][3]-=L[0][3]*take/L[0][1];L[0][1]-=take;left-=take
+                if L[0][1]<=1e-9:L.pop(0)
+            if left>1e-9:bad.add(sym)
+    out={}
+    for sym,q in declared.items():
+        h=demat.get(sym,{});L=lots.get(sym,[])
+        qty=sum(x[1] for x in L);cost=sum(x[1]*x[2] for x in L);avg=h.get("avg_price")
+        if sym not in bad and L and _finite(avg) and avg>0 and abs(q-h.get("qty",0))<1e-9 and abs(qty-q)<1e-9 and abs(cost-q*avg)<=.02+.0051*q:
+            out[sym]=L
+    return out
+
+
 def build(args, sess, today, frm):
     """All the numbers (no printing). Returns a dict of sections."""
     import broker_api as ba
@@ -984,7 +1027,7 @@ def build(args, sess, today, frm):
                          "; ".join(meta["notes"]) or "%d trades" % len(allt))
     except Exception as e:
         allt = []
-        src["trades"] = (UNKNOWN, "%s: %s" % (type(e).__name__, str(e)[:80]))
+        src["trades"] = (UNKNOWN, "%s: %s" % (type(e).__name__, safe_error(e, sess)))
     prods = {}
     for t in allt:
         prods[t["product"] or "?"] = prods.get(t["product"] or "?", 0) + 1
@@ -1019,7 +1062,7 @@ def build(args, sess, today, frm):
         src["positions"] = (VERIFIED, "product-tagged current position response; empty does not prove carried inventory absent")
     except Exception as e:
         current, current_ok = {}, False
-        src["positions"] = (UNKNOWN, "%s: %s" % (type(e).__name__, str(e)[:80]))
+        src["positions"] = (UNKNOWN, "%s: %s" % (type(e).__name__, safe_error(e, sess)))
     confirmed, confirmation_notes = confirmed_inventory(args, demat, today) if demat_ok else ({}, [])
     if getattr(args, "confirm_requests", {}) and not demat_ok:
         raise ValueError("Cannot save MTF confirmation without broker holdings")
@@ -1065,10 +1108,21 @@ def build(args, sess, today, frm):
                "Status":ESTIMATED, "Scope":"CURRENT", "Note":"MTF USER_CONFIRMED; " + ("explicit MTF trade lots match current quantity" if exact_history else "broker holdings qty/cost; purchase lots not invented")}
         if old is None: rec.append(row)
         else: old.update(row)
+    declared={s:r["qty"] for s,r in confirmed.items() if r["cost_valid"]}
+    declared.update({s:q for s,q in current.items() if s in demat and abs(q-demat[s]["qty"])<1e-9})
+    acquisition=current_acquisition_lots(allt,demat,declared,today) if history_ok else {}
+    for sym,L in acquisition.items():
+        use[sym]=L;fallback.pop(sym,None)
+        for r in rec:
+            if r["Symbol"]==sym:
+                r.update(Status=ESTIMATED,Scope="CURRENT",Note="current MTF declared; all-product acquisition qty/cost match broker. Funding since buy is an ESTIMATED assumption, not historical product/funding proof")
+    src["current_acquisitions"]=(ESTIMATED if acquisition else UNKNOWN if declared else VERIFIED,
+        "all-product dated acquisition lots reconciled for: "+", ".join(sorted(acquisition)) if acquisition else "no complete current acquisition lot basis; interest model remains UNKNOWN" if declared else "no current product declarations")
     # Historical orphan lots are not current positions. Only separate their
     # scope when ALL held stock quantities have an explicit current product basis.
     current_authoritative = bool(demat) and demat_ok and current_ok and all(
         (s in confirmed and abs(confirmed[s]["qty"]-h["qty"]) < 1e-9) or
+        (s in current and abs(current[s]-h["qty"])<1e-9) or
         (getattr(args,"trades",None) and not guessed and
          abs(sum(x[1] for x in f["lots"].get(s,[]))-h["qty"]) < 1e-9)
         for s,h in demat.items())
@@ -1113,7 +1167,7 @@ def build(args, sess, today, frm):
             src["ledger"] = (VERIFIED, "Dhan ledger API %s -> %s" % (frm,
                                                                      today))
     except Exception as e:
-        src["ledger"] = (UNKNOWN, "%s: %s" % (type(e).__name__, str(e)[:80]))
+        src["ledger"] = (UNKNOWN, "%s: %s" % (type(e).__name__, safe_error(e, sess)))
     if src["ledger"][0] != UNKNOWN and len(led):
         invalid_range = led["date"].map(lambda d: d is None or pd.isna(d) or not frm <= d <= today)
         if led["bad"].any() or invalid_range.any():
@@ -1222,7 +1276,20 @@ def build(args, sess, today, frm):
             "roi": roi, "unalloc": unalloc, "money": (add, wd),
             "closing": closing_balance(led) if led_ok else None,
             "open_cost": open_cost, "open_cost_num": open_cost_num,
-            "complete_net": complete_net, "ok": essential_ok, "confirmed": confirmed, "cross_matches":cross_matches}
+            "complete_net": complete_net, "ok": essential_ok, "confirmed": confirmed, "cross_matches":cross_matches, "current_lots":use}
+
+
+def sanitize_report(value,sess):
+    """Redact external text in terminal/audit/default report, without altering numbers."""
+    if isinstance(value,Num):return Num(value.value,value.status,redact_text(value.note,sess),value.partial)
+    if isinstance(value,str):return redact_text(value,sess)
+    if isinstance(value,pd.DataFrame):
+        cellwise=getattr(value,"map",None) or value.applymap   # pandas 3 removed applymap
+        return cellwise(lambda x:redact_text(x,sess) if isinstance(x,str) else x)
+    if isinstance(value,dict):return {sanitize_report(k,sess):sanitize_report(v,sess) for k,v in value.items()}
+    if isinstance(value,list):return [sanitize_report(x,sess) for x in value]
+    if isinstance(value,tuple):return tuple(sanitize_report(x,sess) for x in value)
+    return value
 
 
 # ================================================================== main
@@ -1282,8 +1349,8 @@ def print_current_report(R, rows, acc, today, args):
     print("\n6. %d-DAY BREAKEVEN + %d EXTRA INTEREST DAYS" % (args.buffer_days,args.settlement_buffer))
     print("  %-13s %20s %22s" % ("Stock","Broker-cost BE/share","BE + tax reserve/share"))
     for r in rows: print("  %-13s %20s %22s" % (r['symbol'],amount(r['broker']),amount(r['full'])))
-    if any(r['now_net_tax'] is None or r['status']==UNKNOWN for r in rows) or not rows:
-        print("\nINCOMPLETE: missing current loan, history/lot dates, inventory or quotes. UNKNOWN is not zero.")
+    if any(r['now_net_tax'] is None or r['status']==UNKNOWN for r in rows) or not rows or (isinstance(R.get('exit'),Num) and not R['exit'].known):
+        print("\nINCOMPLETE: see missing-input details below. UNKNOWN is not zero; known loan/price does not repair history.")
         print('Missing-input detail:')
         for key,(status,note) in sorted(R.get('src',{}).items()):
             if status==UNKNOWN:print('  %s: %s'%(key,note))
@@ -1294,7 +1361,7 @@ def print_current_report(R, rows, acc, today, args):
         for row in R.get('rec',[]):
             if row.get('Status')==UNKNOWN:
                 print('  %s reconciliation: %s'%(row.get('Symbol','?'),row.get('Note','UNKNOWN')))
-    print("\nSources: active account broker APIs, or explicitly supplied account-matched statements.")
+    print("\nSources: active account broker APIs, or explicitly supplied account-matched statements. Current funded-share interest is a MODEL, not stock-wise billed interest.")
     print("Detailed reconciliation: rbmtf --audit")
 
 
@@ -1357,18 +1424,17 @@ def main():
     try:
         R = build(a, sess, today, frm)
     except ValueError as e:
-        print("MTF input error: " + str(e)); return 1
-    if not a.audit and len(R["rows"]) <= 2:
+        print("MTF input error: " + safe_error(e, sess)); return 1
+    R=sanitize_report(R,sess)
+    if not a.audit:
         from mtf_breakeven import write_report
         path = os.path.join(acc.reports, "MTF_Check.xlsx")
-        R["report_account"] = acc.label
+        R["report_account"] = redact_text(acc.label,sess)
         out = write_report(R, today, path, days=a.buffer_days, settlement=a.settlement_buffer, tax=a.tax_reserve, rate=a.rate)
         print_current_report(R, out, acc, today, a)
         print("\nExcel (same account file refreshed):", path)
         print("READ-ONLY broker access: koi order nahi gaya. Missing inputs remain UNKNOWN.")
-        return 2 if not out or any(r["status"]==UNKNOWN or r["now_net_tax"] is None for r in out) else 0
-    if not a.audit:
-        print("More than 2 current stocks: showing detailed audit; focused summary supports two stocks.")
+        return 2 if not out or any(r["status"]==UNKNOWN or r["now_net_tax"] is None for r in out) or (isinstance(R.get("exit"),Num) and not R["exit"].known) else 0
     f = R["fifo"]
 
     print("\n==== MTF HISAAB  %s  %s  %s ====" % (
@@ -1451,7 +1517,8 @@ def main():
 
     os.makedirs(acc.reports, exist_ok=True)
     out = os.path.join(acc.reports, "MTF_Audit.xlsx" if a.audit else "MTF_Check.xlsx")
-    with pd.ExcelWriter(out, engine="openpyxl") as w:
+    from mtf_breakeven import atomic_excel_writer
+    with atomic_excel_writer(out) as w:
         pd.DataFrame([
             {"Item":"Report as of", "Value":today.isoformat(),"Status":"AS_OF"},
             {"Item":"Current MTF holdings", "Value":", ".join(r["Symbol"] for r in R["rows"]) or "unreconciled", "Status":R["val"].status},

@@ -21,7 +21,7 @@ def stamp(value):
     return None
 
 
-def parse_quote(payload,symbol,now,expected,market_open):
+def parse_quote(payload,symbol,now,expected,market_open,trading_day=None):
     rows=payload.get('equityResponse') if isinstance(payload,dict) else None
     if not isinstance(rows,list):raise ValueError('NSE quote schema changed')
     rows=[r for r in rows if isinstance(r,dict) and isinstance(r.get('metaData'),dict) and
@@ -35,21 +35,26 @@ def parse_quote(payload,symbol,now,expected,market_open):
     if t is None:raise ValueError('NSE timestamp missing')
     if now.tzinfo is None:now=now.replace(tzinfo=IST)
     now=now.astimezone(IST)
-    if t>now+dt.timedelta(minutes=2):raise ValueError('NSE timestamp in future')
+    if t>now:raise ValueError('NSE timestamp in future')
+    if trading_day is True and now.time()>=dt.time(15,30):expected=now.date()
     if market_open:
         if t.date()!=now.date() or now-t>dt.timedelta(minutes=15):
             raise ValueError('NSE quote stale during trading')
         label='NSE official LTP'
     else:
+        if trading_day is False and t.date()!=expected:
+            raise ValueError('NSE quote date is not a completed trading session')
+        if t.date()==now.date() and t.date()!=expected and now.time()<dt.time(15,30):
+            raise ValueError('NSE current-day quote outside regular trading session')
         if t.date() not in {expected,now.date()} or t.date()<expected:
             raise ValueError('NSE quote older than last completed session')
-        if t.date()==expected and t.time()<dt.time(15,30):
+        if (now.time()>=dt.time(15,30) or t.date()==expected) and t.time()<dt.time(15,30):
             raise ValueError('NSE completed-session quote is intraday only')
         label='NSE official session-end LTP' if t.time()>=dt.time(15,30) else 'NSE official timestamped LTP'
     return p,'VERIFIED',label+' '+t.strftime('%Y-%m-%d %H:%M:%S IST')
 
 
-def nse_quotes(symbols,now,expected,market_open,http=None):
+def nse_quotes(symbols,now,expected,market_open,http=None,trading_day=None):
     out={};http=http or requests.Session()
     http.headers.update({'User-Agent':'Mozilla/5.0','Accept':'application/json',
                          'Referer':'https://www.nseindia.com/'})
@@ -68,20 +73,25 @@ def nse_quotes(symbols,now,expected,market_open,http=None):
             r=http.get(URL,params={'functionName':'getSymbolData','marketType':market_type,
                                   'series':'EQ','symbol':s},timeout=10)
             r.raise_for_status()
-            out[s]=parse_quote(r.json(),s,now,expected,market_open)
+            out[s]=parse_quote(r.json(),s,now,expected,market_open,trading_day=trading_day)
         except (requests.RequestException,ValueError,TypeError,KeyError) as e:
             # Do not bypass 401/403, retry across proxies, or use search caches.
-            print('! NSE quote %s unavailable: %s'%(s,type(e).__name__))
+            print('! NSE quote %s unavailable: %s: %s'%(s,type(e).__name__,str(e)[:160]))
         if i+1<len(set(symbols)):time.sleep(.2)
     return out
 
 
-def safe_error(error,sess):
-    text=str(error)
+def redact_text(value,sess):
+    text=str(value)
     for value in (getattr(sess,'token',''),getattr(sess,'_jwt','')):
         if value:text=text.replace(str(value),'[REDACTED]')
+    text=re.sub(r'(?i)(access[-_ ]?token|authorization|api[-_ ]?key)\s*[:=]\s*[^,;\s]+',r'\1=[REDACTED]',text)
     text=re.sub(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+','[REDACTED JWT]',text)
-    return re.sub(r'[\r\n]+',' ',text)[:240]
+    return text
+
+
+def safe_error(error,sess):
+    return re.sub(r'[\r\n]+',' ',redact_text(error,sess))[:240]
 
 
 def data_plan_note(ba,sess):
